@@ -30,7 +30,8 @@ ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MU
 ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clean", "export", "lifecycle"}
 # The soak's features in runtime_checks.gd's order, one process each.
 SOAK_FEATURES = ("spawn_remove", "edit_mass", "true_scale", "editor", "paint", "xsec", "cam_modes", "quality",
-                 "lessons", "model_viewer", "flight_stage", "flight_catch", "scenario", "showcase", "surface", "observatory", "galaxy", "encounter", "join", "start_screen")
+                 "lessons", "voyager", "model_viewer", "eva_pod", "ranger", "discovery", "docking", "kerr",
+                 "flight_stage", "flight_catch", "scenario", "showcase", "surface", "observatory", "galaxy", "encounter", "join", "start_screen")
 # The full launches sharedflightcheck flies, one process each.
 SHARED_FLIGHTS = ("saturnv", "falcon9", "shuttle", "starship")
 # The descent gates, one flightcheck process each.
@@ -48,6 +49,31 @@ PARITY_FRAMES = 13000
 # names it. Documentation selects nothing; any other unmapped path selects `dev`.
 # Keep this in step with AGENTS.md "Checks" when a check or a subsystem is added.
 CHANGED_RULES = (
+    (("sim/voyager/*", "ui/voyager_*.gd", "assets/voyager/*", "model_sources/voyager.py",
+      "tools/build_voyager.py", "tools/voyagercheck.*", "sim/flight/modelviewer.gd", "ui/hangar.gd"),
+     ("voyagercheck", "_soak_check-voyager")),
+    (("sim/flight/docking_session.gd", "tools/dockingmissioncheck.*", "tools/dockingclearance.gd", "ui/hangar.gd", "ui/flight_console.gd",
+      "ui/control_bindings.gd", "sim/flight/scenarios.gd", "sim/flight/endurance_craft.gd"), ("dockingmissioncheck*", "dockingscenarios", "dockingflightshots", "_soak_check-docking")),
+    (("sim/flight/kerr_circular.gd", "sim/flight/spaceflight.gd", "sim/presets.gd"),
+     ("kerrflightcheck", "kerrflightshots", "lenscheck", "_soak_check-kerr")),
+    (("sim/flight/mission.gd",), ("missionguidancecheck", "discoveryflightcheck")),
+    (("sim/flight/lander_craft.gd", "model_sources/blender/lander.py"), ("craft-*", "assetcheck")),
+    (("sim/flight/endurance_craft.gd", "model_sources/blender/endurance.py"), ("endurancecheck-*", "craft-*", "assetcheck")),
+    (("model_sources/blender/movie_materials.py",), ("endurancecheck-*", "discoverycheck-*", "craft-*", "assetcheck")),
+    (("sim/flight/vessel.gd",), ("soicheck", "discoveryflightcheck")),
+    (("sim/flight/kerr_circular.gd",), ("kerrcircularcheck",)),
+    (("sim/flight/finite_burn.gd",), ("finiteburncheck", "discoveryflightcheck", "flightphysicscheck")),
+    (("sim/flight/orbit.gd",), ("orbitcheck", "flightphysicscheck", "flighttimecheck", "missioncheck-*", "discoveryflightcheck")),
+    (("sim/flight/discovery_craft.gd", "sim/flight/centrifuge.gd", "sim/jovian_moons.gd", "model_sources/blender/discovery.py"),
+     ("discoverycheck-*", "discoveryflightcheck", "discoveryflightshots", "craft-*", "assetcheck", "hudcheck", "_soak_check-discovery")),
+    (("model_sources/blender/cabin_displays.py",), ("rangercheck-*", "rangerflightshots", "evapodcheck*", "evapodflightshots")),
+    (("sim/flight/ranger_craft.gd", "model_sources/blender/ranger.py", "model_sources/blender/movie_materials.py",
+      "sim/flight/craft_interior.gd", "sim/flight/localview.gd", "sim/flight/vehicles.gd", "tools/craftspec.gd"),
+     ("rangercheck-*", "rangerflightcheck", "rangerflightshots", "_soak_check-ranger", "scenariocheck")),
+    (("sim/flight/eva_pod.gd", "sim/flight/craft_interior.gd", "sim/flight/vehicles.gd",
+      "sim/flight/localview.gd", "sim/flight/spaceflight.gd", "model_sources/blender/evapod*.py",
+      "model_sources/blender/common.py", "tools/craftspec.gd"),
+     ("evapodcheck*", "evapodflightshots", "_soak_check-eva_pod")),
     (("project.godot", "main.gd", "core/*", "export_presets.cfg"), ("*",)),
     (("sim/physics.gd", "sim/nbody.gd", "sim/world.gd", "native/*"),
      ("galaxycheck", "encountercheck", "invariantcheck", "nbodycheck", "numericalcheck", "secularcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
@@ -255,12 +281,18 @@ def checks(suite, godot, output, repeat, export_preset):
                r"^REFERENCE SHOTS SELF-CHECK PASS$", 30)
         yield ("check-selfcheck", [sys.executable, str(ROOT / "tools/check_test.py")], r"^CHECK SELF-CHECK PASS$", 60)
         yield script("skycheck", r"^SKYCHECK DONE checks=[1-9]\d* failures=0$")
+        yield headless_scene("voyagercheck", r"^VOYAGER DONE failures=0$", "title=0")
         yield script("cameracheck", r"^CAMERACHECK DONE checks=[1-9]\d* failures=0$")
         yield script("invariantcheck", r"^INVARIANTCHECK DONE checks=[1-9]\d* failures=0 native=(?:true|false)$")
         yield script("sciencecheck", r"^sciencecheck: [1-9]\d* checks, 0 failed$")
         yield script("savecheck", r"^SAVECHECK ([1-9]\d*)/\1 checks passed \(platform=(?:macOS|Linux|Windows); native \+ forced backup publication\)\.$")
         yield script("secularcheck", r"^SECULARCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("flighttimecheck", r"^FLIGHT TIME PASS \(0 failures\)$")
+        yield script("orbitcheck", r"^ORBITCHECK DONE checks=[1-9]\d* failures=0$")
+        yield script("soicheck", r"^SOICHECK DONE checks=[1-9]\d* failures=0$")
+        yield script("missionguidancecheck", r"^MISSIONGUIDANCECHECK DONE checks=[1-9]\d* failures=0$")
+        yield script("kerrcircularcheck", r"^KERRCIRCULARCHECK DONE checks=[1-9]\d* failures=0$")
+        yield headless_scene("kerrflightcheck", r"^KERRFLIGHTCHECK DONE checks=[1-9]\d* failures=0$")
         # ~100 s on an M5; CI's runners take about twice that.
         yield script("flightphysicscheck", r"^flightphysicscheck: PASS$", timeout=420)
         yield script("spinframecheck", r"^SPINFRAMECHECK DONE checks=[1-9]\d* failures=0$")
@@ -300,6 +332,14 @@ def checks(suite, godot, output, repeat, export_preset):
                            "years=60000", option, f"report={output / (label + '.json')}", timeout=900)
             yield ("stability-" + label, *probe[1:])
     elif suite == "flight":
+        yield headless_scene("scenariocheck", r"^SCENARIOCHECK DONE scenarios=3 failures=0$",
+                             "only=evapod:pod_berth,ranger:spin_match,lander:axial_recovery", "replay=1", timeout=240)._replace(name="dockingscenarios", cost=60)
+        yield headless_scene("dockingmissioncheck", r"^DOCKINGMISSIONS DONE missions=3 failures=0$", timeout=240)
+        yield headless_scene("dockingmissioncheck", r"^DOCKINGMISSIONS DONE missions=3 failures=0$", "assets=0",
+                             timeout=240)._replace(name="dockingmissioncheck-fallback")
+        yield script("finiteburncheck", r"^FINITEBURNCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)._replace(cost=160)
+        yield headless_scene("rangerflightcheck", r"^RANGERFLIGHT DONE failures=0$", timeout=900)
+        yield headless_scene("discoveryflightcheck", r"^DISCOVERYFLIGHT DONE failures=0$", timeout=1800)
         for case in SHARED_FLIGHTS:
             shared = script("sharedflightcheck", (rf"^SHARED FLIGHT {case} PASS ", r"^SHARED FLIGHT DONE failures=0$"), f"only={case}", timeout=600)
             yield shared._replace(name=f"sharedflightcheck-{case}", cost=30)
@@ -337,6 +377,13 @@ def checks(suite, godot, output, repeat, export_preset):
         # The galactic scene's glow against its CPU integral, and the star/glow hand-over's flux.
         yield scene("galaxylookcheck", r"^GALAXYLOOKCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         yield scene("flightlightcheck", r"^FLIGHTLIGHTCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
+        # Actual cockpit depth, lighting and production camera/arm controls require a GPU.
+        yield scene("evapodflightshots", r"^EVAPODFLIGHT DONE failures=0$")
+        yield scene("discoveryflightshots", r"^DISCOVERYFLIGHTSHOTS DONE failures=0$")
+        yield scene("rangerflightshots", r"^RANGERFLIGHTSHOTS DONE failures=0$")
+        # These runs inspect the visible docking attachment and the Kerr backdrop.
+        yield scene("dockingflightshots", r"^DOCKINGFLIGHTSHOTS DONE checks=[1-9]\d* failures=0$")
+        yield scene("kerrflightcheck", r"^KERRFLIGHTCHECK DONE checks=[1-9]\d* failures=0$", "render=1")._replace(name="kerrflightshots")
         yield scene("coursecheck", r"^COURSE 40L 125S 0E$")
         pin_gpu = scene("pincheck", r"^PINCHECK DONE checks=[1-9]\d* failures=0$", "gpu=1")
         yield ("pincheck-gpu", *pin_gpu[1:])
@@ -364,17 +411,21 @@ def checks(suite, godot, output, repeat, export_preset):
         accretion_gd = scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$", "native=0")
         yield ("accretion-gdscript", *accretion_gd[1:])
         yield Check("presetcheck", ["sh", str(ROOT / "tools/presetcheck.sh"), str(output / "presets-engine.log"), *window[len(base):]],
-                    r"^PRESETCHECK DONE 36$", 300, lane="window")  # windowed, like scene()
+                    r"^PRESETCHECK DONE 38$", 300, lane="window")  # windowed, like scene()
     elif suite in ("assets", "procedural"):
         if suite == "assets":
             yield ("craft-parity", base + ["--headless", "res://tools/crafttest.tscn", "--", "parity"],
-                   r"^PARITY DONE 18 poses, 0 failures$", 180)
+                   r"^PARITY DONE 28 poses, 0 failures$", 180)
         if suite == "assets":
             yield script("observatorycheck", (r"^OBSERVATORYCHECK authored library: [1-9]\d* stages$", r"^OBSERVATORYCHECK DONE checks=[1-9]\d* failures=0$"),
                          "assets=1")._replace(name="observatorycheck-assets")
         for assets in (("1", "0") if suite == "assets" else ("0",)):
+            yield script("evapodcheck", r"^EVAPODCHECK DONE checks=[1-9]\d* failures=0$", f"assets={assets}")._replace(name=f"evapodcheck-{assets}")
+            yield script("rangercheck", r"^RANGERCHECK DONE checks=[1-9]\d* failures=0$", f"assets={assets}")._replace(name=f"rangercheck-{assets}")
+            yield script("discoverycheck", r"^DISCOVERYCHECK DONE checks=[1-9]\d* failures=0$", f"assets={assets}")._replace(name=f"discoverycheck-{assets}")
+            yield script("endurancecheck", r"^ENDURANCECHECK DONE checks=[1-9]\d* failures=0$", f"assets={assets}")._replace(name=f"endurancecheck-{assets}")
             # The authored gate cannot pass by silently substituting optional fallback models.
-            yield script("assetcheck", rf"^ASSETCHECK DONE [1-9]\d* checks, {'9' if assets == '1' else '0'} authored, 0 failures$", f"assets={assets}")
+            yield script("assetcheck", rf"^ASSETCHECK DONE [1-9]\d* checks, {'14' if assets == '1' else '0'} authored, 0 failures$", f"assets={assets}")
             for action in ("audit", "clearance"):
                 yield (f"craft-{action}-{assets}", base + ["--headless", "res://tools/crafttest.tscn", "--", action, f"assets={assets}"],
                        r"^CRAFTCHECK DONE PASS$", 180)

@@ -21,9 +21,10 @@ extends RefCounted
 const DT := 0.05
 const MAX_FRAMES := 400000
 
-const ORDER := ["saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane"]
+const ORDER := ["saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "evapod", "ranger", "discovery", "endurance", "lander"]
 const NAMES := {"saturnv": "Saturn V", "falcon9": "Falcon 9", "shuttle": "Shuttle", "starship": "Starship",
-	"lm": "Lunar Module", "skycrane": "Sky crane"}
+	"lm": "Lunar Module", "skycrane": "Sky crane", "ranger": "Survey Shuttle", "discovery":"Jupiter Explorer",
+	"lander":"Cargo Lander","endurance":"Expedition Ring","evapod":"EVA Pod"}
 
 static var _list := {}
 
@@ -64,6 +65,45 @@ static func _sc(vehicle: String, id: String, title: String, group: String, base:
 # the check is that a scenario lands where its own flight does.
 static func _build_list() -> Dictionary:
 	var out := {}
+	out.evapod=[
+		_sc("evapod","pod_berth","Approach the Explorer pod bay","Orbit",
+			{"kind":"dock","carrier":"discovery","slot":"dock_pod_1","gap":12.0},{"docked":true},
+			{"docked":true,"dockGap":[-.025,.025],"dockCross":[0.0,.025],"dockSpeed":[0.0,.035],
+				"dockAngle":[0.0,.035],"dockRate":[0.0,.035],"dockRcs":[.01,5.0],"dockRpm":[0.0,0.0]}).merged({
+			"brief": "Return from the AE-35 antenna inspection in 2001. Clear the pod to approach the open centre bay. The jets handle braking and alignment."}),
+	]
+	out.lander = [
+		_sc("lander", "axial_recovery", "Recover the spinning ring", "Orbit",
+			{"kind":"dock", "carrier":"endurance", "slot":"axial_recovery", "gap":16.0}, {"docked":true},
+			{"docked":true, "dockGap":[-.025,.025], "dockCross":[0,.025], "dockSpeed":[0,.035],
+				"dockAngle":[0,.035], "dockRate":[0,.035], "dockRcs":[.1,100], "dockRpm":[.999,1.001]}).merged({
+			"brief": "Rehearse Cooper’s Lander recovery from Interstellar. This training ring turns at 1 rpm. Clear the approach and watch the dorsal collar meet the axial adapter."}),
+	]
+	out.endurance=[
+		_sc("endurance","kerr_orbit","Kinematic Kerr circular orbit","Orbit",
+			{"kind":"kerr","preset":"gargantua_demo","body":"Gargantua","radiusRg":3.5,"phase":0.0},{},
+			{"body":"Gargantua","phase":"orbit","attached":["expedition"],"kerrRadius":[3.499,3.501],"kerrDilation":[1.72,1.73]}),
+	]
+	out.discovery=[
+		_sc("discovery","departure","Earth assembly orbit","Orbit",{"kind":"orbit","preset":"jovian_voyage","alt":1000e3,"phase":0.0}, {},
+			{"alt":[999e3,1001e3],"phase":"orbit","attached":["explorer"]}),
+		_sc("discovery","jupiter_orbit","Jupiter and the Galilean moons","Orbit",{"kind":"orbit","preset":"jovian_voyage","body":"Jupiter","alt":100e6,"phase":0.0}, {},
+			{"body":"Jupiter","alt":[99.99e6,100.01e6],"phase":"orbit"}),
+	]
+	var survey := {"kind":"orbit","alt":250e3,"inc":28.5,"phase":0.0,"program":"glide"}
+	out.ranger = [
+		_sc("ranger","spin_match","Match the Expedition Ring and dock","Orbit",
+			{"kind":"dock","carrier":"endurance","slot":"dock_ranger_0","gap":16.0},{"docked":true},
+			{"docked":true,"dockGap":[-.025,.025],"dockCross":[0.0,.025],"dockSpeed":[0.0,.035],
+				"dockAngle":[0.0,.035],"dockRate":[0.0,.035],"dockRcs":[.1,40.0],"dockRpm":[4.99,5.01]}).merged({
+			"brief": "Fly a Ranger rendezvous from Interstellar. The axial adapter turns at 5 rpm. Clear the approach and monitor spin match before capture."}),
+		_sc("ranger","orbit","Survey Shuttle in orbit","Orbit",{"kind":"orbit","alt":250e3,"inc":28.5}, {},
+			{"alt":[249e3,251e3],"phase":"orbit","attached":["ranger"]}),
+		_sc("ranger","entry_interface","Entry interface, 122 km","Return",survey,{"alt_below":122e3},
+			{"alt":[120e3,123e3],"airspeed":[7200.0,7900.0],"program":"glide","state":"entry"}),
+		_sc("ranger","flare","Survey Shuttle preflare","Landing",survey,{"state":"flare"},
+			{"alt":[500.0,650.0],"program":"glide","state":"flare"}),
+	]
 	out.saturnv = [
 		_sc("saturnv", "pad", "Pad, T−10 s", "Ascent", _pad(), {}, {"phase": "prelaunch", "count": [9.0, 10.0]}),
 		_sc("saturnv", "liftoff", "Liftoff, tower clear", "Ascent", _pad(), {"t_plus": 9.0}, {"alt": [80.0, 400.0]}),
@@ -243,13 +283,21 @@ static func build(main, sc: Dictionary) -> String:
 	var key: String = sc.vehicle
 	var v: Vessel = null
 	match str(b.kind):
+		"dock":
+			v=f.begin(key,{"mode":"orbit","alt":1000e3,"phase":0.0})
+			if v == null: return "docking visitor could not enter orbit"
+			# Put the work face of the carrier in sunlight for the visual approach.
+			v.q.set_from_unit_vectors(DVec3.new(-.78,.55,.30).normalized(), f.sun_direction(DVec3.new()))
+			return "" if f.begin_docking(str(b.carrier),str(b.slot),float(b.gap)) else "invalid docking approach base"
+		"kerr":
+			return "" if f.begin_kerr(key,str(b.body),float(b.radiusRg),float(b.get("phase",0.0))) else "invalid Kerr demonstration base"
 		"pad":
 			v = f.begin(key, {"mode": "pad"})
 		"return":
 			v = f.begin(key, {"mode": "return", "catch_at": b.get("at")})
 		"orbit":
 			v = f.begin(key, {"mode": "orbit", "alt": float(b.alt), "inc": float(b.get("inc", 0.0)),
-				"phase": float(b.get("phase", 0.0))})
+				"phase": float(b.get("phase", 0.0)), "body":b.get("body",Vehicles.get_vehicle(key).get("launchFrom","Earth"))})
 		"descent":
 			v = f.begin(key, {"mode": "orbit", "alt": float(b.alt), "phase": 0.0, "vehicle": _subset(key, b)})
 			if v != null: _descent_state(v, b)
@@ -360,6 +408,7 @@ static func reached(f: Spaceflight, u: Dictionary, from := 0) -> bool:
 		var want = u[k]
 		var ok := false
 		match k:
+			"docked": ok=f.docking!=null and f.docking.latched==bool(want)
 			"t_plus": ok = f.count == null and v.phase != Vessel.PHASE.PRELAUNCH and v.met - v.t0 >= float(want)
 			"past_max_q": ok = v.max_q > 5000.0 and float(t.get("q", 0.0)) < 0.97 * v.max_q
 			"past_peak_heat":
@@ -394,6 +443,7 @@ static func _stage(v: Vessel, key: String):
 ## as tools/missioncheck.gd flies them. Not 2× in the air: a Shuttle ascent flown
 ## that way cuts off 10 km higher than at 1×.
 static func played_warp(f: Spaceflight) -> int:
+	if f.docking!=null or not f.kerr_demo.is_empty():return 0
 	var v := f.vessel
 	var top: float = float(v.env.atm.top) if v.env.atm != null else 0.0
 	if f.count != null or v.phase == Vessel.PHASE.PRELAUNCH or v.altitude() <= top: return 0
@@ -440,6 +490,8 @@ class Jump extends RefCounted:
 		var f: Spaceflight = main.flight
 		while Time.get_ticks_usec() - t0 < budget_ms * 1000.0:
 			var v := f.vessel
+			if f.docking!=null and f.docking.failure!="":
+				error=f.docking.failure;break
 			if v == null or not f.active or v.phase == Vessel.PHASE.DESTROYED:
 				error = "the flight ended (%s)" % (str(v.failure) if v != null and v.failure != null else "destroyed")
 				break
@@ -477,6 +529,7 @@ class Jump extends RefCounted:
 	## exact conic in one step (Vessel.step's rails), to 25 km above the atmosphere's
 	## top; guidance takes the attitude over again from there. Returns whether it did.
 	func _coast(f: Spaceflight) -> bool:
+		if f.docking!=null or not f.kerr_demo.is_empty():return false
 		var v := f.vessel
 		var ap = f.autopilot
 		if v.env.atm == null or f.count != null or v.throttle > 0.0: return false

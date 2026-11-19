@@ -869,6 +869,7 @@ class FlightCamera extends RefCounted:
 	var state := {
 		"mode": "chase", "dist": 1.0, "yaw": 2.2, "pitch": 0.28, "fov": 55.0, "userAimed": false,
 		"padPos": DVec3.new(), "hasPad": false,
+		"interiorYaw": 0.0, "interiorPitch": 0.0,
 	}
 	## The camera's pose after update(): position (local frame, DVec3), basis
 	## (Godot: −Z forward), near plane.
@@ -882,6 +883,9 @@ class FlightCamera extends RefCounted:
 	## The near plane is a fixed fraction of the distance to the subject, since the
 	## frustum is float32 and far/near has to stay sane.
 	func depth_range(craft_pos: DVec3, L: float) -> void:
+		if state.mode == "interior":
+			near = 0.01
+			return
 		var d := pos.distance_to(craft_pos)
 		# Half a vehicle-length of headroom, so the camera can be inside the
 		# stack (cockpit) without the nose clipping.
@@ -917,6 +921,19 @@ class FlightCamera extends RefCounted:
 		var up: Vector3 = o.up
 		var L := maxf(float(o.length), 3.0)
 		var dt := float(o.dt)
+		if state.mode == "interior" and not o.get("interior", {}).is_empty():
+			var spec: Dictionary = o.interior
+			var eye: Array = spec.eye
+			var fw: Array = spec.forward
+			var cabin_up: Array = spec.get("up", [0.0, 1.0, 0.0])
+			var local_up := Vector3(cabin_up[0], cabin_up[1], cabin_up[2]).normalized()
+			var local_forward := Vector3(fw[0], fw[1], fw[2]).normalized()
+			pos.copy_from(craft_pos).add_in(DVec3.from_v3(cq * Vector3(eye[0], eye[1], eye[2])))
+			var pitch_axis := local_up.cross(local_forward).normalized()
+			var aim := Basis(local_up, float(state.interiorYaw)) * Basis(pitch_axis, float(state.interiorPitch))
+			var forward := cq * aim * local_forward
+			look_at(pos.clone().add_in(DVec3.from_v3(forward)), cq * local_up)
+			return
 		if state.mode == "pad" and state.hasPad:
 			pos.copy_from(state.padPos)
 			# Aim at the middle of the stack, not its origin (the engine bells).

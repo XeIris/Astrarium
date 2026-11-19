@@ -56,6 +56,8 @@ var drawn := true
 var _held_dt := 0.0               # wall time skipped while undrawn, handed to the next drawn visual update
 var model_open := false
 var hangar: Hangar = null           # spaceflight's craft selection (ui/hangar.gd)
+var voyager_replay: VoyagerReplay
+var _voyager_saved_grain := 0.0
 var hangar_open := false
 var space_map: SpaceMap = null      # the M map (ui/space_map.gd)
 var model_restore = null
@@ -1168,7 +1170,7 @@ func _drop_lessons() -> void:
 	if lessons != null: lessons._drop_cutaway()
 
 func _unhandled_input(e: InputEvent) -> void:
-	if at_start or hud.settings_open: return
+	if at_start or hud.settings_open or voyager_replay != null: return
 	if e is InputEventMouseButton:
 		var mb := e as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT:
@@ -1213,6 +1215,11 @@ func _unhandled_input(e: InputEvent) -> void:
 func _input(e: InputEvent) -> void:
 	if not e is InputEventKey: return
 	var key := e as InputEventKey
+	if voyager_replay != null:
+		if key.pressed and not key.echo and key.keycode == KEY_ESCAPE:
+			_return_from_voyager()
+			get_viewport().set_input_as_handled()
+		return
 	if capture_action != "":
 		_capture_key(key)
 		get_viewport().set_input_as_handled()
@@ -1223,7 +1230,7 @@ func _input(e: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if key.pressed and not key.echo and controls.matches("space_map", key) and not hud.settings_open \
-			and flight != null and flight.active and not at_start:
+			and flight != null and flight.active and flight.docking == null and not at_start:
 		open_map()
 		get_viewport().set_input_as_handled()
 		return
@@ -1308,7 +1315,7 @@ func _key(e: InputEventKey) -> void:
 	# Flight takes the keys it needs first; everything it does not claim falls
 	# through to the orrery's own bindings.
 	if state.cam_mode == "flight":
-		for action in ["stage", "warp_down", "warp_up", "throttle_cut", "throttle_full",
+		for action in ["dock_command", "stage", "warp_down", "warp_up", "throttle_cut", "throttle_full",
 			"throttle_up", "throttle_down", "gear", "flight_camera", "flight_follow"]:
 			if controls.matches(action, e) and flight.key_action(action):
 				get_viewport().set_input_as_handled()
@@ -1686,6 +1693,7 @@ func set_hud_hidden(hidden: bool) -> void:
 # APP MODE — the mode is a filter, not a separate application: the physics,
 # the scene and the bodies are the same either way, and switching costs nothing.
 func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
+	if voyager_replay != null: close_hangar()
 	var was: String = state.app_mode
 	state.app_mode = mode
 	hud.set_app_mode(mode)
@@ -2397,7 +2405,7 @@ func _on_craft_hover(k: String) -> void:
 	CraftAssets.preload_craft(k)
 
 func _on_flight_cam_cycle() -> void:
-	var modes := ["chase", "orbit", "cockpit", "pad"]
+	var modes: Array = flight.camera_modes()
 	flight.set_camera_mode(modes[(modes.find(flight.camera_mode()) + 1) % modes.size()])
 	sync_warp_label()
 
@@ -2410,6 +2418,8 @@ func _on_warp_step(d: int) -> void:
 
 func _on_console_action(a: String) -> void:
 	match a:
+		"dock_command": flight.key_action("dock_command")
+		"dock_retreat": flight.key_action("throttle_cut")
 		"map": open_map()
 		"systems":
 			set_panel_open("flightPanel", hud.is_collapsed("flightPanel"))
@@ -2424,6 +2434,10 @@ func _on_console_action(a: String) -> void:
 
 func open_map() -> void:
 	if not flight.active or flight.vessel == null: return
+	if flight.docking != null: return
+	if not flight.kerr_demo.is_empty():
+		toast("The ordinary conic map is unavailable in the Kerr demonstration")
+		return
 	space_map.open(flight)
 	pipe.set_map_open(true)
 
@@ -2431,13 +2445,15 @@ func close_map() -> void:
 	if space_map != null and space_map.visible: space_map.close()
 
 ## The hangar: every panel folded, the studio on, the line-up down the left.
-func open_hangar() -> void:
+func open_hangar(selected := "") -> void:
+	if voyager_replay != null: close_hangar()
 	close_map()
 	if flight.active: end_flight()
 	if state.body_named("Earth") == null: load_preset("solar")
 	if hangar.list.get_child_count() == 0:
 		var rows := []
 		for v in flight.vehicles: rows.append({"key": v.key, "name": v.name, "role": v.role})
+		for k in VoyagerMissions.PROBES: rows.append({"key": k, "name": VoyagerMissions.PROBES[k]})
 		hangar.set_crafts(rows)
 	hangar_open = true
 	hangar.visible = true
@@ -2445,14 +2461,17 @@ func open_hangar() -> void:
 	hud.set_model_open(true)
 	model_view.cam.spin = 0.07
 	model_view.cam.held = false
-	_select_hangar(last_craft if Vehicles.VEHICLES.has(last_craft) else "saturnv")
+	var key := selected if selected != "" else last_craft
+	_select_hangar(key if hangar.items.has(key) else "saturnv")
 	hangar._layout()
 
 func _hangar_stage(frac: float) -> void:
-	if hangar_open: model_view.frame_offset = frac - 0.5
+	if hangar.visible: model_view.frame_offset = frac - 0.5
 
 func close_hangar() -> void:
 	if not hangar_open: return
+	_close_voyager()
+	model_view.release_voyager()
 	hangar_open = false
 	hangar.visible = false
 	model_open = false
@@ -2461,13 +2480,19 @@ func close_hangar() -> void:
 	pipe.set_mode(RenderPipeline.Mode.FLIGHT if (flight and flight.active) else RenderPipeline.Mode.ORRERY)
 
 func _select_hangar(key: String) -> void:
+	hangar.select(key)
+	if VoyagerMissions.PROBES.has(key):
+		model_view.load_voyager()
+		last_craft = key
+		model_open = true
+		hangar.set_info(key, VoyagerMissions.hangar_info(key))
+		return
 	await CraftAssets.craft_models_ready([key])
-	if not hangar_open: return
+	if not hangar_open or hangar.selected != key: return
 	model_view.load_vehicle(key)
 	model_open = true
 	last_craft = key
 	hangar.set_info(key, _hangar_info(key))
-	hangar.select(key)
 
 ## A craft's numbers and the hangar's missions, each priced from its launch site by
 ## the same planner the map uses.
@@ -2497,6 +2522,10 @@ func _hangar_info(key: String) -> Dictionary:
 		v = Vessel.new({"vehicle": veh, "parent": home, "bodies": flight.bodies(), "payload": pay})
 		if veh.role == "launch": v.place_on_pad(28.5, 0.0)
 		else: v.place_in_orbit(15000.0 if veh.role == "lander" else 250000.0)
+	for sc: Dictionary in FlightScenarios.list(key):
+		if sc.base.kind == "dock" and sc.has("brief"):
+			missions.append({"label":sc.title, "dest":sc.id, "goal":"dock", "ok":true,
+				"brief":sc.brief, "why":"", "dv":0.0})
 	for m in Hangar.MISSIONS:
 		if m[1] == "":
 			missions.append({"label": m[0], "dest": "", "goal": "", "ok": true, "why": "", "dv": 0.0})
@@ -2513,9 +2542,64 @@ func _hangar_info(key: String) -> Dictionary:
 
 ## Start mission: onto the pad (or into orbit), and the autopilot takes the mission.
 func hangar_start(key: String, dest: String, goal: String) -> void:
+	if VoyagerMissions.PROBES.has(key):
+		if goal == "voyager" and hangar_open and hangar.selected == key: _open_voyager(key)
+		return
+	if goal == "dock":
+		var sc = FlightScenarios.find(key, dest)
+		if sc == null or sc.base.kind != "dock" or not sc.has("brief"): return
+		await CraftAssets.craft_models_ready([key, sc.base.carrier])
+		if not hangar_open or hangar.selected != key: return
+		close_hangar()
+		scenario_world()
+		var error := FlightScenarios.build(self, sc)
+		if error != "":
+			open_hangar()
+			toast(error)
+			return
+		flight.docking.mission_title = sc.title
+		flight.docking.command_hold()
+		state.paused = false
+		set_cam_mode("flight")
+		flight.set_camera_mode("berth")
+		set_panel_open("flightPanel", false)
+		hud.set_shown("flightRow", true)
+		sync_warp_label()
+		return
 	close_hangar()
 	await launch_craft(key)
 	if dest != "" and flight.active: flight.start_mission(dest, goal)
+
+func _open_voyager(key: String) -> void:
+	if voyager_replay != null: return
+	hangar.hide()
+	_voyager_saved_grain = pipe.postfx.grain
+	pipe.postfx.grain = 0.0
+	voyager_replay = VoyagerReplay.new()
+	voyager_replay.model_drag.connect(func(delta: Vector2): model_view.drag(delta.x, delta.y))
+	voyager_replay.model_zoom.connect(model_view.wheel)
+	voyager_replay.model_pose.connect(model_view.voyager_pose)
+	voyager_replay.model_center.connect(func(fraction: float): model_view.frame_offset = fraction - 0.5)
+	voyager_replay.view_changed.connect(func(inspecting: bool): pipe.set_map_open(not inspecting))
+	voyager_replay.closed.connect(_return_from_voyager)
+	hud.add_child(voyager_replay)
+	voyager_replay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	voyager_replay.select_probe(VoyagerMissions.PROBES[key], VoyagerMissions.epoch(VoyagerMissions.LIGHT_DAY))
+
+func _close_voyager() -> void:
+	if voyager_replay == null: return
+	pipe.set_map_open(false)
+	pipe.postfx.grain = _voyager_saved_grain
+	voyager_replay.hide()
+	voyager_replay.queue_free()
+	voyager_replay = null
+
+func _return_from_voyager() -> void:
+	var key: String = VoyagerMissions.PROBES.find_key(voyager_replay.probe)
+	_close_voyager()
+	hangar.show()
+	_select_hangar(key)
+	hangar._layout()
 
 func _on_model_open() -> void:
 	show_model(model_view.vehicle.key if model_view.vehicle else "saturnv")
@@ -2641,6 +2725,10 @@ func render_craft_grid() -> void:
 	hud.render_craft_grid(rows)
 
 func launch_craft(key: String) -> void:
+	if VoyagerMissions.PROBES.has(key):
+		open_hangar(key)
+		hangar_start(key, "", "voyager")
+		return
 	var veh = null
 	for v in flight.vehicles:
 		if v.key == key: veh = v
@@ -2732,6 +2820,8 @@ var _dev_steps := 0
 func jump_scenario(spec: String) -> String:
 	var sc = FlightScenarios.parse(spec)
 	if sc == null: return _dev_fail("Unknown scenario %s" % spec)
+	var scenario_preset:=str(sc.base.get("preset","solar"))
+	if not Presets.PRESETS.has(scenario_preset): return _dev_fail("Unknown scenario preset %s"%scenario_preset)
 	if scenario_jump != null: return _dev_fail("A jump is already in progress")
 	last_scenario = spec
 	hud.set_settings_open(false)
@@ -2747,8 +2837,10 @@ func jump_scenario(spec: String) -> String:
 		set_app_mode("flight", {"quiet": true})
 		set_panel_open("controlPanel", false)
 	if flight.active: end_flight()
-	scenario_world()
-	await CraftAssets.craft_models_ready([sc.vehicle])
+	scenario_world(scenario_preset)
+	var assets: Array=[sc.vehicle]
+	if sc.base.kind=="dock":assets.append(sc.base.carrier)
+	await CraftAssets.craft_models_ready(assets)
 	var err := FlightScenarios.build(self, sc)
 	if err != "": return _dev_fail("%s: %s" % [spec, err])
 	last_craft = sc.vehicle
@@ -2786,8 +2878,8 @@ func set_dev_mode(on: bool) -> void:
 
 ## The solar system a scenario flies in: the same planets every time, so its sky and
 ## Moon repeat.
-func scenario_world() -> void:
-	load_preset("solar")
+func scenario_world(preset: String="solar") -> void:
+	load_preset(preset)
 
 func _dev_fail(why: String) -> String:
 	push_warning(why)
@@ -3333,6 +3425,13 @@ func _fast_forward(spec: String) -> bool:
 	return true
 
 func animate(dt: float) -> void:
+	if voyager_replay != null:
+		voyager_replay.advance(dt)
+		if voyager_replay.inspecting:
+			model_view.update(dt)
+			pipe.set_mode(RenderPipeline.Mode.MODEL)
+			pipe.prepare_frame(null, state.time)
+		return
 	if at_start:
 		# Between shots (or with no reel) the title is the bare sky.
 		if not title_reel.update(dt):

@@ -238,6 +238,19 @@ func _soak_check() -> void:
 					for i in 2: stage.animate(1.0 / 60.0)
 				await stage.get_tree().process_frame
 			stage.set_app_mode("sandbox"),
+		"voyager": func():
+			stage.open_hangar("voyager2")
+			stage.hangar_start("voyager2", "", "voyager")
+			var replay: VoyagerReplay = stage.voyager_replay
+			replay.jump(5)
+			stage.animate(0.0)
+			await _drawn_frame()
+			replay.set_view(true)
+			stage.animate(0.0)
+			await _drawn_frame()
+			replay.closed.emit()
+			stage.close_hangar()
+			for i in 5: await stage.get_tree().process_frame,
 		"model_viewer": func():
 			CraftAssets.craft_models_ready(Vehicles.VEHICLES.keys())
 			for k in Vehicles.VEHICLES:
@@ -248,6 +261,83 @@ func _soak_check() -> void:
 					stage.animate(1.0 / 60.0)
 					await stage.get_tree().process_frame
 			stage.close_model_viewer(),
+		"eva_pod": func():
+			flight.phase_rng.seed = int(_cmd.seed)
+			await stage.launch_craft("evapod")
+			for i in 3: stage.animate(0.0); await stage.get_tree().process_frame
+			if flight.interior.group != null: failures.append("eva_pod: interior loaded before entry")
+			for cycle in range(3):
+				flight.set_camera_mode("interior")
+				flight.key_action("gear")
+				for i in 5: stage.animate(1.0/60.0)
+				if flight.interior.group == null or flight.local.camera.near > .011:
+					failures.append("eva_pod: interior or close depth range missing")
+				await _drawn_frame()
+				flight.set_camera_mode("orbit")
+				await stage.get_tree().process_frame
+				if flight.interior.group != null: failures.append("eva_pod: interior retained outside")
+			stage.end_flight()
+			for i in 5: await stage.get_tree().process_frame
+			hud.toast("", 1),
+		"ranger": func():
+			flight.phase_rng.seed=int(_cmd.seed)
+			await stage.launch_craft("ranger")
+			for cycle in range(3):
+				flight.set_camera_mode("interior")
+				flight.key_action("gear")
+				for i in 5: stage.animate(1.0/60.0)
+				if flight.interior.group==null or flight.local.camera.near>.011:
+					failures.append("ranger: interior or depth range missing")
+				await _drawn_frame()
+				flight.set_camera_mode("orbit")
+				await stage.get_tree().process_frame
+				if flight.interior.group!=null: failures.append("ranger: cabin retained after exit")
+			stage.end_flight()
+			for i in 5: await stage.get_tree().process_frame
+			hud.toast("",1),
+		"discovery": func():
+			stage.load_preset("jovian_voyage")
+			flight.phase_rng.seed=int(_cmd.seed)
+			await stage.launch_craft("discovery")
+			state.paused=false
+			for i in 120:stage.animate(1.0/60.0)
+			if flight.craft.stages[0].parts.rotors.size()!=1 or flight.craft.stages[0].deploy<.99:
+				failures.append("discovery: rotor or opened pod bays missing")
+			if flight.vessel.telemetry.get("centrifuge",{}).is_empty():
+				failures.append("discovery: artificial gravity telemetry missing")
+			await _drawn_frame()
+			state.paused=true
+			stage.end_flight()
+			for i in 5:await stage.get_tree().process_frame
+			hud.toast("",1),
+		"docking": func():
+			for id in ["evapod:pod_berth", "ranger:spin_match", "lander:axial_recovery"]:
+				var error: String = await stage.jump_scenario(id)
+				if error != "" or flight.docking == null or not flight.docking.latched:
+					failures.append("docking: " + id + " failed to capture " + error)
+					stage.end_flight()
+					continue
+				var carrier := flight.docking.craft.group
+				for i in 60: stage.animate(1.0 / 60.0)
+				await _drawn_frame()
+				stage.end_flight()
+				for i in 5: await stage.get_tree().process_frame
+				if is_instance_valid(carrier) or flight.docking != null:
+					failures.append("docking: carrier retained after " + id)
+			hud.toast("", 1),
+		"kerr": func():
+			var error: String = await stage.jump_scenario("endurance:kerr_orbit")
+			if error != "" or flight.kerr_demo.is_empty():
+				failures.append("kerr: failed to start " + error)
+			else:
+				var before: float = flight.vessel.met
+				for i in 60: stage.animate(1.0 / 60.0)
+				if flight.vessel.met <= before: failures.append("kerr: proper clock stalled")
+				await _drawn_frame()
+			stage.end_flight()
+			for i in 5: await stage.get_tree().process_frame
+			if not flight.kerr_demo.is_empty(): failures.append("kerr: orbit retained after exit")
+			hud.toast("", 1),
 		"flight_stage": func():
 			await stage.launch_craft("saturnv")
 			state.paused = false

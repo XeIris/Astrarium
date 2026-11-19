@@ -256,7 +256,7 @@ static func elements_state(mu: float, row: Array, t_cy: float) -> Dictionary:
 # THE TABLE
 static var PRESETS: Dictionary = _make_presets()
 
-static var PRESET_ORDER: Array = EduPresets.EDU_ORDER + ["blank", "stellar_zoo", "sirius", "vega", "achernar", "betelgeuse", "alphacen", "etacar", "hr_ladder", "trisolaris", "trisolaris_wander", "trisolaris_compact", "trisolaris_wide", "trisolaris_alpha", "trisolaris_chaos", "sandbox", "solar", "threebody", "binarystar", "bhmerger", "nsmerger", "feeding"]
+static var PRESET_ORDER: Array = EduPresets.EDU_ORDER + ["blank", "stellar_zoo", "sirius", "vega", "achernar", "betelgeuse", "alphacen", "etacar", "hr_ladder", "trisolaris", "trisolaris_wander", "trisolaris_compact", "trisolaris_wide", "trisolaris_alpha", "trisolaris_chaos", "sandbox", "solar", "jovian_voyage", "threebody", "binarystar", "bhmerger", "nsmerger", "feeding", "gargantua_demo"]
 
 static func _make_presets() -> Dictionary:
 	var P := {}
@@ -293,6 +293,19 @@ static func _make_presets() -> Dictionary:
 		"sceneScale": 4.0, "bodyScale": 1.4, "camRadius": 22.0, "lensing": false,
 		"build": func() -> Array: return _build_threebody(),
 	}
+	P.jovian_voyage = U.merged(P.solar,{
+		"name":"Jupiter expedition",
+		"blurb":"The Solar System with Io, Europa, Ganymede and Callisto on approximate circular orbits in Jupiter's equatorial plane. Launch the Jupiter Explorer from Earth orbit and select Jupiter in the porkchop mission planner. Jupiter's zonal figure is used in local flight. The moon phases are illustrative, not a dated ephemeris.",
+		# Roughly 480 Yoshida steps per Io orbit, rather than the planetary step.
+		"maxStep":1e-5,"timeScale":.001,
+		"build":func() -> Array:
+			var bodies:=_build_solar()
+			for i in bodies.size():
+				if bodies[i].name=="Jupiter":
+					var system:=JovianMoons.system(bodies[i])
+					bodies[i]=system[0];bodies.append_array(system.slice(1));break
+			return bodies,
+	})
 
 	# Hierarchy design and long-run validation limits: docs/scenarios.md.
 	P.trisolaris = {
@@ -435,6 +448,14 @@ static func _make_presets() -> Dictionary:
 		"sceneScale": 200.0, "bodyScale": 1.0, "camRadius": 30.0, "lensing": true, "discOuter": 9.0,
 		"trueScale": true, "timeScale": 1e-4, "maxStep": 1e-5,
 		"build": func() -> Array: return _build_feeding(),
+	}
+	P.gargantua_demo = {
+		"name":"Gargantua analogue", "sky":{"env":"core","tilt":.22,"roll":1.9},
+		"blurb":"An isolated 100 million solar mass black hole at spin 0.998. The Expedition Ring developer scenario shows a prescribed equatorial Kerr orbit and its clock ratio to infinity. The close orbit uses an analytic demonstration rather than the ordinary pair integrator.",
+		"sceneScale":1.0,"bodyScale":1.0,"camRadius":12.0,"trueScale":true,"lensing":true,
+		"mesh":false,"timeScale":.00001,"maxStep":.0001,"discOuter":8.0,"focus":"Gargantua",
+		"build":func() -> Array:return [{"type":"bh","name":"Gargantua","mass":1e8,"spinFrac":.998,
+			"obliquity":0.0,"pos":[0.0,0.0,0.0],"vel":[0.0,0.0,0.0]}],
 	}
 
 	# BLANK CANVAS: empty, and new bodies arrive at rest, so the only motion is what

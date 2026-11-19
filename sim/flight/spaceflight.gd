@@ -34,6 +34,9 @@ var autopilot = null              # Guidance.Autopilot
 var cryo: Cryo = null             # frost and boil-off on the vehicle's cold tanks
 var vapour: Vapour = null         # condensation collars round its shoulders, in humid air
 var craft = null                  # CraftModel.Craft
+var interior := CraftInterior.new()
+var arms_out := false
+var exterior_fov := 55.0
 var plumes: Array = []            # Plume.PlumeFx
 var sep_plumes: Array = []        # separation motors: [{fx, stage, mount}], see attach_sep_motors
 ## Dropped pieces flying on their own (Fall) once Separation is done with them.
@@ -42,6 +45,10 @@ var falls: Array = []
 var subject: Fall = null
 var entry = null                  # Plume.EntryGlow
 var cruise = null                 # Relativity.Cruise
+var kerr_demo: Dictionary={}
+var berth_pan := Vector2.ZERO
+var berth_zoom := 1.0
+var docking: DockingSession
 ## What the cruise flies between, so the line moves with its end bodies: {parent,
 ## parent0, target, target0, stage, name, arrived}. Null outside cruise.
 var cruise_ctx = null
@@ -150,6 +157,9 @@ func _init(ctx: Dictionary) -> void:
 	panel = ctx.get("panel")
 	toast_cb = ctx.get("toast")
 	local = LocalView.create_local_view(pipe)
+	# A closed cabin excludes exterior lights: the local pass casts no hull shadows.
+	for light in [local.sun, local.sun2] + local.hemi:
+		(light as Light3D).light_cull_mask &= ~CraftInterior.LAYER
 	local_view = local
 	local_camera = local.camera
 	fly_cam = LocalView.create_flight_camera()
@@ -171,7 +181,7 @@ func _init(ctx: Dictionary) -> void:
 		hud = FlightUI.create_flight_hud(panel, {
 			"console": console,
 			"setMode": func(m: String) -> void:
-				if autopilot != null:
+				if autopilot != null and docking == null:
 					autopilot.program = null; autopilot.mode = m; autopilot.say("Manual control"),
 			"runProgram": run_program,
 			"setTarget": set_target,
@@ -256,12 +266,17 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 	var veh = opts.get("vehicle", Vehicles.booster_return(vehicle_key) if returning else Vehicles.VEHICLES.get(vehicle_key))
 	if veh == null: return null
 	teardown()
+	fly_cam.state.interiorYaw = 0.0
+	fly_cam.state.interiorPitch = float(veh.get("interior", {}).get("pitch", 0.18))
 
 	var home := body_named(opts.get("body", veh.get("launchFrom") if veh.get("launchFrom") != null else "Earth"))
 	if home == null: home = body_named("Earth")
 	if home == null: home = dominant()
 	if home == null:
 		_toast("No body to fly from in this scenario")
+		return null
+	if home.type=="bh" and not opts.get("kinematic",false):
+		_toast("Use the kinematic Kerr scenario for flight near this black hole")
 		return null
 
 	vessel = Vessel.new({"vehicle": veh, "parent": home, "bodies": bodies(),
@@ -296,7 +311,7 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 	else:
 		map_site = null
 		var alt = opts.get("alt")
-		if alt == null: alt = 15000.0 if veh.role == "lander" else 250000.0
+		if alt == null: alt = float(veh.get("orbitAltitude",15000.0 if veh.role == "lander" else 250000.0))
 		var ph = opts.get("phase")
 		if ph == null: ph = phase_rng.randf() * 6.28
 		vessel.place_in_orbit(float(alt), float(opts.get("inc", 0.0)), float(ph))
@@ -376,6 +391,77 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 			else ("Liftoff TWR %s · %s MN" % [U.fixed(twr, 2), U.fixed(F0 / 1e6, 1)]))
 	refresh_targets()
 	return vessel
+
+func begin_kerr(vehicle_key: String,body_name: String,radius_rg: float,phase: float) -> bool:
+	var hole:=body_named(body_name)
+	if hole==null or hole.type!="bh" or bodies().size()!=1:return false
+	var rg:=Rocketry.GM_SUN*hole.mass/pow(Rocketry.C_MS,2)
+	var orbit:=KerrCircular.parameters(hole.mass,float(hole.structure.get("spin",0.0)),radius_rg*rg)
+	if not orbit.ok or not is_finite(phase):return false
+	var start_alt:=float(orbit.radius)-float(Rocketry.flight_env(hole).radius)
+	if begin(vehicle_key,{"mode":"orbit","body":body_name,"alt":start_alt,"phase":phase,"kinematic":true})==null:return false
+	# The local renderer needs a radius datum; the HUD reports BL radius instead
+	# of interpreting distance above this horizon as an ordinary planet altitude.
+	vessel.env.radius=float(hole.structure.horizonAU)*Rocketry.AU_M
+	vessel.env.atm=null;vessel.env.rotRate=0.0
+	vessel.on_rebase=Callable();autopilot=null;target=null
+	var prior_aim:={"yaw":fly_cam.state.yaw,"pitch":fly_cam.state.pitch,"userAimed":fly_cam.state.userAimed}
+	kerr_demo={"orbit":orbit,"phase":phase,"elapsed":0.0,"mass":hole.mass,"spin":orbit.spin,"priorAim":prior_aim}
+	# This oblique view sees both the disc and escaping rays at the scenario radius.
+	set_camera_mode("orbit")
+	fly_cam.state.merge({"yaw":1.98,"pitch":-.775,"dist":3.05,"fov":48.0,"userAimed":true},true)
+	_step_kerr(0.0,Callable())
+	vessel.log_event("Kinematic Kerr circular orbit — clock compared with infinity")
+	return true
+
+func _step_kerr(requested: float,advance_world: Callable) -> float:
+	var orbit: Dictionary=kerr_demo.orbit
+	if vessel.bodies.size()!=1 or vessel.parent.type!="bh" or vessel.parent.mass!=kerr_demo.mass \
+		or vessel.parent.structure.get("spin")!=kerr_demo.spin:
+		state.paused=true
+		return 0.0
+	var accepted:=requested
+	if requested>0.0 and advance_world.is_valid():accepted=float(advance_world.call(requested))
+	accepted=clampf(accepted,0.0,requested) if is_finite(accepted) else 0.0
+	var proper:=accepted*float(orbit.properRate)
+	kerr_demo.elapsed+=accepted
+	vessel.coord+=accepted;vessel.met+=proper;vessel.clock_delta+=proper-accepted
+	vessel.step_guard_hit=accepted+1e-9<requested
+	var pose:=KerrCircular.sample(orbit,kerr_demo.elapsed,kerr_demo.phase)
+	vessel.r.copy_from(pose.r);vessel.v.copy_from(pose.v)
+	vessel.q.set_from_unit_vectors(Vessel.BODY_FWD,(pose.v as DVec3).normalized())
+	vessel.omega.set_v(0,0,0);vessel.throttle=0.0
+	vessel.telemetry={"kerr":orbit,"mass":vessel.mass,"period":orbit.period,
+		"centrifuge":Centrifuge.telemetry(vessel.stages,vessel.met)}
+	return accepted
+
+func begin_docking(carrier: String,slot: String,gap: float) -> bool:
+	if vessel==null or vessel.phase!=Vessel.PHASE.ORBIT or docking!=null or not kerr_demo.is_empty():return false
+	berth_pan = Vector2.ZERO
+	berth_zoom = 1.0
+	docking=DockingSession.create(vessel,carrier,slot,gap)
+	if docking==null:return false
+	arms_out = false
+	for st in vessel.stages: st.gear_out = false
+	autopilot.mode=Guidance.MODE.OFF
+	local.root.add_child(docking.craft.group)
+	local.place(docking.craft.group,docking.render_pos)
+	set_warp(0)
+	return true
+
+func _step_docking(requested: float,advance_world: Callable) -> float:
+	if requested<=0.0 or docking.failure!="":return 0.0
+	if docking.latched:return docking.step_linked(vessel,requested,bodies(),advance_world)
+	var accepted:=vessel.step(requested,{
+		"advance_world":func(seconds: float) -> float:return docking.advance(seconds,bodies(),advance_world),
+		"controls":func(seconds: float) -> void:docking.steer(vessel,seconds),
+		"control_may_thrust":true,
+	})
+	if accepted>0.0:docking.after_step(vessel)
+	if docking.failure!="":
+		vessel.log_event("Docking stopped — "+docking.failure)
+		state.paused=true
+	return accepted
 
 func build_plumes(_veh: Dictionary) -> void:
 	for p in plumes:
@@ -609,6 +695,12 @@ func set_render_quality(q: String) -> void:
 	Plume.set_smoke_volume(smoke, q == "high" or q == "ultra", local.cloud_shape)
 
 func teardown() -> void:
+	interior.dispose()
+	arms_out = false
+	if docking!=null:
+		local.unplace(docking.craft.group)
+		docking.craft.group.queue_free()
+		docking=null
 	if craft != null:
 		if is_instance_valid(craft.group):
 			craft.group.get_parent().remove_child(craft.group)
@@ -625,10 +717,13 @@ func teardown() -> void:
 	plumes = []; sep_plumes = []; entry = null; cryo = null; vapour = null
 	for f: Fall in falls: _drop_fall(f)
 	falls = []; subject = null
+	if mission!=null:mission.release()
 	mission = null; skip = null
 	smoke.clear()
 	_smoke_framed = false
 	vessel = null; autopilot = null; cruise = null; plan = null; count = null
+	if not kerr_demo.is_empty():fly_cam.state.merge(kerr_demo.priorAim,true)
+	kerr_demo.clear()
 	cruise_ctx = null; pending_cruise = null; star_target = null
 	dev_warp = 0.0
 	if saved_speed != null:
@@ -900,7 +995,7 @@ func step_count(dt_sim: float) -> void:
 
 ## The flight panel's program buttons.
 func run_program(p: String) -> void:
-	if autopilot == null: return
+	if autopilot == null or docking!=null: return
 	if cruise != null and cruise.leg != "arrived":
 		_toast("In interstellar cruise — nothing to steer until arrival")
 		return
@@ -932,7 +1027,7 @@ func run_program(p: String) -> void:
 ## along its present direction of flight (east if it has none). Off the pad, the
 ## count and the hold-downs are dropped.
 func teleport(alt_m: float, speed: float) -> void:
-	if vessel == null or cruise != null: return
+	if vessel == null or cruise != null or not kerr_demo.is_empty() or docking!=null: return
 	var env: Dictionary = vessel.env
 	var up := DQuat.nrm(vessel.r.clone())
 	var dir := vessel.airspeed(vessel.r, vessel.v, DVec3.new())
@@ -949,7 +1044,7 @@ func teleport(alt_m: float, speed: float) -> void:
 
 # TIME
 func set_warp(i: int) -> void:
-	warp_idx = clampi(i, 0, WARPS.size() - 1)
+	warp_idx = 0 if docking!=null else clampi(i, 0, WARPS.size() - 1)
 	# Rails interlocks: thrust and drag are not evaluated on rails.
 	if vessel != null and cruise == null:
 		var railable := vessel.can_rail()
@@ -972,14 +1067,30 @@ func camera_mode() -> String:
 	return fly_cam.state.mode
 
 func set_camera_mode(m: String) -> void:
-	fly_cam.set_mode(m)
+	var entering: bool = m == "interior" and fly_cam.state.mode != "interior" and camera_modes().has(m)
+	if entering:
+		exterior_fov = float(fly_cam.state.fov)
+		fly_cam.state.fov = 78.0
+	elif m != "interior" and fly_cam.state.mode == "interior":
+		fly_cam.state.fov = exterior_fov
+	fly_cam.set_mode(m if camera_modes().has(m) else "chase")
+	if vessel != null and craft != null:
+		interior.set_enabled(fly_cam.state.mode == "interior", craft, vessel.vehicle)
+
+func camera_modes() -> Array:
+	if docking != null:
+		return ["berth", "orbit", "interior"] if vessel.vehicle.has("interior") else ["berth", "orbit"]
+	var modes := ["chase", "orbit", "cockpit", "pad"]
+	if vessel != null and vessel.vehicle.has("interior") and subject == null:
+		modes.insert(3, "interior")
+	return modes
 
 ## Put the camera on the far side of the vehicle from the sun, the sun `off` rad
 ## beside it (backlit). `front_lit` goes on the sun's side instead, `off_yaw` round,
 ## for where nothing else lights the ship.
 func aim_camera_at_sun(off_yaw: float = 0.22, off_pitch: float = 0.10, front_lit: bool = false) -> void:
 	if vessel == null: return
-	if fly_cam.state.mode == "pad" or fly_cam.state.mode == "cockpit": fly_cam.set_mode("chase")
+	if fly_cam.state.mode in ["pad", "cockpit", "interior"]: set_camera_mode("chase")
 	var un := _local_up_north()
 	var up: DVec3 = un[0]
 	var north: DVec3 = un[1]
@@ -1024,7 +1135,7 @@ func refresh_targets() -> void:
 ## Fly to `dest_name` and orbit it or land on it, with no further input. Returns the
 ## Mission (check its `failed` for why it could not start).
 func start_mission(dest_name: String, goal: String = "orbit") -> Mission:
-	if vessel == null: return null
+	if vessel == null or not kerr_demo.is_empty() or docking!=null: return null
 	var b := body_named(dest_name)
 	if b == null: return null
 	abort_mission()
@@ -1040,6 +1151,7 @@ func start_mission(dest_name: String, goal: String = "orbit") -> Mission:
 func abort_mission() -> void:
 	if mission != null and not mission.done and mission.failed == "":
 		mission.abort()
+	if mission!=null:mission.release()
 	mission = null
 	skip = null
 
@@ -1071,7 +1183,7 @@ func begin_skip(m: Mission) -> void:
 		t += float(l.t)
 	skip = {"until": vessel.coord + t, "mission": m}
 	vessel.log_event("Skipping to %s — %s of flight, %s km/s of Δv charged" % [m.dest.name, Guidance.fmt_dur(t), U.fixed(dv / 1000.0, 2)])
-	fly_cam.set_mode("chase")
+	set_camera_mode("chase")
 
 func _arrive_skip() -> void:
 	var m: Mission = skip.mission
@@ -1130,6 +1242,9 @@ func update(dt: float, _frame = null, advance_world: Callable = Callable()) -> f
 	state.time_scale = (dev_warp if dev_warp > 0.0 else float(WARPS[warp_idx])) / Rocketry.YR_S
 	# At warp 1 flight time is wall-clock time; the orrery multiplier is forced to 1.
 	var w: float = (dev_warp if dev_warp > 0.0 else float(warp())) * (0.0 if state.paused else 1.0)
+	if docking!=null:
+		w=0.0 if state.paused else 1.0
+		state.time_scale=1.0/Rocketry.YR_S
 	if skip != null:
 		w = 0.0 if state.paused else minf(SKIP_WARP, maxf((float(skip.until) - vessel.coord) / maxf(dt, 1e-3), 1.0))
 		state.time_scale = w / Rocketry.YR_S
@@ -1149,7 +1264,11 @@ func update(dt: float, _frame = null, advance_world: Callable = Callable()) -> f
 	var opts := {}
 	if advance_world.is_valid(): opts.advance_world = world
 
-	if cruise != null:
+	if docking!=null:
+		sim_seconds=_step_docking(sim_seconds,world if advance_world.is_valid() else Callable())
+	elif not kerr_demo.is_empty():
+		sim_seconds=_step_kerr(sim_seconds,world if advance_world.is_valid() else Callable())
+	elif cruise != null:
 		# Ship proper time is the natural variable in cruise — the drive, the
 		# fuel and the crew all live on it.
 		sim_seconds = _step_cruise(dt, sim_seconds, world if advance_world.is_valid() else Callable())
@@ -1269,6 +1388,10 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	var f_key: float = float(key.flux) if key != null else 1.0
 	var f_total := STARLIGHT
 	for L in srcs: f_total += float(L.flux)
+	if not kerr_demo.is_empty():
+		# A display key from the disc direction makes the craft legible without
+		# implying a local radiative flux or changing the test-particle orbit.
+		sun.copy_from(up).negate_in();f_key=.05;f_total=f_key+STARLIGHT
 	# Auto-exposure: target brightness F^0.3 below daylight (floor 0.06), none above;
 	# eased in log over ~1.5 s.
 	var shown := f_total if f_total >= 1.0 else maxf(pow(f_total, 0.3), 0.06)
@@ -1316,7 +1439,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		"sun2Unblocked": second != null and second.get("body") == vessel.parent,
 		"sun2Flux": float(second.flux) * exposure if second != null else 0.0,
 		"sun2Teff": float(second.teff) if second != null else 5772.0,
-		"starlight": maxf(STARLIGHT * exposure, 0.05 * shadow_lift)})
+		"starlight": maxf(STARLIGHT * exposure, 0.05 * shadow_lift) if kerr_demo.is_empty() else .18*star_flux})
 	# Sky exposure ∝ 1/illuminance (1/400 at Earth), eased (SkyModel.apply_day_gain).
 	if fast_forward == 0:
 		var want := 1.0 / (1.0 + 400.0 * f_key * float(fr.get("sun_visible", 0.0)))
@@ -1389,6 +1512,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		var s: Dictionary = st.spec
 		var d := 0.0
 		var look = s.get("look")
+		if look != null and look.get("evapod", false): d = 1.0 if arms_out else 0.0
 		if s.get("legs") and not (look != null and look.get("gearSwing")):
 			d = 1.0 if (vessel.phase == Vessel.PHASE.LANDED or (alt < 3000.0 and v_up < 0.0)) else 0.0
 		# Super Heavy's grid fins are fixed out; they steer by twisting.
@@ -1430,9 +1554,9 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	# The stack's non-gravitational acceleration in the craft frame: what a dropped stage
 	# falls behind at. Standing on the ground, the ground's push.
 	var to_craft := Basis(vessel.q.to_quaternion()).inverse()
-	var g_craft := to_craft * vessel.gravity(vessel.r, DVec3.new()).to_v3()
+	var g_craft := to_craft * vessel.gravity(vessel.r, DVec3.new()).to_v3() if kerr_demo.is_empty() else Vector3.ZERO
 	var accel := -g_craft
-	if vessel.phase != Vessel.PHASE.LANDED:
+	if vessel.phase != Vessel.PHASE.LANDED and kerr_demo.is_empty():
 		accel = to_craft * vessel.accel(vessel.r, vessel.v, DVec3.new()).to_v3() - g_craft
 	# A stage that has just let go leaves under Separation. Before update(), which hides
 	# a detached stage that is not leaving; a stage already gone stays gone.
@@ -1450,9 +1574,14 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		chute[str(st0.spec.key) if st0 != null else ""] = {"t": rs.chute_t,
 			"gone": vessel.met - rs.chute_gone_met if rs.chute_gone else -1.0,
 			"dir": to_craft * -wind.normalized() if wind.length() > 1.0 else Vector3.DOWN, "gs": wind.length()}
-	craft.update({"dt": dt, "simDt": sim_seconds, "attached": attached, "deploy": deploy, "gear": gear,
+	craft.update({"dt": dt, "simDt": sim_seconds, "properTime": vessel.met, "attached": attached, "deploy": deploy, "gear": gear,
 		"gimbal": {"x": gx, "z": 0.0}, "flap": flaps, "finTwist": twist, "accel": accel, "release": _release,
 		"chute": chute})
+	if docking!=null and drawn:
+		var offset:=docking.carrier.r.clone().sub_in(vessel.r)
+		docking.render_pos.copy_from(craft_pos).add_in(DVec3.new(offset.dot(east),offset.dot(up),offset.dot(north)))
+		docking.craft.group.basis=(frame_basis.transposed()*Basis(docking.carrier.q.to_quaternion())).orthonormalized()
+		docking.draw_pose(dt)
 	_place_falls(east, up, north, R_loc)
 	if not history:
 		_pad_view_lost(alt)
@@ -1540,16 +1669,28 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 			fly_cam.pos.y = 2.0
 			fly_cam.look_at(subject.pos, Vector3.UP)
 	else:
+		interior.set_enabled(fly_cam.state.mode == "interior", craft, vessel.vehicle)
 		fly_cam.update({"craftPos": craft_pos, "craftBasis": craft_basis,
 			"length": craft.height if craft.height else vessel.length, "up": Vector3(0, 1, 0),
-			"dt": dt, "sunLocal": sun_l})
+			"dt": dt, "sunLocal": sun_l, "interior": vessel.vehicle.get("interior", {})})
+	if docking != null and fly_cam.state.mode == "berth":
+		var pod := vessel.vehicle_key == "evapod"
+		var offset := Vector3(-13, 8, -9) if pod else Vector3(-52, 40, -38)
+		var aim := Vector3(0, -5, -1.5) if pod else Vector3(0, -14, -7)
+		var basis_ := docking.craft.group.basis
+		var boom := (offset-aim).rotated(Vector3.BACK,berth_pan.x)
+		boom = boom.rotated(boom.cross(Vector3.BACK).normalized(),berth_pan.y)
+		fly_cam.pos.copy_from(craft_pos).add_in(DVec3.from_v3(basis_ * (aim+boom*berth_zoom)))
+		fly_cam.look_at(craft_pos.clone().add_in(DVec3.from_v3(basis_ * aim)), basis_ * Vector3.BACK)
+		fly_cam.near = .05
 	if camera_override.is_valid(): camera_override.call(fly_cam, craft_pos, site_local, dt)
 	local.cam_pos.copy_from(fly_cam.pos)
-	# Keep far/near ≤ ~1e7 (docs/godot.md): near is floored at far·1e-7 = 0.4 m.
-	local.camera.far = 4.0e6
+	# The cockpit needs centimetre depth; distant bodies remain in the orrery pass.
+	local.camera.far = 1.0e5 if fly_cam.state.mode == "interior" else 4.0e6
 	local.camera.near = maxf(fly_cam.near, local.camera.far * 1.0e-7)
 	local.camera.fov = float(fly_cam.state.fov)
 	local.apply_origin(fly_cam.basis)
+	if drawn and interior.authored: interior.light_windows(local.sun, local.sun2)
 	# Back to front for this frame's camera, now that it is placed.
 	if drawn: smoke.draw(local.camera, site.steam if site != null else null)
 
@@ -1560,6 +1701,11 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		var cl := fly_cam.pos.sub(craft_pos)
 		# rotate the local offset out of the local frame, then the parent's, into world axes
 		var world_off := east.scaled(cl.x).add_scaled_in(up, cl.y).add_scaled_in(north, cl.z).add_in(vessel.r)
+		if not kerr_demo.is_empty():
+			# The lens uses Cartesian Kerr–Schild positions. On the equator its
+			# cylindrical radius is sqrt(r_BL² + a²), not the clock formula's r_BL.
+			var orbit: Dictionary=kerr_demo.orbit
+			world_off.add_scaled_in(vessel.r,sqrt(1.0+pow(float(orbit.spin)/float(orbit.radiusM),2))-1.0)
 		vessel.to_world(world_off, world_off)
 		var k := ss / Rocketry.AU_M
 		# In place: the orbit camera holds this same DVec3 as its position.
@@ -1714,7 +1860,7 @@ func geo_of(p: DVec3):
 func follow(f) -> void:
 	if f == subject: return
 	subject = f
-	if fly_cam.state.mode == "cockpit": fly_cam.set_mode("chase")
+	if fly_cam.state.mode in ["cockpit", "interior"]: set_camera_mode("chase")
 	if vessel != null:
 		vessel.log_event("Camera — following the %s" % f.name.to_lower() if f != null else "Camera — back on the vehicle")
 
@@ -1752,10 +1898,17 @@ func update_hud() -> void:
 	if warp_idx != _warp_shown:
 		_warp_shown = warp_idx
 		if main != null and main.has_method("sync_warp_label"): main.sync_warp_label()
+	var status: String=("Interstellar cruise — %s" % cruise.leg) if cruise != null else (autopilot.status if autopilot != null else "Manual control")
+	if not kerr_demo.is_empty():
+		var orbit: Dictionary=kerr_demo.orbit
+		status="r = %s GM/c² · dt/dτ = %s× · reference at infinity"%[U.fixed(orbit.radiusM,2),U.fixed(orbit.dilation,3)]
+	if docking!=null:
+		var d: Dictionary=docking.capture if docking.latched else docking.readout
+		status=("%s · %s m · %s m/s · %s rpm"%[docking.status,U.fixed(d.gap,2),U.fixed(d.speed,2),U.fixed(d.rpm,1)]) if docking.failure=="" else docking.failure
 	hud.update({
 		"vessel": vessel, "telemetry": t, "up": (un[0] as DVec3).to_v3(), "north": (un[1] as DVec3).to_v3(),
 		"markers": markers,
-		"status": ("Interstellar cruise — %s" % cruise.leg) if cruise != null else (autopilot.status if autopilot != null else "Manual control"),
+		"status": status,
 		"mode": autopilot.mode if autopilot != null else null,
 		"program": autopilot.program if autopilot != null else null,
 		"warp": str(warp()),
@@ -1765,6 +1918,9 @@ func update_hud() -> void:
 		"plan": plan_data,
 		"cruise": cruise != null,
 		"mission": mission,
+		"docking":docking,
+		"retreatKey":main.hud.binding_label(main.controls.bindings.throttle_cut) if docking != null and main != null else "",
+		"dockKey":main.hud.binding_label(main.controls.bindings.dock_command) if docking != null and main != null else "",
 		"skip": skip != null,
 	})
 
@@ -1793,6 +1949,15 @@ func nav_point_readout():
 ## flight action. Returns true when the active vessel accepted it.
 func key_action(action: String) -> bool:
 	if not active or vessel == null: return false
+	if docking != null:
+		if action == "throttle_cut":
+			docking.back_away()
+			return true
+		if action == "dock_command":
+			docking.command_hold()
+			return true
+		if action != "flight_camera": return false
+	if not kerr_demo.is_empty() and action not in ["warp_down","warp_up","flight_camera"]:return false
 	match action:
 		"warp_down":
 			_manual_warp(); set_warp(warp_idx - 1); return true
@@ -1810,6 +1975,11 @@ func key_action(action: String) -> bool:
 			vessel.stage(); return true
 		"gear":
 			for st in vessel.stages:
+				if st.attached and int(st.spec.get("look", {}).get("arms", 0)) > 0:
+					arms_out = not arms_out
+					_toast("Manipulators extended" if arms_out else "Manipulators parked")
+					return true
+			for st in vessel.stages:
 				if st.attached and st.spec.get("legs"):
 					st.gear_out = not st.gear_out
 					break
@@ -1817,9 +1987,9 @@ func key_action(action: String) -> bool:
 		"flight_follow":
 			follow_next(); return true
 		"flight_camera":
-			var modes := ["chase", "orbit", "cockpit", "pad"]
+			var modes := camera_modes()
 			var i := modes.find(fly_cam.state.mode)
-			fly_cam.set_mode(modes[(i + 1) % modes.size()])
+			set_camera_mode(modes[(i + 1) % modes.size()])
 			return true
 	return false
 
@@ -1838,6 +2008,9 @@ func pad_orbit(d_az: float, d_el: float, scale: float) -> void:
 ## deltaY as a browser reports it (a wheel notch is ~100).
 func wheel(delta_y: float) -> bool:
 	if not active: return false
+	if fly_cam.state.mode == "berth":
+		berth_zoom = clampf(berth_zoom * (1.0 + delta_y*.001),.75,2.4)
+		return true
 	if fly_cam.state.mode == "pad" and site != null:
 		pad_orbit(0.0, 0.0, 1.0 + delta_y * 0.001)
 		return true
@@ -1846,6 +2019,13 @@ func wheel(delta_y: float) -> bool:
 
 func drag(dx: float, dy: float) -> bool:
 	if not active: return false
+	if fly_cam.state.mode == "berth":
+		berth_pan = (berth_pan - Vector2(dx,dy)*.004).clamp(Vector2(-.65,-.42),Vector2(.65,.42))
+		return true
+	if fly_cam.state.mode == "interior":
+		fly_cam.state.interiorYaw = wrapf(fly_cam.state.interiorYaw - dx * 0.004, -PI, PI)
+		fly_cam.state.interiorPitch = clampf(fly_cam.state.interiorPitch - dy * 0.004, -1.05, 1.05)
+		return true
 	if fly_cam.state.mode == "pad" and site != null:
 		pad_orbit(dx * 0.006, -dy * 0.004, 1.0)
 		return true

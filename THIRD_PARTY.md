@@ -31,6 +31,9 @@ These need no permission. The credits are given as their sources ask.
 
 | what | where | source and credit |
 |---|---|---|
+| Voyager spacecraft | `assets/voyager/voyager.glb` | Derived from the [NASA VTAD model](https://science.nasa.gov/resource/voyager-3d-model/). Changes to scale, antennas and engraved cover are described in [Voyager](docs/voyager.md). |
+| Voyager reference images | `assets/voyager/*.jpg` | NASA/JPL-Caltech (PIA14111, PIA21740 and the instrument layout), NASA/JPL (engraved cover). Per-image sources in [Voyager](docs/voyager.md). |
+| Voyager mission and planetary vectors | `assets/voyager/trajectory.tres` | NASA/JPL Solar System Dynamics, [Horizons](https://ssd.jpl.nasa.gov/horizons/) and [NAIF Voyager encounter SPKs](https://naif.jpl.nasa.gov/pub/naif/VOYAGER/kernels/spk/). |
 | Earth colour map | `assets/planet-maps/earth-july.jpg` | NASA Earth Observatory, Blue Marble: Next Generation. Credit: NASA Earth Observatory / Reto Stöckli |
 | Earth land mask | `assets/planet-maps/earth-land.png` | Natural Earth 1:10m land polygons, public domain |
 | Earth's measured height | `assets/planet-relief/earth.elev`, built by `tools/build_planet_relief.py` from `ETOPO_2022_v1_60s_N90W180_surface.nc` (quarter-degree means) | CC0-1.0, NOAA waiving its rights worldwide. Cite as: NOAA National Centers for Environmental Information, 2022: ETOPO 2022 Global Relief Model, https://doi.org/10.25921/fd45-gt74 |

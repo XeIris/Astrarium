@@ -1,0 +1,192 @@
+extends SceneTree
+
+var checks := 0
+var failures := 0
+
+func expect(ok: bool, label: String) -> void:
+	checks+=1
+	if not ok:
+		failures+=1
+		printerr("RANGERCHECK FAIL ",label)
+
+func _initialize() -> void: run.call_deferred()
+
+func run() -> void:
+	var authored := not OS.get_cmdline_user_args().has("assets=0")
+	if authored: CraftAssets.craft_models_ready(["ranger"])
+	var vehicle: Dictionary=Vehicles.get_vehicle("ranger")
+	var original: Dictionary=vehicle.duplicate(true)
+	var craft=CraftModel.build_craft(vehicle); root.add_child(craft.group)
+	expect(craft.authored==authored,"requested authored/fallback build path")
+	var st=craft.stage("ranger")
+	expect(st.parts.legs.size()==3 and st.parts.flaps.size()==7 and st.parts.gimbals.size()==2,"complete separate driven parts")
+	if st.parts.legs.size()!=3:
+		craft.group.free(); CraftAssets.clear(); quit(1); return
+	var bounds:=CraftModel.measure(craft.group)
+	expect(absf(bounds.size.y-17.9)<.02 and absf(bounds.position.y)<.02,"shared nose and engine-exit datums: %s"%bounds)
+	var nose_half_width:=0.0
+	var crown_height:=0.0
+	var half_span:=0.0
+	var shoulder_at:=0.0
+	for point: Vector3 in points(craft.group,craft.group):
+		if point.y>=float(st.spec.L)-.015:nose_half_width=maxf(nose_half_width,absf(point.x))
+		crown_height=maxf(crown_height,point.z)
+		if absf(point.x)>half_span:
+			half_span=absf(point.x)
+			shoulder_at=point.y/float(st.spec.L)
+	var span:=RangerCraft.hull_span(st.spec)
+	expect(absf(2.0*nose_half_width-.423*span)<.03,"Ranger has its narrow clipped bow (%.3f m)"%(2.0*nose_half_width))
+	expect(absf(2.0*half_span-span)<.025 and shoulder_at>.29 and shoulder_at<.34,
+		"narrow swept shoulder (span %.3f m, station %.3f)"%[2.0*half_span,shoulder_at])
+	expect(bounds.size.z/float(st.spec.L)<.10 and crown_height/float(st.spec.L)<.068,
+		"the shallow body stays under a tenth of its length (%.3f m)"%bounds.size.z)
+	for flap: Node3D in st.parts.flaps:
+		var hinge: Vector3=st.group.to_local(flap.global_position)
+		var skin:=RangerCraft.at(st.spec,hinge.y)
+		var side:=lerpf(skin[1].x,skin[2].x,inverse_lerp(skin[1].z,skin[2].z,hinge.z))
+		expect(hinge.z>skin[1].z and hinge.z<skin[2].z and absf(hinge.x)<side-.12,
+			"trailing flap hinge sits inside the narrowed tail")
+	var chines: Array[Node3D]=[]
+	var chine_poses: Array[Transform3D]=[]
+	for side: String in ["port","starboard"]:
+		var chine:=st.group.find_child("inspection_chine_"+side,true,false) as Node3D
+		expect(chine!=null,"raised "+side+" chine is present")
+		if chine==null: continue
+		check_chine(chine,st.group,st.spec)
+		chines.append(chine)
+		chine_poses.append(chine.global_transform)
+	var gear_mounts:=RangerCraft.gear_mounts(st.spec)
+	for i in range(41):
+		var t:=i/40.0
+		st.gear=t
+		craft.update({"dt":0.0,"gear":{"ranger":t},"flap":[.1,-.1,.2,-.2,.1,-.15,.15]})
+		for j in 3:
+			var leg: Node3D=st.parts.legs[j]
+			var well: Dictionary=gear_mounts[j]
+			var arm:=float(well.arm)
+			var tip: Vector3=craft.group.to_local(leg.to_global(Vector3(arm,0,0)))
+			var pivot: Vector3=craft.group.to_local(leg.global_position)
+			expect(absf(tip.distance_to(pivot)-arm)<1e-4,"gear strut stays attached through full sweep")
+			var expected:=pivot+Vector3(0,arm*cos(t*PI/2),-arm*sin(t*PI/2))
+			expect(tip.distance_to(expected)<.001,"gear follows the intended local hinge axis")
+			var min_z:=INF
+			var stow_gap:=INF
+			for point: Vector3 in points(leg,craft.group):
+				var belly:=RangerCraft.at(st.spec,point.y)[0].z
+				min_z=minf(min_z,point.z)
+				stow_gap=minf(stow_gap,minf(point.z-belly,float(well.ceiling)-point.z))
+				if absf(point.z-belly)<.04:
+					expect(absf(point.x-pivot.x)<float(well.halfWidth) and point.y>float(well.rear) and point.y<float(well.front),
+						"gear crosses skin only inside its own bay")
+			if i==0:
+				expect(stow_gap>.008,"stowed gear fits between the belly and its well roof (%.3f m)"%stow_gap)
+			if i==40:
+				expect(absf(min_z-float(st.spec.gear.point[2]))<.015,"tyre contact matches the physics ground point")
+	for i in chines.size():
+		expect(chines[i].global_transform.is_equal_approx(chine_poses[i]),"chine stays fixed through gear and flap motion")
+	var cabin:=CraftInterior.new()
+	var e: Array=vehicle.interior.eye
+	var eye:=Vector3(e[0],e[1],e[2])
+	expect(blocked(craft.group,eye,Vector3.UP),"opaque window shade in exterior mode")
+	for round_ in range(5):
+		cabin.set_enabled(true,craft,vehicle)
+		expect(cabin.group!=null and cabin.authored==authored,"lazy cabin build path")
+		var one:=cabin.group
+		cabin.set_enabled(true,craft,vehicle)
+		expect(cabin.group==one,"repeated entry reuses one cabin")
+		expect(not blocked(craft.group,eye,Vector3.UP),"pilot has an open forward sightline")
+		if round_==0 and authored:
+			expect(cabin.group.find_children("interior_light_*","Node3D",true,false).size()==6,"six anchored cabin fixtures")
+			var crown := cabin.group.find_child("interior_overhead",true,false) as Node3D
+			expect(crown!=null,"separate overhead instrument assembly")
+			if crown!=null:
+				var gap:=INF
+				for point: Vector3 in points(crown,craft.group):
+					gap=minf(gap,RangerCraft.at(st.spec,point.y)[3].z-point.z)
+				expect(gap>=.04 and gap<=.083,"crown mounts reach the liner and stay below the outer skin (%.3f m)"%gap)
+			var openings: Array=RangerCraft.geometry(st.spec).windows
+			expect(openings.size()==22,"the traced canopy has all 22 apertures")
+			for opening: Dictionary in openings:
+				if opening.name not in ["windshield_port","windshield_starboard"]: continue
+				var center:=Vector3.ZERO
+				for v: Array in opening.vertices: center+=Vector3(v[0],v[1],v[2])
+				center/=opening.vertices.size()
+				var ray:=center-eye
+				expect(not blocked(craft.group,eye,ray.normalized(),ray.length()+.06),"pilot sightline clears "+opening.name)
+			var finishes: Dictionary={}
+			collect_finishes(craft.group,finishes)
+			for key in ["surveyThermal","surveyCarbon","surveyLiner","surveyCabinQuilt","surveyWebbing","surveySeat"]:
+				expect(finishes.has(key),"distinct authored finish "+key)
+		cabin.dispose(); await process_frame
+		expect(cabin.group==null,"camera exit releases cabin")
+	expect(vehicle==original,"poses and camera entry preserve vehicle metadata")
+	var camera:=LocalView.create_flight_camera(); camera.set_mode("interior")
+	var cb:=Basis.from_euler(Vector3(.7,-.3,1.2))
+	var position:=DVec3.new(4e9,7e9,-2e9)
+	camera.update({"craftPos":position,"craftBasis":cb,"length":17.9,"up":Vector3.UP,"dt":0.0,"interior":vehicle.interior})
+	expect(camera.pos.sub(position).to_v3().distance_to(cb*eye)<1e-5,"pilot eye follows double-precision vessel position")
+	expect((-camera.basis.z).dot(cb*Vector3.UP)>.9999 and camera.basis.y.dot(cb*Vector3.BACK)>.9999,"camera uses the cabin forward/up frame")
+	camera.state.interiorYaw=PI/2
+	camera.update({"craftPos":position,"craftBasis":cb,"length":17.9,"up":Vector3.UP,"dt":0.0,"interior":vehicle.interior})
+	expect((-camera.basis.z).dot(cb*Vector3.LEFT)>.9999,"look yaw turns about cabin vertical")
+	craft.group.free(); CraftAssets.clear(); await process_frame
+	print("RANGERCHECK DONE checks=%d failures=%d"%[checks,failures])
+	quit(1 if failures else 0)
+
+func check_chine(chine: Node3D,stage: Node3D,spec: Dictionary) -> void:
+	var length:=float(spec.L)
+	var seated:=false
+	var tip_gap:=INF
+	var tip_rise:=0.0
+	for point: Vector3 in points(chine,stage):
+		var hull:=RangerCraft.at(spec,point.y)
+		var edge:=hull[2]
+		var crown:=hull[3]
+		var x:=absf(point.x)
+		if point.y>.93*length:
+			tip_gap=minf(tip_gap,x-edge.x)
+			tip_rise=maxf(tip_rise,point.z-edge.z)
+		if point.y<.31*length and x>crown.x and x<edge.x-.08:
+			var deck:=lerpf(edge.z,crown.z,(edge.x-x)/(edge.x-crown.x))
+			seated=seated or (point.z<deck-.05 and point.z>hull[0].z)
+	expect(seated,"%s overlaps its hull seat"%chine.name)
+	expect(is_finite(tip_gap) and tip_gap>.16 and tip_rise>.22,
+		"%s tip rises above the deck with an open gap (%.3f m, %.3f m)"%[chine.name,tip_rise,tip_gap])
+
+func points(node: Node, relative: Node3D) -> Array[Vector3]:
+	var out: Array[Vector3]=[]
+	if node is MeshInstance3D and node.mesh!=null:
+		var xf: Transform3D=relative.global_transform.affine_inverse()*node.global_transform
+		for s in node.mesh.get_surface_count():
+			for p: Vector3 in node.mesh.surface_get_arrays(s)[Mesh.ARRAY_VERTEX]: out.append(xf*p)
+	for child in node.get_children(): out.append_array(points(child,relative))
+	return out
+
+func blocked(node: Node, eye: Vector3, direction: Vector3, distance:=5.0) -> bool:
+	if node is Node3D and not node.visible: return false
+	if node is MeshInstance3D and node.mesh!=null:
+		var inverse: Transform3D=node.global_transform.affine_inverse()
+		var origin:=inverse*eye; var dir:=inverse.basis*direction
+		for s in node.mesh.get_surface_count():
+			var arr: Array=node.mesh.surface_get_arrays(s)
+			var vs: PackedVector3Array=arr[Mesh.ARRAY_VERTEX]
+			var ix: PackedInt32Array=arr[Mesh.ARRAY_INDEX]
+			for i in range(0,ix.size(),3):
+				var hit=Geometry3D.ray_intersects_triangle(origin,dir,vs[ix[i]],vs[ix[i+1]],vs[ix[i+2]])
+				if hit!=null and (hit as Vector3).distance_to(origin)<distance: return true
+	for child in node.get_children():
+		if blocked(child,eye,direction,distance): return true
+	return false
+
+func collect_finishes(node: Node, found: Dictionary) -> void:
+	if node is MeshInstance3D and node.mesh!=null:
+		for s in node.mesh.get_surface_count():
+			var mat: StandardMaterial3D=node.mesh.surface_get_material(s)
+			if mat==null or not mat.resource_name.begins_with("survey"): continue
+			found[mat.resource_name.get_slice(".",0)]=mat
+			if mat.normal_enabled:
+				var a: Array=node.mesh.surface_get_arrays(s)
+				expect(mat.albedo_texture!=null and mat.normal_texture!=null and mat.roughness_texture!=null,
+					"embedded colour, relief and roughness maps survive import")
+				expect(a[Mesh.ARRAY_TEX_UV]!=null and a[Mesh.ARRAY_TANGENT]!=null,"mapped finish has UVs and tangent frames")
+	for child in node.get_children(): collect_finishes(child,found)

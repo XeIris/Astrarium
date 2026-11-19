@@ -21,3 +21,7 @@ The colour textures are shared material references, not scans of specific
 vehicles. Emissive and glass surfaces retain their authored treatment. The
 images are committed source assets; the `.png.import` files enable mipmaps for
 distance views. Rebuilding the GLBs does not bake these textures into them.
+
+The EVA pod uses dedicated embedded normal and roughness maps for its enamel,
+laminate, upholstery and fittings; those preserve their authored treatment across
+quality presets. See [the pod finish workflow](../../docs/eva-pod.md#surface-finishes).

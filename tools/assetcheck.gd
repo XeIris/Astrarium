@@ -52,7 +52,7 @@ func pose(craft, vehicle: Dictionary, deployed: bool) -> void:
 			var swing := float(st.spec.get("look", {}).get("gearSwing", 1.15))
 			var angle: float = {"legs": -swing if deployed else 0.0, "fins": -1.35 if deployed else 0.0,
 				"arrays": 0.0 if deployed else PI / 2.0, "flaps": 0.6 if deployed else -0.6,
-				"doors": CraftModel.DOOR_OPEN if deployed else 0.0}[role]
+				"doors": float(st.spec.get("look", {}).get("doorSwing", CraftModel.DOOR_OPEN)) if deployed else 0.0}[role]
 			for pivot: Node3D in st.parts[role]:
 				expect(absf(pivot.rotation.z - angle) < 1e-4, "%s/%s %s failed articulation" % [vehicle.id, st.key, role])
 				check_geometry_motion(pivot, before[pivot], vehicle.id + "/" + st.key + "/" + role)

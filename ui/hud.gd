@@ -709,7 +709,7 @@ func binding_label(binding: Array) -> String:
 	if key == "": key = str(binding[0])
 	if int(binding[0]) == KEY_SHIFT or int(binding[0]) == KEY_CTRL or int(binding[0]) == KEY_ALT:
 		return key
-	return ("Ctrl + " if binding[2] else "") + ("Shift + " if binding[1] else "") + key
+	return ("Ctrl + " if binding[2] else "") + ("Shift + " if binding[1] else "") + ("Alt + " if binding[3] else "") + key
 
 func show_binding_capture(action: String) -> void:
 	if binding_buttons.has(action): binding_buttons[action].set_label("Press a key…")

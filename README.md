@@ -53,6 +53,20 @@ autopilot then flies every leg (launch, transfer, course corrections, capture,
 landing) and chooses the time warp, so the whole mission can be watched. Change
 the warp yourself and auto warp stops until you turn it back on.
 
+Choose **Voyager 1** or **Voyager 2** and **Start mission** for the historical replay.
+Scrub from launch through 19 November 2026 or choose a landmark to follow a
+planetary assist or moon flyby. Switch probes to compare them at the same UTC
+instant. **Spacecraft** opens the deployed model beside NASA’s reference images.
+Both missions work offline. [Trajectory and model sources](docs/voyager.md)
+
+The EVA Pod, Survey Shuttle and Cargo Lander also offer docking missions in
+the hangar. **Start mission** places the visitor on station. Click **Clear
+approach** or press **K** to close. The same control brakes to a hold or
+resumes the approach. **Back away** (**X** by default) returns to the starting
+range and holds there. **Space** pauses both craft. Drag or scroll to inspect
+the berth, or press **C** to change cameras. The port scope shows lateral
+offset, with the outer ring at 50 cm. Capture readings stay on the console.
+
 Flying shows a console along the bottom: the attitude ball between its
 throttle and climb tapes, altitude, speed, the orbit, Δv, the live stage's
 propellant, time warp, and the mission's legs as a route. **Systems** opens the
@@ -288,7 +302,7 @@ missions only when the change can alter flight:
   The fast-forward keeps the smoke trail, plumes and pad simulating undrawn, so
   the settle frames only present them.
 
-`assets` requires all nine generated craft models; `rendered`, `lifecycle` and
+`assets` requires all fourteen generated craft models; `rendered`, `lifecycle` and
 `perf` need a working graphical renderer. `flight` runs the four full launches (one process each), the descent gates (LM, sky crane, Falcon 9 boosters at three propellant loads, a Super Heavy tower catch at 1× and 2×, and a deorbit), the missions, one process per descent and per mission, and every developer
 scenario (`scenariocheck`); `scenario-replay` compares each scenario with the same
 flight played at 60 fps (about half an hour). `native` includes the numerical boundary checks.
@@ -399,7 +413,24 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/transitioncheck.tscn` | rendered spin/remnant transitions and canonical black-hole horizons through mass sliders, edits and contact mergers; rejects stale progenitor measurements |
 | `tools/structureinputcheck.tscn` | production spawn/edit/preset rejection before mutation, supported threshold events, and rejected-control resynchronization |
 | `tools/accretioncheck.tscn` | rendered physical/visual boundary: separated bodies retain mass and momentum under visual updates, paused streams freeze, and physical contact mergers still conserve mass and momentum; `native=0` forces GDScript and `inject_mutation=1` must fail |
-| `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()`; `-- parity` requires all nine authored craft and asserts whole-vehicle height/base agreement within 2 cm in both poses; `inject_parity=1` must fail |
+| `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()`; `-- parity` requires all fourteen authored craft and asserts whole-vehicle height/base agreement within 2 cm in both poses; `inject_parity=1` must fail |
+| `tools/discoverycheck.gd` | Discovery cover sweep, berth furniture and rotor clearance, proper-time phase, gravity/Coriolis telemetry and Galilean-moon initial conditions in both build paths |
+| `tools/discoveryflightcheck.tscn` | production Earth–Jupiter flight, paid burns and fully propulsive capture; rejects exhausted attitude control and incomplete missions |
+| `tools/endurancecheck.gd` | ring phase, mounted shuttle clearances, outlet attachment and artificial gravity in both build paths |
+| `tools/voyagercheck.tscn` | both historical missions through the hangar, time jumps, Horizons vectors, encounter frames and the one-light-day range. Pass `-- title=0 shots=/absolute/directory` with a GPU for reference comparisons |
+| `tools/dockingmissioncheck.tscn` | three hangar missions, mapped input, station keeping, capture, sampled mesh interference and rigid attachment. Use `-- only=lander movie=/absolute/directory` with a GPU to record 24 fps frames |
+| `tools/dockingflightshots.tscn` | rendered EVA Pod, Ranger and Lander approaches through production flight, including axial capture with three ferries still aboard |
+| `tools/orbitcheck.gd` | conic propagation against independent RK4, reversibility and energy across elliptic, near-parabolic and hyperbolic cases |
+| `tools/finiteburncheck.gd` | finite escape prediction convergence, mass/fuel response, long-coast attitude fuel and live guidance cutoff/asymptote |
+| `tools/kerrcircularcheck.gd` | analytic circular Kerr angular velocity and clock ratio against independent metric normalization and radial balance; stable-orbit and spin domain |
+| `tools/kerrflightcheck.tscn` | production accepted-time clocks and period closure; `render=1` checks the lensed backdrop and the flight HUD |
+| `tools/rangercheck.gd` | Ranger gear sweep, wheel contact, cockpit sightline, mapped materials and lazy cabin entry in both build paths |
+| `tools/rangerflightcheck.tscn` | headless production deorbit through entry, glide, touchdown and wheel stop; rejects incomplete or unsafe returns |
+| `tools/rangerflightshots.tscn` | production GPU cockpit/gear/camera check; `dump=/abs/dir` saves views |
+| `tools/moviecraftshots.tscn` | multi-angle studio inspection, cockpit and cutaway; `v=ranger dump=/abs/dir`; [reconstruction scope and references](docs/movie-spacecraft.md) |
+| `tools/evapodflightshots.tscn` | rendered production EVA pod: thrust/fuel accounting, manipulator command, interior near plane and camera exit; `dump=/abs/dir` saves screenshots |
+| `tools/evapodmaterials.tscn` | six EVA finish samples in one lighting rig; `out=/abs/materials.png` |
+| `tools/evapodcheck.gd` | EVA pod arm sweep, hull clearance, lazy interior loading, window sightline and camera datums; run with and without `assets=0`; [design and references](docs/eva-pod.md) |
 | `tools/assetcheck.gd` | authored rig contracts and articulation, or procedural parts with `assets=0`; every dropped stage must leave by its separation physics (`stage_separations`, `booster_pieces`), and a residual thrust must carry its stage its closed-form travel (`residual_push`); `inject_invalid=1` must fail on a missing driven part |
 | `tools/savecheck.gd` | isolated JSON write/recovery failures, malformed controls/course/icon settings, binding conflicts and Reset rollback |
 | `tools/sunlab.tscn` | the solar lab: the Sun (or `star=` any catalogue star) alone with hand-placed active regions and one flare at a chosen phase, for the photosphere, chromosphere, loops and eruptions (`x=0.45` the flare's progress, `at=limb\|top\|disc` where it sits, `top` showing its loops side-on, `close=1` the camera on the region, `band=5` X-ray, `teff=` another temperature, `qlon= qlat= qtilt=` a quiescent prominence, `puff=r,lat,lon` an ejected puff of an evolved star's envelope); `out=/abs/x.png frames=12` writes a picture, and `xto=0.8 puffto=4 orbit=0.6 spin=0.05 seq=/abs/f every=2` a clip's frames |
@@ -419,7 +450,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/webref.mjs` | screenshots of the web build (headless Chrome) for side-by-side checks; use `flightshots.sh` for validated flight captures |
 | `tools/shots.sh` | screenshots of this build via the command-line options above |
 | `eval=_leak_check` | loads all 35 scenarios and two launches five times; object/resource/node/orphan growth after warmup fails; VRAM is reported as telemetry; windowed, a pass that drew under half the frames it processed fails (a covered macOS window) |
-| `eval=_soak_check` | repeats features with seeded initial conditions and asserts flat object/resource/node/orphan counts after warmup; windowed, a round that drew under half the frames it processed fails (a covered macOS window); the staged launch asserts ascent and three separations; `rounds=5` changes the default four rounds, `soak=model_viewer soakassets=0` checks all nine procedural craft; `soak=editor` exercises focused graphs and pending-edit removal |
+| `eval=_soak_check` | repeats features with seeded initial conditions and asserts flat object/resource/node/orphan counts after warmup; windowed, a round that drew under half the frames it processed fails (a covered macOS window); the staged launch asserts ascent and three separations; `rounds=5` changes the default four rounds, `soak=model_viewer soakassets=0` checks all fourteen procedural craft; `soak=editor` exercises focused graphs and pending-edit removal |
 | `--verbose ... eval=_shutdown_check` | drags render scale, opens a cutaway lesson, the model viewer and a launch, then quits; a clean run reports nothing leaked at exit |
 
 The historical side-by-side migration evidence was archived out of the working
