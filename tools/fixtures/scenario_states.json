@@ -1,0 +1,8743 @@
+{
+	"achernar": {
+		"blurb": "Its equator sits 35% further from the centre than its poles, which is the most extreme rotational distortion measured on any bright star. The hard limit is 1.5: at that ratio the equator is in orbit and material simply leaves, and nothing that stays in one piece can be flatter. Achernar is close enough to it that it really is throwing off a disc of its own gas — the \"e\" in its spectral type B6Vep.",
+		"bodies": [
+			{
+				"catalog": "achernar",
+				"catalogNote": "The flattest star known: its equator is 35% further from the centre than its poles. It spins near enough to break-up that it throws off a gaseous decretion disc, which is what the \"e\" in its spectral type means.",
+				"luminosity": [
+					"d",
+					"00000000009ca840"
+				],
+				"mass": [
+					"d",
+					"cdcccccccccc1a40"
+				],
+				"name": "Achernar",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"1f85eb51b81e1b40"
+				],
+				"sp": "B6Vep",
+				"spinFrac": [
+					"d",
+					"00d08ea47360ef3f"
+				],
+				"teff": [
+					"d",
+					"00000000004ccd40"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000002640"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62503f"
+		],
+		"mesh": false,
+		"name": "Achernar — the flattest star",
+		"paint": [
+			{
+				"body": "Achernar",
+				"color": [
+					"i",
+					16765104
+				],
+				"decretion": true,
+				"density": [
+					"d",
+					"666666666666e63f"
+				],
+				"inner": [
+					"d",
+					"39b4c876be9faa3f"
+				],
+				"kind": "ring",
+				"outer": [
+					"d",
+					"a4703d0ad7a3c03f"
+				],
+				"tilt": [
+					"d",
+					"0000000000000000"
+				]
+			}
+		],
+		"sceneScale": [
+			"d",
+			"0000000000005040"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"cdccccccccccfc3f"
+			],
+			"tilt": [
+				"d",
+				"d7a3703d0ad7e33f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"9a9999999999c93f"
+		],
+		"trueScale": true
+	},
+	"alphacen": {
+		"blurb": "The real nearest system, with the real orbit: A and B swing between 11.2 and 35.6 AU on an 80-year, e = 0.52 ellipse. Proxima is bound to the pair but 13 000 AU out — so far that it takes 550 000 years to go round once, and it is off screen at any zoom that shows the binary. Proxima b orbits it in 11 days, inside a habitable zone that is inside Mercury’s distance, around a star that flares hard enough to strip an atmosphere.",
+		"bodies": [
+			{
+				"catalog": "alphacenA",
+				"catalogNote": "The Sun's near-twin, slightly heavier and noticeably older, so it has swelled and brightened past where the Sun is now.",
+				"luminosity": [
+					"d",
+					"e7fba9f1d24df83f"
+				],
+				"mass": [
+					"d",
+					"fbcbeec9c342f13f"
+				],
+				"name": "Alpha Centauri A",
+				"phase": [
+					"d",
+					"333333333333eb3f"
+				],
+				"pos": [
+					[
+						"d",
+						"473f9214157c4bc0"
+					],
+					[
+						"d",
+						"28ee5a6dd05de9bf"
+					],
+					[
+						"d",
+						"2c2ada411e8016c0"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"89d2dee00b93f33f"
+				],
+				"sp": "G2V",
+				"teff": [
+					"d",
+					"00000000009eb640"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"550aff3606daeb3f"
+					],
+					[
+						"d",
+						"9070744452f2c0bf"
+					],
+					[
+						"d",
+						"630066c589a0eebf"
+					]
+				]
+			},
+			{
+				"catalog": "alphacenB",
+				"catalogNote": "An orange dwarf on an 80-year, e = 0.52 orbit with A — from 11.2 AU apart to 35.6 and back.",
+				"luminosity": [
+					"d",
+					"c4b12e6ea301e03f"
+				],
+				"mass": [
+					"d",
+					"0ebe30992a18ed3f"
+				],
+				"name": "Alpha Centauri B",
+				"phase": [
+					"d",
+					"333333333333eb3f"
+				],
+				"pos": [
+					[
+						"d",
+						"bc47c464e05248c0"
+					],
+					[
+						"d",
+						"5a9e999f2719ee3f"
+					],
+					[
+						"d",
+						"b86cc1ce98b21a40"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"c8073d9b559feb3f"
+				],
+				"sp": "K1V",
+				"teff": [
+					"d",
+					"00000000008cb440"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"5ac85f600586f0bf"
+					],
+					[
+						"d",
+						"043cc1db941bc43f"
+					],
+					[
+						"d",
+						"f3274a51e18df13f"
+					]
+				]
+			},
+			{
+				"activityBoost": [
+					"d",
+					"0000000000000840"
+				],
+				"catalog": "proxima",
+				"catalogNote": "The nearest star to the Sun, and only just a star at all — 60% above the hydrogen-burning limit. Fully convective, violently magnetic, and it will still be burning hydrogen in four trillion years.",
+				"luminosity": [
+					"d",
+					"1361c3d32b65593f"
+				],
+				"mass": [
+					"d",
+					"1973d712f241bf3f"
+				],
+				"name": "Proxima Centauri",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"23c0cf0c607f8a40"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"9487855ad3bcc33f"
+				],
+				"sp": "M5.5Ve",
+				"teff": [
+					"d",
+					"0000000000c4a740"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"53abc46c2a58d23f"
+					]
+				]
+			},
+			{
+				"hot": true,
+				"mass": [
+					"d",
+					"c394922fb2aecb3e"
+				],
+				"name": "Proxima b",
+				"pos": [
+					[
+						"d",
+						"ccec99b7957f8a40"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0f8bf26c39e5a43f"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"0000000000f8bb40"
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"afbc355420c720c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"7ef498833fb11640"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000004e40"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62603f"
+		],
+		"mesh": false,
+		"name": "Alpha Centauri",
+		"sceneScale": [
+			"d",
+			"9a9999999999f93f"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"9a9999999999c93f"
+			],
+			"tilt": [
+				"d",
+				"295c8fc2f528dc3f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"0000000000001040"
+		],
+		"trueScale": true
+	},
+	"betelgeuse": {
+		"blurb": "A red supergiant of 16.5 solar masses and 764 solar radii — put it where the Sun is and its surface would reach past the asteroid belt, swallowing Mercury, Venus, Earth and Mars. Jupiter and Saturn are drawn here at their real orbital distances, to scale, so you can see that Jupiter’s orbit is the first one that clears it. Its interior is the onion: an iron-free carbon–oxygen core under helium and hydrogen shells, and almost all of that enormous volume is emptier than a laboratory vacuum.",
+		"bodies": [
+			{
+				"catalog": "betelgeuse",
+				"catalogNote": "A red supergiant so large that its photosphere would reach past the asteroid belt, and so tenuous that the outer half of it is closer to a vacuum than to air. Its radius and distance are both uncertain by tens of percent — it has no sharp edge to measure. In 2019 it dimmed by 60%, which turned out to be a dust cloud condensing over a cool patch thrown off its own surface.",
+				"luminosity": [
+					"d",
+					"0000000000c3fe40"
+				],
+				"mass": [
+					"d",
+					"0000000000803040"
+				],
+				"name": "Betelgeuse",
+				"phase": [
+					"d",
+					"cdccccccccccfc3f"
+				],
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"0000000000e08740"
+				],
+				"sp": "M1-2Ia-ab",
+				"teff": [
+					"d",
+					"000000000020ac40"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				]
+			},
+			{
+				"mass": [
+					"d",
+					"d01c616aae474f3f"
+				],
+				"name": "Jupiter's orbit",
+				"palette": "jupiter",
+				"pos": [
+					[
+						"d",
+						"19ed608a4b2b1340"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"53af4bcb8a350040"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"000000007011f140"
+				],
+				"type": "gas-giant",
+				"vel": [
+					[
+						"d",
+						"4e5b2aedcf6d11c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"1cdcdad1969c2440"
+					]
+				]
+			},
+			{
+				"mass": [
+					"d",
+					"cee737a7edba323f"
+				],
+				"name": "Saturn's orbit",
+				"palette": "saturn",
+				"pos": [
+					[
+						"d",
+						"98419e92b80e23c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"f08e3e4a2761d93f"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"00000000006fec40"
+				],
+				"rings": true,
+				"type": "gas-giant",
+				"vel": [
+					[
+						"d",
+						"187049b73efed5bf"
+					],
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"1d5f3d1ec28320c0"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000004140"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62603f"
+		],
+		"mesh": false,
+		"name": "Betelgeuse",
+		"sceneScale": [
+			"d",
+			"9a99999999990140"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"3333333333330740"
+			],
+			"tilt": [
+				"d",
+				"333333333333d33f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"9a9999999999d93f"
+		],
+		"trueScale": true
+	},
+	"bhmerger": {
+		"blurb": "A wide binary of 36 and 29 solar masses, lensing the sky behind them.",
+		"bodies": [
+			{
+				"mass": [
+					"d",
+					"0000000000004240"
+				],
+				"name": "BH-A",
+				"pos": [
+					[
+						"d",
+						"c7341960ceb2c9bf"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000080"
+					]
+				],
+				"type": "bh",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"819afd4d75d840c0"
+					]
+				]
+			},
+			{
+				"mass": [
+					"d",
+					"0000000000003d40"
+				],
+				"name": "BH-B",
+				"pos": [
+					[
+						"d",
+						"d3648039cbe6cf3f"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"type": "bh",
+				"vel": [
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"2d794c7b65e94440"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000005240"
+		],
+		"lensing": true,
+		"maxStep": [
+			"d",
+			"2d431cebe2360a3f"
+		],
+		"name": "Binary Black Hole Orbit",
+		"sceneScale": [
+			"d",
+			"0000000000004e40"
+		],
+		"sky": {
+			"env": "halo",
+			"roll": [
+				"d",
+				"cdcccccccccc0440"
+			],
+			"tilt": [
+				"d",
+				"295c8fc2f528cc3f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"333333333333c33f"
+		]
+	},
+	"binarystar": {
+		"blurb": "Two stars lose orbital energy through exaggerated drag and can reach physical contact. This illustrates orbital decay; it does not model mass transfer, stellar envelopes or a luminous red nova.",
+		"bodies": [
+			{
+				"color": [
+					"i",
+					16773328
+				],
+				"emitsGW": true,
+				"glow": [
+					"i",
+					16755268
+				],
+				"mass": [
+					"d",
+					"9a9999999999f13f"
+				],
+				"name": "Star A",
+				"pos": [
+					[
+						"d",
+						"000000000000f2bf"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000080"
+					]
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"11343762413b04c0"
+					]
+				]
+			},
+			{
+				"color": [
+					"i",
+					16765088
+				],
+				"emitsGW": true,
+				"glow": [
+					"i",
+					16744496
+				],
+				"mass": [
+					"d",
+					"cdccccccccccec3f"
+				],
+				"name": "Star B",
+				"pos": [
+					[
+						"d",
+						"000000000000f63f"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"f9940a7833ba0840"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000003040"
+		],
+		"gwBoost": [
+			"d",
+			"00a0d88557349643"
+		],
+		"lensing": false,
+		"name": "Illustrative Stellar Inspiral",
+		"sceneScale": [
+			"d",
+			"0000000000000840"
+		],
+		"sky": {
+			"env": "starburst",
+			"roll": [
+				"d",
+				"cdccccccccccec3f"
+			],
+			"tilt": [
+				"d",
+				"000000000000e03f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"000000000000e03f"
+		]
+	},
+	"blank": {
+		"blurb": "An empty scene, and the one place where Spawn puts things down at rest instead of into an orbit. Nothing moves until gravity moves it, so whatever happens next is entirely yours: release two bodies and watch them fall together, or place three and find out what the three-body problem does to your arrangement. Build the objects in the Foundry below — the mass, spin and composition sliders all apply — and paint rings and belts onto them. (Nothing here emits light, so until you spawn a star the scene is lit by a lamp riding the camera. It is a viewing aid and it switches off the moment there is a real star to light things.)",
+		"bodies": [],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000003a40"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62603f"
+		],
+		"mesh": true,
+		"name": "Blank Canvas",
+		"sceneScale": [
+			"d",
+			"0000000000000040"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"9a9999999999f93f"
+			],
+			"tilt": [
+				"d",
+				"52b81e85eb51d83f"
+			]
+		},
+		"spawnAtRest": true,
+		"timeScale": [
+			"d",
+			"000000000000d03f"
+		]
+	},
+	"edu_cluster": {
+		"blurb": "A million stars inside thirty light years, bound to each other and orbiting the galaxy as one object for twelve billion years. From in here the naked-eye sky holds tens of thousands of stars instead of three thousand, and the galaxy the cluster orbits is a distant object rather than a band overhead — because you are outside the disc looking back at it. Globulars are the oldest things in the galaxy, which is why almost every star in one is either a red dwarf or a red giant: everything heavier has already died.",
+		"bodies": [],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000002840"
+		],
+		"lensing": false,
+		"mesh": false,
+		"name": "Inside a globular cluster",
+		"sceneScale": [
+			"d",
+			"0000000000000040"
+		],
+		"sky": {
+			"env": [
+				"globular",
+				"halo"
+			],
+			"roll": [
+				"d",
+				"333333333333fb3f"
+			],
+			"tilt": [
+				"d",
+				"9a9999999999d93f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"9a9999999999b93f"
+		]
+	},
+	"edu_galaxy": {
+		"blurb": "An empty scene: everything here is the sky itself. The Milky Way is a disc about 100 000 light years across and 1000 thick, and we are inside it — so it is not an object we look at, it is a band that goes all the way round us, and its narrowness is the disc seen edge-on. The dark lanes splitting it are not gaps, they are dust in the way. Change the imaging band and that same dust becomes the brightest thing in the sky.",
+		"bodies": [],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000002840"
+		],
+		"lensing": false,
+		"mesh": false,
+		"name": "The Milky Way, from inside it",
+		"sceneScale": [
+			"d",
+			"0000000000000040"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"cdccccccccccec3f"
+			],
+			"tilt": [
+				"d",
+				"0000000000000000"
+			]
+		},
+		"timeScale": [
+			"d",
+			"9a9999999999b93f"
+		]
+	},
+	"edu_habitable": {
+		"blurb": "Three identical planets at 0.55, 1.0 and 1.9 AU from the same star. Identical: same mass, same radius, same albedo, same atmosphere. Nothing about how they look is set anywhere — each one computes the sunlight falling on it from where it actually is, turns that into a surface temperature, and its ice caps, its deserts and its vegetation follow. One of them is a furnace, one is frozen, and the one in between is not special in any way except its distance.",
+		"bodies": [
+			{
+				"color": [
+					"i",
+					16773836
+				],
+				"glow": [
+					"i",
+					16755251
+				],
+				"luminosity": [
+					"d",
+					"000000000000f03f"
+				],
+				"mass": [
+					"d",
+					"000000000000f03f"
+				],
+				"name": "Sun",
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"000000000000f03f"
+				],
+				"teff": [
+					"d",
+					"00000000008cb640"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"2fdd24068195d33f"
+				],
+				"atmosphere": true,
+				"biota": [
+					"d",
+					"000000000000f03f"
+				],
+				"cloudCover": [
+					"d",
+					"295c8fc2f528dc3f"
+				],
+				"land": [
+					"d",
+					"8fc2f5285c8fd23f"
+				],
+				"mass": [
+					"d",
+					"52754696f731c93e"
+				],
+				"name": "Scorched",
+				"obliquity": [
+					"d",
+					"4b4f9a7ac72eda3f"
+				],
+				"pAr": [
+					"d",
+					"fc54151a8865833f"
+				],
+				"pCH4": [
+					"d",
+					"b7b417a38780c03e"
+				],
+				"pCO2": [
+					"d",
+					"c08809ac14e93b3f"
+				],
+				"pN2": [
+					"d",
+					"f6622827da55e93f"
+				],
+				"pO2": [
+					"d",
+					"543a58ffe730cb3f"
+				],
+				"pSO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pos": [
+					[
+						"d",
+						"d6ccb8b2ee35e03f"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"2a5849cd406acb3f"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"0000000000e3b840"
+				],
+				"season": [
+					"d",
+					"0000000000002640"
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"4e1c38ffdb640ac0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"12b824d5bc361f40"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"2fdd24068195d33f"
+				],
+				"atmosphere": true,
+				"biota": [
+					"d",
+					"000000000000f03f"
+				],
+				"cloudCover": [
+					"d",
+					"295c8fc2f528dc3f"
+				],
+				"land": [
+					"d",
+					"8fc2f5285c8fd23f"
+				],
+				"mass": [
+					"d",
+					"52754696f731c93e"
+				],
+				"name": "Temperate",
+				"obliquity": [
+					"d",
+					"4b4f9a7ac72eda3f"
+				],
+				"pAr": [
+					"d",
+					"fc54151a8865833f"
+				],
+				"pCH4": [
+					"d",
+					"b7b417a38780c03e"
+				],
+				"pCO2": [
+					"d",
+					"c08809ac14e93b3f"
+				],
+				"pN2": [
+					"d",
+					"f6622827da55e93f"
+				],
+				"pO2": [
+					"d",
+					"543a58ffe730cb3f"
+				],
+				"pSO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pos": [
+					[
+						"d",
+						"70f480f6a16bebbf"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"bb85a0bbfc7ee03f"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"0000000000e3b840"
+				],
+				"season": [
+					"d",
+					"0000000000002640"
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"77846bed73e909c0"
+					],
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"fa4d0ee4348915c0"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"2fdd24068195d33f"
+				],
+				"atmosphere": true,
+				"biota": [
+					"d",
+					"000000000000f03f"
+				],
+				"cloudCover": [
+					"d",
+					"295c8fc2f528dc3f"
+				],
+				"land": [
+					"d",
+					"8fc2f5285c8fd23f"
+				],
+				"mass": [
+					"d",
+					"52754696f731c93e"
+				],
+				"name": "Frozen",
+				"obliquity": [
+					"d",
+					"4b4f9a7ac72eda3f"
+				],
+				"pAr": [
+					"d",
+					"fc54151a8865833f"
+				],
+				"pCH4": [
+					"d",
+					"b7b417a38780c03e"
+				],
+				"pCO2": [
+					"d",
+					"c08809ac14e93b3f"
+				],
+				"pN2": [
+					"d",
+					"f6622827da55e93f"
+				],
+				"pO2": [
+					"d",
+					"543a58ffe730cb3f"
+				],
+				"pSO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pos": [
+					[
+						"d",
+						"801395cf8646cbbf"
+					],
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"7c3a99054d35febf"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"0000000000e3b840"
+				],
+				"season": [
+					"d",
+					"0000000000002640"
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"ecde71a0401e1240"
+					],
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"d48901a6f45be0bf"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"0000000000000840"
+		],
+		"camRadius": [
+			"d",
+			"0000000000003640"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62503f"
+		],
+		"mesh": false,
+		"name": "The habitable zone",
+		"sceneScale": [
+			"d",
+			"0000000000002040"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"666666666666e63f"
+			],
+			"tilt": [
+				"d",
+				"0ad7a3703d0ad73f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"000000000000d03f"
+		]
+	},
+	"edu_hole": {
+		"blurb": "Eight solar masses and nothing else in the frame. There is nothing to see here in the ordinary sense — a black hole emits nothing — so everything you can see is the sky BEHIND it being bent. The dark disc is the shadow, and it is 5.2 Schwarzschild radii across rather than 2, because any light that comes closer than the photon sphere at 1.5 r_s spirals in. The bright circle round it is the photon ring: light that went most of the way round and came back out. Turn the accretion disc up and the same geometry shows you the far side of the disc over the top of the hole.",
+		"bodies": [
+			{
+				"mass": [
+					"d",
+					"0000000000002040"
+				],
+				"name": "Hole",
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"type": "bh",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000003a40"
+		],
+		"discIntensity": [
+			"d",
+			"0000000000000000"
+		],
+		"lensing": true,
+		"mesh": false,
+		"name": "A black hole, alone",
+		"sceneScale": [
+			"d",
+			"0334e40b37fc5c41"
+		],
+		"sky": {
+			"env": [
+				"halo",
+				"disc"
+			],
+			"roll": [
+				"d",
+				"9a99999999990540"
+			],
+			"tilt": [
+				"d",
+				"a4703d0ad7a3d03f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"9a9999999999d93f"
+		]
+	},
+	"edu_kepler": {
+		"blurb": "Three planets round one star. Circle and Ellipse have the SAME semi-major axis — 1.5 AU — and wildly different shapes, and they keep arriving back together, because the period depends on the semi-major axis and on nothing else. Far sits at 2.381 AU, where a³ is exactly four times theirs, so it takes exactly two of their years to go round once: count the laps. On the ellipse the planet moves 6.1 times faster at its closest point than at its furthest, which is the second law — the trail bunches up where it is slow.",
+		"bodies": [
+			{
+				"color": [
+					"i",
+					16773836
+				],
+				"glow": [
+					"i",
+					16755251
+				],
+				"mass": [
+					"d",
+					"000000000000f03f"
+				],
+				"name": "Sun",
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"295c8fc2f528cc3f"
+				],
+				"crater": [
+					"d",
+					"9a9999999999d93f"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"54e41071732ac93e"
+				],
+				"name": "Circle",
+				"obliquity": [
+					"d",
+					"9a9999999999c93f"
+				],
+				"pos": [
+					[
+						"d",
+						"000000000000f83f"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"0000000000e3b840"
+				],
+				"regolith": [
+					"i",
+					9413560
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"a89180f852851440"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"295c8fc2f528cc3f"
+				],
+				"crater": [
+					"d",
+					"9a9999999999d93f"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"54e41071732ac93e"
+				],
+				"name": "Ellipse",
+				"obliquity": [
+					"d",
+					"9a9999999999c93f"
+				],
+				"pos": [
+					[
+						"d",
+						"a4703d0ad7a30440"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"0000000000e3b840"
+				],
+				"regolith": [
+					"i",
+					12093802
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"9a47dae5268f0040"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"295c8fc2f528cc3f"
+				],
+				"crater": [
+					"d",
+					"9a9999999999d93f"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"54e41071732ac93e"
+				],
+				"name": "Far",
+				"obliquity": [
+					"d",
+					"9a9999999999c93f"
+				],
+				"pos": [
+					[
+						"d",
+						"ad12eefb7e0c03c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"2162a00b1603b53c"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"0000000000e3b840"
+				],
+				"regolith": [
+					"i",
+					8359802
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"13864c1d4cf7c1bc"
+					],
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"bc343eec904910c0"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"666666666666d63f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000004f40"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62503f"
+		],
+		"mesh": false,
+		"name": "Kepler's laws",
+		"sceneScale": [
+			"d",
+			"0000000000003640"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"9a9999999999f13f"
+			],
+			"tilt": [
+				"d",
+				"333333333333d33f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"333333333333e33f"
+		]
+	},
+	"edu_lifecycle": {
+		"blurb": "A single solar-mass star, with the cross-section panel open and its phase slider free. Every stop on it is a real point on the evolutionary track — the radius, the temperature, the colour and the interior layers are all recomputed from the model, not cross-faded between pictures. Drag it right and watch the star leave the main sequence, swell 25-fold into a red giant, and then 130-fold again; the inner planet is at Mercury's distance to show what that means for anything in the way.",
+		"bodies": [
+			{
+				"mass": [
+					"d",
+					"000000000000f03f"
+				],
+				"name": "Sol",
+				"phase": [
+					"d",
+					"0000000000000000"
+				],
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"b81e85eb51b8be3f"
+				],
+				"crater": [
+					"d",
+					"666666666666ee3f"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"495e1271b747863e"
+				],
+				"name": "Inner world",
+				"pos": [
+					[
+						"d",
+						"4c03fa3168bcd53f"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"205b46e5b2bfc73f"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"66666666660fa340"
+				],
+				"regolith": [
+					"i",
+					9142905
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"9d63c0f0715e13c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"84dd22b92fba2140"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"2fdd24068195d33f"
+				],
+				"atmosphere": true,
+				"cloudCover": [
+					"d",
+					"295c8fc2f528dc3f"
+				],
+				"hot": true,
+				"land": [
+					"d",
+					"8fc2f5285c8fd23f"
+				],
+				"mass": [
+					"d",
+					"52754696f731c93e"
+				],
+				"name": "Earth-like",
+				"obliquity": [
+					"d",
+					"4b4f9a7ac72eda3f"
+				],
+				"pAr": [
+					"d",
+					"fc54151a8865833f"
+				],
+				"pCH4": [
+					"d",
+					"b7b417a38780c03e"
+				],
+				"pCO2": [
+					"d",
+					"c08809ac14e93b3f"
+				],
+				"pN2": [
+					"d",
+					"f6622827da55e93f"
+				],
+				"pO2": [
+					"d",
+					"543a58ffe730cb3f"
+				],
+				"pSO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pos": [
+					[
+						"d",
+						"04be5ec302f0eebf"
+					],
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"6c4cff10c95ad0bf"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"0000000000e3b840"
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"2380964f96b0f93f"
+					],
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"761b89a75c4c18c0"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"9a9999999999f13f"
+		],
+		"focus": "Sol",
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62503f"
+		],
+		"mesh": false,
+		"name": "One star, whole life",
+		"sceneScale": [
+			"d",
+			"0000000000003a40"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"333333333333d33f"
+			],
+			"tilt": [
+				"d",
+				"9a9999999999d93f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"9a9999999999d93f"
+		],
+		"trueScale": true
+	},
+	"edu_mercury": {
+		"blurb": "The Sun and Mercury on Mercury's real orbit, and nothing else. With Newton's gravity the ellipse closes; with Einstein's first post-Newtonian terms its perihelion turns by 43 arcseconds a century, the anomaly Le Verrier measured in 1859 and general relativity explained in 1915.",
+		"bodies": [
+			{
+				"luminosity": [
+					"d",
+					"000000000000f03f"
+				],
+				"mass": [
+					"d",
+					"000000000000f03f"
+				],
+				"name": "Sun",
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"000000000000f03f"
+				],
+				"teff": [
+					"d",
+					"00000000008cb640"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"ec51b81e85ebc13f"
+				],
+				"crater": [
+					"d",
+					"000000000000f03f"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"2ee411670f48863e"
+				],
+				"name": "Mercury",
+				"pos": [
+					[
+						"d",
+						"1a37f4ee5cdedd3f"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"66666666660fa340"
+				],
+				"regolith": [
+					"i",
+					9208696
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"105fd8f00b652040"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"333333333333e33f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000004440"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62203f"
+		],
+		"mesh": false,
+		"name": "Mercury alone",
+		"sceneScale": [
+			"d",
+			"0000000000004e40"
+		],
+		"sky": {
+			"env": "disc",
+			"galactic": "j2000"
+		},
+		"timeScale": [
+			"d",
+			"0000000000001440"
+		]
+	},
+	"edu_moon": {
+		"blurb": "The Earth–Moon system at its real separation — 384 400 km, thirty Earth diameters, which is already further apart than almost every diagram draws it. The Sun lights exactly half the Moon at every instant; the phase is how much of that half you can see from here. When an alignment comes, the shadow is drawn, umbra and penumbra. Earth’s rotation is slowed to 80 turns per year. The orbit carries its real 5.14° tilt to the ecliptic, which is the entire reason there is not an eclipse every month: at most new moons the shadow misses by several Earth diameters.",
+		"bodies": [
+			{
+				"color": [
+					"i",
+					16773836
+				],
+				"glow": [
+					"i",
+					16755251
+				],
+				"mass": [
+					"d",
+					"000000000000f03f"
+				],
+				"name": "Sun",
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"2fdd24068195d33f"
+				],
+				"atmosphere": true,
+				"biota": [
+					"d",
+					"000000000000f03f"
+				],
+				"cloudCover": [
+					"d",
+					"295c8fc2f528dc3f"
+				],
+				"dayLength": [
+					"d",
+					"9a9999999999893f"
+				],
+				"home": true,
+				"k2": [
+					"d",
+					"894160e5d022d33f"
+				],
+				"land": [
+					"d",
+					"8fc2f5285c8fd23f"
+				],
+				"mass": [
+					"d",
+					"52754696f731c93e"
+				],
+				"name": "Earth",
+				"obliquity": [
+					"d",
+					"4b4f9a7ac72eda3f"
+				],
+				"pos": [
+					[
+						"d",
+						"000000000000f03f"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"0000000000e3b840"
+				],
+				"season": [
+					"d",
+					"0000000000002640"
+				],
+				"tideLagS": [
+					"d",
+					"0000000000f08340"
+				],
+				"type": "world",
+				"vel": [
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"182d4454fb211940"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"b81e85eb51b8be3f"
+				],
+				"crater": [
+					"d",
+					"000000000000f03f"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"7d321592a8d2633e"
+				],
+				"name": "Moon",
+				"obliquity": [
+					"d",
+					"5396218e75719b3f"
+				],
+				"pos": [
+					[
+						"d",
+						"93f5be5f860af03f"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"9a99999999259b40"
+				],
+				"regolith": [
+					"i",
+					10130828
+				],
+				"tidalLock": "Earth",
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"4b85d7b4dad893bf"
+					],
+					[
+						"d",
+						"1c92f09a68fe1940"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000d03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000001a40"
+		],
+		"climate": {
+			"T0": [
+				"d",
+				"0000000000007240"
+			],
+			"mixedLayer": [
+				"d",
+				"0000000000004e40"
+			]
+		},
+		"focus": "Earth",
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"2d431cebe2362a3f"
+		],
+		"mesh": false,
+		"name": "Phases, and why eclipses are rare",
+		"sceneScale": [
+			"d",
+			"0000000000208c40"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"cdcccccccccc0040"
+			],
+			"tilt": [
+				"d",
+				"52b81e85eb51d83f"
+			]
+		},
+		"surface": true,
+		"timeScale": [
+			"d",
+			"fa7e6abc7493783f"
+		],
+		"trueScale": true
+	},
+	"edu_pulsar": {
+		"blurb": "One and a half solar masses inside a sphere 24 km across, turning 30 times a second. Rotation is slowed in this view so you can follow the sweep. Its gravity bends the light leaving its own surface far enough that you see well past the limb — more than half the star at once. The beams come out of the magnetic poles, which are not the rotation poles, so they sweep: a pulsar does not blink, it rotates, and we only call it a pulsar because the beam happens to cross us. Switch to the RADIO band to see what a radio telescope sees.",
+		"bodies": [
+			{
+				"mass": [
+					"d",
+					"666666666666f63f"
+				],
+				"name": "Pulsar",
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"spinHz": [
+					"d",
+					"0000000000003e40"
+				],
+				"type": "neutron",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"visualSpinRadS": [
+					"d",
+					"0000000000003e40"
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000001a40"
+		],
+		"focus": "Pulsar",
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"3a8c30e28e79453e"
+		],
+		"mesh": false,
+		"name": "A pulsar",
+		"sceneScale": [
+			"d",
+			"0000000060e36641"
+		],
+		"sky": {
+			"env": [
+				"disc",
+				"halo"
+			],
+			"roll": [
+				"d",
+				"9a99999999990140"
+			],
+			"tilt": [
+				"d",
+				"8fc2f5285c8fe23f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"48afbc9af2d78a3e"
+		],
+		"trueScale": true
+	},
+	"edu_seasons": {
+		"blurb": "One star, one planet, and the real 23.44° tilt. Earth's orbit is its real one — eccentricity 0.0167, with perihelion in January — so the planet is CLOSEST to the Sun during northern winter. Watch the terminator: the axis keeps pointing at the same place in the sky all year, so first one pole leans into the light and then the other. The ONE thing changed from reality is the length of the day: this world turns 20 times a year rather than 365, because no single pace makes both the day and the year watchable and the course needs both.",
+		"bodies": [
+			{
+				"color": [
+					"i",
+					16773836
+				],
+				"glow": [
+					"i",
+					16755251
+				],
+				"mass": [
+					"d",
+					"000000000000f03f"
+				],
+				"name": "Sun",
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"2fdd24068195d33f"
+				],
+				"atmosphere": true,
+				"biota": [
+					"d",
+					"000000000000f03f"
+				],
+				"cloudCover": [
+					"d",
+					"295c8fc2f528dc3f"
+				],
+				"dayLength": [
+					"d",
+					"9a9999999999a93f"
+				],
+				"home": true,
+				"k2": [
+					"d",
+					"894160e5d022d33f"
+				],
+				"land": [
+					"d",
+					"8fc2f5285c8fd23f"
+				],
+				"mass": [
+					"d",
+					"52754696f731c93e"
+				],
+				"name": "Earth",
+				"obliquity": [
+					"d",
+					"4b4f9a7ac72eda3f"
+				],
+				"pos": [
+					[
+						"d",
+						"0fdf22566744f03f"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"0000000000e3b840"
+				],
+				"season": [
+					"d",
+					"0000000000002640"
+				],
+				"tideLagS": [
+					"d",
+					"0000000000f08340"
+				],
+				"type": "world",
+				"vel": [
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"90af98926ab71840"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000e03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000002840"
+		],
+		"climate": {
+			"T0": [
+				"d",
+				"0000000000007240"
+			],
+			"mixedLayer": [
+				"d",
+				"0000000000004e40"
+			]
+		},
+		"focus": "Earth",
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62503f"
+		],
+		"mesh": false,
+		"name": "Why there are seasons",
+		"sceneScale": [
+			"d",
+			"0000000000004140"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"cdcccccccccc0040"
+			],
+			"tilt": [
+				"d",
+				"52b81e85eb51d83f"
+			]
+		},
+		"surface": true,
+		"timeScale": [
+			"d",
+			"b81e85eb51b8ae3f"
+		]
+	},
+	"edu_starbirth": {
+		"blurb": "A protostar in a star-forming region, with the disc it cannot avoid having. What collapsed was rotating, and rotation cannot be thrown away, so the infalling gas lands on a disc instead of on the star — which is where the planets come from, and why every planet in our solar system goes round the same way. The star at the centre is not fusing anything yet: it shines on the heat of its own collapse, and it is larger and redder now than it will ever be again. The nebulosity is the sky, not an object: the H II and reflection components of sim/sky.js turned up, because that is genuinely where young stars are. The cloud core immediately around it is NOT drawn — the painter models optically thin shells, which is right for a thrown-off envelope and wrong for an infalling one.",
+		"bodies": [
+			{
+				"color": [
+					"i",
+					16756848
+				],
+				"glow": [
+					"i",
+					16738856
+				],
+				"luminosity": [
+					"d",
+					"9a9999999999f93f"
+				],
+				"mass": [
+					"d",
+					"000000000000f03f"
+				],
+				"name": "Protostar",
+				"phase": [
+					"d",
+					"333333333333c3bf"
+				],
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"0000000000000c40"
+				],
+				"teff": [
+					"d",
+					"000000000004b040"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				]
+			},
+			{
+				"internalHeat": [
+					"d",
+					"0000000000001040"
+				],
+				"mass": [
+					"d",
+					"613255302aa9333f"
+				],
+				"name": "Protoplanet",
+				"palette": "jupiter",
+				"pos": [
+					[
+						"d",
+						"a619696b43d10f40"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"09bb7422a9cc0a40"
+					]
+				],
+				"type": "gas-giant",
+				"vel": [
+					[
+						"d",
+						"b9f380e69b66fcbf"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"ef6f174efcdb0040"
+					]
+				]
+			},
+			{
+				"crater": [
+					"d",
+					"cdccccccccccec3f"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"8dedb5a0f7c6c03e"
+				],
+				"name": "Planetesimal",
+				"pos": [
+					[
+						"d",
+						"43a19d07af8525c0"
+					],
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"759df4f2b03d15c0"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"000000000040af40"
+				],
+				"regolith": [
+					"i",
+					9075306
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"a0dbc9ff40afe93f"
+					],
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"f26a1ba54e06fabf"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"9a9999999999e93f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000004040"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62603f"
+		],
+		"mesh": false,
+		"name": "The birth of a star",
+		"paint": [
+			{
+				"body": "Protostar",
+				"color": [
+					"i",
+					13145450
+				],
+				"inner": [
+					"d",
+					"666666666666d63f"
+				],
+				"kind": "belt",
+				"outer": [
+					"d",
+					"0000000000003a40"
+				],
+				"surfaceDensity": [
+					"d",
+					"000000000000f0bf"
+				]
+			}
+		],
+		"sceneScale": [
+			"d",
+			"cdccccccccccec3f"
+		],
+		"sky": {
+			"dust": [
+				"d",
+				"6666666666660240"
+			],
+			"env": {
+				"disc": [
+					"d",
+					"666666666666d63f"
+				],
+				"starburst": [
+					"d",
+					"000000000000f03f"
+				]
+			},
+			"hii": [
+				"d",
+				"9a99999999991540"
+			],
+			"reflection": [
+				"d",
+				"3333333333330b40"
+			],
+			"roll": [
+				"d",
+				"9a9999999999e93f"
+			],
+			"starDensity": [
+				"d",
+				"0000000000000040"
+			],
+			"tilt": [
+				"d",
+				"295c8fc2f528dc3f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"0000000000000040"
+		]
+	},
+	"edu_sun": {
+		"blurb": "One ordinary G2 star at 5772 K, filling the frame, on a clock slowed to about a day per second — because a solar flare lasts hours and erupts once every few years, and at orbital pace the entire event happens between two frames. Everything on the surface is derived: the granulation is convection cells at the size the pressure scale height gives, the spots are where the field is strong enough to choke that convection, and the loops above them are gas that cannot cross a magnetic field line and so slides along it.",
+		"bodies": [
+			{
+				"catalog": "sun",
+				"catalogNote": "The calibration point for everything else in astrophysics, and a thoroughly ordinary star: more massive than about 95% of the stars in the galaxy.",
+				"luminosity": [
+					"d",
+					"000000000000f03f"
+				],
+				"mass": [
+					"d",
+					"000000000000f03f"
+				],
+				"name": "Sun",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"000000000000f03f"
+				],
+				"sp": "G2V",
+				"teff": [
+					"d",
+					"00000000008cb640"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000001840"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62403f"
+		],
+		"mesh": false,
+		"name": "The Sun, close up",
+		"sceneScale": [
+			"d",
+			"0000000000406a40"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"cdcccccccccc0040"
+			],
+			"tilt": [
+				"d",
+				"52b81e85eb51d83f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"c7bab88d06f0663f"
+		],
+		"trueScale": true
+	},
+	"edu_supernova": {
+		"blurb": "Twenty solar masses at the last stop before the end. Silicon burning in the core takes about a day and builds an iron core — and iron is where nuclear binding energy peaks, so burning it costs energy instead of releasing it. When that core passes its own Chandrasekhar mass it falls in inside a quarter of a second, and what is left over depends only on how heavy it was. The scenario knows which; it is not told.",
+		"bodies": [
+			{
+				"color": [
+					"i",
+					16747088
+				],
+				"glow": [
+					"i",
+					16734752
+				],
+				"luminosity": [
+					"d",
+					"fbffffffff7ba740"
+				],
+				"mass": [
+					"d",
+					"0000000000003440"
+				],
+				"name": "Doomed",
+				"phase": [
+					"d",
+					"333333333333ff3f"
+				],
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"cc50ae28aaf59240"
+				],
+				"teff": [
+					"d",
+					"000000000020ac40"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000004640"
+		],
+		"focus": "Doomed",
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62603f"
+		],
+		"mesh": false,
+		"name": "A star about to explode",
+		"sceneScale": [
+			"d",
+			"9a9999999999f93f"
+		],
+		"sky": {
+			"env": [
+				"starburst",
+				"disc"
+			],
+			"roll": [
+				"d",
+				"666666666666f63f"
+			],
+			"tilt": [
+				"d",
+				"000000000000e03f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"000000000000d03f"
+		],
+		"trueScale": true
+	},
+	"edu_transit": {
+		"blurb": "A Sun-like star with two planets on almost edge-on orbits. The hot Jupiter covers 1.7% of the star every 4.08 days and hauls it around at 152 m/s; the Earth-sized planet further out covers 84 parts per million and moves the star at 17 cm/s. Both are real numbers for those planets. The measured dip is a little deeper than the area ratio, because a stellar disc is brighter in the middle than at the edge. The observer is the camera — so climb out of the orbital plane and the transits stop, which is exactly why we have only found the planets whose orbits happen to point at us.",
+		"bodies": [
+			{
+				"color": [
+					"i",
+					16773836
+				],
+				"glow": [
+					"i",
+					16755251
+				],
+				"luminosity": [
+					"d",
+					"000000000000f03f"
+				],
+				"mass": [
+					"d",
+					"000000000000f03f"
+				],
+				"name": "Kepler-ish",
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"000000000000f03f"
+				],
+				"teff": [
+					"d",
+					"00000000008cb640"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"7a1dc2eb8242f93e"
+					],
+					[
+						"d",
+						"e576c48d291546bf"
+					],
+					[
+						"d",
+						"a060754b9076a0bf"
+					]
+				]
+			},
+			{
+				"internalHeat": [
+					"d",
+					"0000000000000840"
+				],
+				"mass": [
+					"d",
+					"b0776dd99bc4523f"
+				],
+				"name": "Giant b",
+				"palette": "jupiter",
+				"pos": [
+					[
+						"d",
+						"9a9999999999a93f"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"cdcccccc4430f640"
+				],
+				"type": "gas-giant",
+				"vel": [
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"9cc227a7b7d4e23f"
+					],
+					[
+						"d",
+						"87f69a28d5173c40"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"000000000000d03f"
+				],
+				"crater": [
+					"d",
+					"333333333333d33f"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"52754696f731c93e"
+				],
+				"name": "Rock c",
+				"pos": [
+					[
+						"d",
+						"dd1df4e89d6dcabf"
+					],
+					[
+						"d",
+						"751fba9e01a2553f"
+					],
+					[
+						"d",
+						"d216282c4035c83f"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"0000000000e3b840"
+				],
+				"regolith": [
+					"i",
+					10520696
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"ea376a9d810a20c0"
+					],
+					[
+						"d",
+						"4458bca50e4cafbf"
+					],
+					[
+						"d",
+						"2f44ab03e88221c0"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000e03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000003a40"
+		],
+		"focus": "Kepler-ish",
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"f168e388b5f8f43e"
+		],
+		"mesh": false,
+		"name": "Finding planets: transits and wobbles",
+		"sceneScale": [
+			"d",
+			"0000000000c07240"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"666666666666fe3f"
+			],
+			"tilt": [
+				"d",
+				"c3f5285c8fc2d53f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"7b14ae47e17a743f"
+		]
+	},
+	"etacar": {
+		"blurb": "A hundred solar masses radiating five million times the Sun. At that luminosity the radiation pressure pushing outward on free electrons is comparable to the star’s own gravity holding it in — L/L_Edd is near one, and its outer layers are barely bound at all. In the 1840s it threw off somewhere between ten and forty solar masses in a single eruption, briefly became the second brightest star in the sky, and survived. The debris is the Homunculus Nebula, expanding at its measured 650 km/s — drawn at 26 AU rather than its true 38 000, because the binary that threw it off is 15 AU across and there is no single frame that holds both.",
+		"bodies": [
+			{
+				"catalog": "etacar",
+				"catalogNote": "The most luminous star in the galaxy that we can still see, sitting hard against its own Eddington limit. In the 1840s it brightened to outshine everything but Sirius and threw off ten to forty solar masses in a single eruption — and survived. The debris is still expanding as the Homunculus Nebula.",
+				"luminosity": [
+					"d",
+					"00000000d0125341"
+				],
+				"mass": [
+					"d",
+					"0000000000005940"
+				],
+				"name": "Eta Carinae A",
+				"phase": [
+					"d",
+					"000000000000f03f"
+				],
+				"pos": [
+					[
+						"d",
+						"231fc51cdc120040"
+					],
+					[
+						"d",
+						"d05af245918fd2bf"
+					],
+					[
+						"d",
+						"bbf3c9f70de4f6bf"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"0000000000006e40"
+				],
+				"sp": "LBV",
+				"teff": [
+					"d",
+					"00000000005cc240"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"b4647cae28b91640"
+					],
+					[
+						"d",
+						"b4bcd3b9715cc6bf"
+					],
+					[
+						"d",
+						"d12f3a7be493ebbf"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"00000000006a2841"
+				],
+				"mass": [
+					"d",
+					"0000000000003e40"
+				],
+				"name": "Eta Carinae B",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"3b89488519ca1ac0"
+					],
+					[
+						"d",
+						"b0ec937447efee3f"
+					],
+					[
+						"d",
+						"1c4b28f960131340"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"0000000000003440"
+				],
+				"teff": [
+					"d",
+					"000000000011e240"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"96febce6a1ef32c0"
+					],
+					[
+						"d",
+						"ebc785c55ea2e23f"
+					],
+					[
+						"d",
+						"2e7db0663efb0640"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000805340"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62603f"
+		],
+		"mesh": false,
+		"name": "Eta Carinae — against the Eddington limit",
+		"paint": [
+			{
+				"body": "Eta Carinae A",
+				"color": [
+					"i",
+					16764826
+				],
+				"density": [
+					"d",
+					"333333333333eb3f"
+				],
+				"expand": [
+					"d",
+					"f0a7c64b3789c13f"
+				],
+				"kind": "cloud",
+				"lobes": [
+					"i",
+					2
+				],
+				"radius": [
+					"d",
+					"0000000000003a40"
+				]
+			}
+		],
+		"sceneScale": [
+			"d",
+			"cdccccccccccec3f"
+		],
+		"sky": {
+			"env": "starburst",
+			"roll": [
+				"d",
+				"9a9999999999f53f"
+			],
+			"tilt": [
+				"d",
+				"a4703d0ad7a3e03f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"333333333333d33f"
+		],
+		"trueScale": true
+	},
+	"feeding": {
+		"blurb": "A star orbits a 12 M☉ black hole, with both bodies drawn at their physical sizes. The gas stream illustrates how stripped material could flow toward the hole; the star keeps its mass until contact. Focus Singularity for a close view of its shadow and illustrated disc.",
+		"bodies": [
+			{
+				"mass": [
+					"d",
+					"0000000000002840"
+				],
+				"name": "Singularity",
+				"pos": [
+					[
+						"d",
+						"3d585388bf3b63bf"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000080"
+					]
+				],
+				"type": "bh",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"d2a316ef33b136c0"
+					]
+				]
+			},
+			{
+				"color": [
+					"i",
+					16769184
+				],
+				"glow": [
+					"i",
+					16744512
+				],
+				"mass": [
+					"d",
+					"cdccccccccccfc3f"
+				],
+				"name": "Companion Star",
+				"pos": [
+					[
+						"d",
+						"3374459c1f07903f"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"dbdd929c00e96240"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000003e40"
+		],
+		"discOuter": [
+			"d",
+			"0000000000002240"
+		],
+		"lensing": true,
+		"maxStep": [
+			"d",
+			"f168e388b5f8e43e"
+		],
+		"name": "Black Hole and Companion",
+		"sceneScale": [
+			"d",
+			"0000000000006940"
+		],
+		"sky": {
+			"env": "core",
+			"roll": [
+				"d",
+				"333333333333f33f"
+			],
+			"tilt": [
+				"d",
+				"0ad7a3703d0ad73f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"2d431cebe2361a3f"
+		],
+		"trueScale": true
+	},
+	"gargantua_demo": {
+		"blurb": "An isolated 100 million solar mass black hole at spin 0.998. The Expedition Ring developer scenario shows a prescribed equatorial Kerr orbit and its clock ratio to infinity. The close orbit uses an analytic demonstration rather than the ordinary pair integrator.",
+		"bodies": [
+			{
+				"mass": [
+					"d",
+					"0000000084d79741"
+				],
+				"name": "Gargantua",
+				"obliquity": [
+					"d",
+					"0000000000000000"
+				],
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"spinFrac": [
+					"d",
+					"560e2db29defef3f"
+				],
+				"type": "bh",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000002840"
+		],
+		"discOuter": [
+			"d",
+			"0000000000002040"
+		],
+		"focus": "Gargantua",
+		"lensing": true,
+		"maxStep": [
+			"d",
+			"2d431cebe2361a3f"
+		],
+		"mesh": false,
+		"name": "Gargantua analogue",
+		"sceneScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"sky": {
+			"env": "core",
+			"roll": [
+				"d",
+				"666666666666fe3f"
+			],
+			"tilt": [
+				"d",
+				"295c8fc2f528cc3f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"f168e388b5f8e43e"
+		],
+		"trueScale": true
+	},
+	"hr_ladder": {
+		"blurb": "Eleven stars from 0.1 to 60 solar masses, every one of them burning hydrogen in its core — the same process, over a factor of 600 in mass. Everything else changes: the red dwarf at one end is 3000 K and will last ten trillion years; the O star at the other is 45 000 K, four hundred thousand times brighter, and will be gone in three million. Sizes are exaggerated here rather than true, because this is the one comparison where readability beats honesty; hit \"Sizes: Real\" to see what it actually looks like.",
+		"bodies": [
+			{
+				"luminosity": [
+					"d",
+					"0aeddc18e7e2523f"
+				],
+				"mass": [
+					"d",
+					"9a9999999999b93f"
+				],
+				"name": "0.1 M☉",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"0000000000003a40"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"75b376c56049c43f"
+				],
+				"teff": [
+					"d",
+					"d498cac509dfa440"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"e547ba9798632440"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"7ecf67a67640773f"
+				],
+				"mass": [
+					"d",
+					"9a9999999999c93f"
+				],
+				"name": "0.2 M☉",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"9703022e62df3540"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"126f30b4021d2c40"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"d633aa2019a9d13f"
+				],
+				"teff": [
+					"d",
+					"5b75da931990a740"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"a1bc4beec8d910c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"fb8caf5b61381a40"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"dee1769757a09c3f"
+				],
+				"mass": [
+					"d",
+					"9a9999999999d93f"
+				],
+				"name": "0.4 M☉",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"34bff130019a2540"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"cf8321b482a63740"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"53d83c68b0bfde3f"
+				],
+				"teff": [
+					"d",
+					"3430a7ad069aaa40"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"1c692b01c80219c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"f711c4bd1ad80640"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"3f82e2c798bbce3f"
+				],
+				"mass": [
+					"d",
+					"666666666666e63f"
+				],
+				"name": "0.7 M☉",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"dccf9802fb990dc0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"63b66d6340bc3940"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"fb1b3b26680ee83f"
+				],
+				"teff": [
+					"d",
+					"a0ae59e2fd33b240"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"d6d5f3998eb919c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"99365499e196edbf"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"000000000000f03f"
+				],
+				"mass": [
+					"d",
+					"000000000000f03f"
+				],
+				"name": "1 M☉",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"eef790c7c00631c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"03411fe844a63340"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"000000000000f03f"
+				],
+				"teff": [
+					"d",
+					"00000000008cb640"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"f7f38ecfb17e13c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"b5858b2276e410c0"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"0000000000401440"
+				],
+				"mass": [
+					"d",
+					"000000000000f83f"
+				],
+				"name": "1.5 M☉",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"46d1969e62f238c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"62a6e0fbd84c1d40"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"4c3a613dfa28f43f"
+				],
+				"teff": [
+					"d",
+					"db9331782521be40"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"a2144a9a57f9fdbf"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"edda093b408519c0"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"6d443b50304b4140"
+				],
+				"mass": [
+					"d",
+					"0000000000000440"
+				],
+				"name": "2.5 M☉",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"48d1969e62f238c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"4ea6e0fbd84c1dc0"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"b71d13d559f9fa3f"
+				],
+				"teff": [
+					"d",
+					"0a1217d04c0ec540"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"e93e40fb0fecff3f"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"88a64447df2d1bc0"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"6666666666666640"
+				],
+				"mass": [
+					"d",
+					"0000000000001040"
+				],
+				"name": "4 M☉",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"eef790c7c00631c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"02411fe844a633c0"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"1bc33f4267a10140"
+				],
+				"teff": [
+					"d",
+					"77b1ecefd9c8cb40"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"c528a73e75c31740"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"6a0b95aa589714c0"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"9999999999eba740"
+				],
+				"mass": [
+					"d",
+					"0000000000002240"
+				],
+				"name": "9 M☉",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"e9cf9802fb990dc0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"62b66d6340bc39c0"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"90331b1b87fd0b40"
+				],
+				"teff": [
+					"d",
+					"f031d5438a6ad640"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"7bdd86b04c7a2140"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"b76bab0f751af4bf"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"fbffffff7f76e840"
+				],
+				"mass": [
+					"d",
+					"0000000000003440"
+				],
+				"name": "20 M☉",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"3abff130019a2540"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"cf8321b482a637c0"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"59e0bc95e60f1640"
+				],
+				"teff": [
+					"d",
+					"3e2ad2233cf4e140"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"100a7882be112240"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"45e9cc5e03811040"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"feffffff9f262141"
+				],
+				"mass": [
+					"d",
+					"0000000000004e40"
+				],
+				"name": "60 M☉",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"9403022e62df3540"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"1c6f30b4021d2cc0"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"7e3b955937a22440"
+				],
+				"teff": [
+					"d",
+					"107df4735006e840"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"6aa73bb493ad0a40"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"1bf1c3bc83c11440"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"cdccccccccccec3f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000004740"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62603f"
+		],
+		"mesh": false,
+		"name": "The Main Sequence, end to end",
+		"sceneScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"sky": {
+			"env": "globular",
+			"roll": [
+				"d",
+				"cdccccccccccec3f"
+			],
+			"tilt": [
+				"d",
+				"0ad7a3703d0ad73f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"000000000000e03f"
+		]
+	},
+	"jovian_voyage": {
+		"blurb": "The Solar System with Io, Europa, Ganymede and Callisto on approximate circular orbits in Jupiter's equatorial plane. Launch the Jupiter Explorer from Earth orbit and select Jupiter in the porkchop mission planner. Jupiter's zonal figure is used in local flight. The moon phases are illustrative, not a dated ephemeris.",
+		"bodies": [
+			{
+				"color": [
+					"i",
+					16773836
+				],
+				"glow": [
+					"i",
+					16755251
+				],
+				"mass": [
+					"d",
+					"000000000000f03f"
+				],
+				"name": "Sun",
+				"pos": [
+					[
+						"d",
+						"c4622d92173a7dbf"
+					],
+					[
+						"d",
+						"d3fe97a100032bbf"
+					],
+					[
+						"d",
+						"d748d84967e666bf"
+					]
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"95f5eb290118603f"
+					],
+					[
+						"d",
+						"8ef080cdee0f023f"
+					],
+					[
+						"d",
+						"b9aac38c5e2466bf"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"b81e85eb51b8be3f"
+				],
+				"crater": [
+					"d",
+					"666666666666ee3f"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"fd25b7de2148863e"
+				],
+				"mixedLayer": [
+					"d",
+					"000000000000f83f"
+				],
+				"name": "Mercury",
+				"obliquity": [
+					"d",
+					"613255302aa9433f"
+				],
+				"oceans": false,
+				"pos": [
+					[
+						"d",
+						"bb6faa2d8f90c1bf"
+					],
+					[
+						"d",
+						"5bae84d768fa983f"
+					],
+					[
+						"d",
+						"bff6f0d73ccedcbf"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"66666666660fa340"
+				],
+				"regolith": [
+					"i",
+					9142905
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"1fe9a5ce7d391f40"
+					],
+					[
+						"d",
+						"7e20bd1b5914ed3f"
+					],
+					[
+						"d",
+						"8eaf04acdbdc02c0"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"a4703d0ad7a3e83f"
+				],
+				"atmColor": [
+					"i",
+					16767392
+				],
+				"atmosphere": true,
+				"cloudColor": [
+					"i",
+					16773842
+				],
+				"cloudCover": [
+					"d",
+					"000000000000f03f"
+				],
+				"cloudSpin": [
+					"d",
+					"0000000000004e40"
+				],
+				"crater": [
+					"d",
+					"9a9999999999b93f"
+				],
+				"haze": [
+					"d",
+					"333333333333f33f"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"40143c54b188c43e"
+				],
+				"mixedLayer": [
+					"d",
+					"0000000000e07040"
+				],
+				"name": "Venus",
+				"obliquity": [
+					"d",
+					"f853e3a59bc40840"
+				],
+				"oceans": false,
+				"pAr": [
+					"d",
+					"ff092e56d4607a3f"
+				],
+				"pCO2": [
+					"d",
+					"52b81e85eb315640"
+				],
+				"pN2": [
+					"d",
+					"c3f5285c8fc20940"
+				],
+				"pSO2": [
+					"d",
+					"6c787aa52c438c3f"
+				],
+				"pos": [
+					[
+						"d",
+						"761219c4e636e7bf"
+					],
+					[
+						"d",
+						"ad7a08fb021ba5bf"
+					],
+					[
+						"d",
+						"45d1cae8532da2bf"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"cdcccccccca3b740"
+				],
+				"regolith": [
+					"i",
+					11569756
+				],
+				"surfaceK": [
+					"d",
+					"0000000000088740"
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"bb86a69cadccd23f"
+					],
+					[
+						"d",
+						"b28eaa133841be3f"
+					],
+					[
+						"d",
+						"9b27666382a91dc0"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"2fdd24068195d33f"
+				],
+				"atmosphere": true,
+				"biota": [
+					"d",
+					"000000000000f03f"
+				],
+				"cloudCover": [
+					"d",
+					"295c8fc2f528dc3f"
+				],
+				"k2": [
+					"d",
+					"894160e5d022d33f"
+				],
+				"land": [
+					"d",
+					"7b14ae47e17ad43f"
+				],
+				"mass": [
+					"d",
+					"bee6dfe0f131c93e"
+				],
+				"mixedLayer": [
+					"d",
+					"0000000000004e40"
+				],
+				"name": "Earth",
+				"obliquity": [
+					"d",
+					"58ca32c4b12eda3f"
+				],
+				"oceanDepth": [
+					"d",
+					"9a99999999990d40"
+				],
+				"oceans": true,
+				"pAr": [
+					"d",
+					"fc54151a8865833f"
+				],
+				"pCH4": [
+					"d",
+					"b7b417a38780c03e"
+				],
+				"pCO2": [
+					"d",
+					"c08809ac14e93b3f"
+				],
+				"pN2": [
+					"d",
+					"f6622827da55e93f"
+				],
+				"pO2": [
+					"d",
+					"543a58ffe730cb3f"
+				],
+				"pos": [
+					[
+						"d",
+						"09de891b9596c7bf"
+					],
+					[
+						"d",
+						"0a13fb9d71992abf"
+					],
+					[
+						"d",
+						"8e90f24bb3dcee3f"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"0000000000e3b840"
+				],
+				"salinity": [
+					"d",
+					"0000000000804140"
+				],
+				"season": [
+					"d",
+					"0000000000002640"
+				],
+				"tideLagS": [
+					"d",
+					"0000000000f08340"
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"d7d977da082219c0"
+					],
+					[
+						"d",
+						"de8f532b5c34eb3e"
+					],
+					[
+						"d",
+						"f15596d43981f2bf"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"b81e85eb51b8be3f"
+				],
+				"crater": [
+					"d",
+					"000000000000f03f"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"d84d6b6c69d5633e"
+				],
+				"mixedLayer": [
+					"d",
+					"000000000000f83f"
+				],
+				"name": "Moon",
+				"obliquity": [
+					"d",
+					"5396218e75719b3f"
+				],
+				"oceans": false,
+				"pos": [
+					[
+						"d",
+						"077934a9cfd6c7bf"
+					],
+					[
+						"d",
+						"e845cf52a1df3cbf"
+					],
+					[
+						"d",
+						"60bcecfef0cdee3f"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"9a99999999259b40"
+				],
+				"regolith": [
+					"i",
+					10130828
+				],
+				"tidalLock": "Earth",
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"c881459e469818c0"
+					],
+					[
+						"d",
+						"076606282ac25c3f"
+					],
+					[
+						"d",
+						"c8411955da08f5bf"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"000000000000d03f"
+				],
+				"atmColor": [
+					"i",
+					14201996
+				],
+				"atmThick": [
+					"d",
+					"295c8fc2f528cc3f"
+				],
+				"atmosphere": true,
+				"cloudColor": [
+					"i",
+					15259840
+				],
+				"cloudCover": [
+					"d",
+					"9a9999999999b93f"
+				],
+				"crater": [
+					"d",
+					"9a9999999999e13f"
+				],
+				"frostK": [
+					"d",
+					"0000000000806240"
+				],
+				"haze": [
+					"d",
+					"000000000000d03f"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"6a333d3c36a8953e"
+				],
+				"mixedLayer": [
+					"d",
+					"000000000000f83f"
+				],
+				"name": "Mars",
+				"obliquity": [
+					"d",
+					"1895d4096822dc3f"
+				],
+				"oceans": false,
+				"pAr": [
+					"d",
+					"9d30bced9d2c203f"
+				],
+				"pCO2": [
+					"d",
+					"c3a04ca3c9c5783f"
+				],
+				"pN2": [
+					"d",
+					"767d303a6a96253f"
+				],
+				"pO2": [
+					"d",
+					"6843dd8b5859e53e"
+				],
+				"pos": [
+					[
+						"d",
+						"55e36bbbf222f63f"
+					],
+					[
+						"d",
+						"c20f0efae489a13f"
+					],
+					[
+						"d",
+						"9b8db403309390bf"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"00000000007baa40"
+				],
+				"regolith": [
+					"i",
+					11100218
+				],
+				"season": [
+					"d",
+					"0000000000004f40"
+				],
+				"transport": [
+					"d",
+					"7b14ae47e17ac43f"
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"865b423e73b2cf3f"
+					],
+					[
+						"d",
+						"62723a5ad831bcbf"
+					],
+					[
+						"d",
+						"e6a897d5d32d1640"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"7f6abc749318e03f"
+				],
+				"internalHeat": [
+					"d",
+					"b81e85eb51b8fa3f"
+				],
+				"mass": [
+					"d",
+					"e0d866a5b7474f3f"
+				],
+				"name": "Jupiter",
+				"obliquity": [
+					"d",
+					"a323b9fc87f4ab3f"
+				],
+				"palette": "jupiter",
+				"pos": [
+					[
+						"d",
+						"8a26fbadf2ed0f40"
+					],
+					[
+						"d",
+						"c44e991eacfcb93f"
+					],
+					[
+						"d",
+						"5ea45060178b0740"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"000000007011f140"
+				],
+				"type": "gas-giant",
+				"vel": [
+					[
+						"d",
+						"e123eee69faffabf"
+					],
+					[
+						"d",
+						"c6070ef3cb4a9cbf"
+					],
+					[
+						"d",
+						"727aeb6ebec80240"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"17d9cef753e3d53f"
+				],
+				"internalHeat": [
+					"d",
+					"7b14ae47e17afc3f"
+				],
+				"mass": [
+					"d",
+					"aa547a9a5dbc323f"
+				],
+				"name": "Saturn",
+				"obliquity": [
+					"d",
+					"4260e5d022dbdd3f"
+				],
+				"palette": "saturn",
+				"pos": [
+					[
+						"d",
+						"e70cdabd6ea11940"
+					],
+					[
+						"d",
+						"52232169b99cd73f"
+					],
+					[
+						"d",
+						"fac4c7a6e62b1a40"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"00000000006fec40"
+				],
+				"ringColor": [
+					"i",
+					14865328
+				],
+				"ringInner": [
+					"d",
+					"c3f5285c8fc2f33f"
+				],
+				"ringOuter": [
+					"d",
+					"295c8fc2f5280240"
+				],
+				"rings": true,
+				"type": "gas-giant",
+				"vel": [
+					[
+						"d",
+						"173303eab3fdf8bf"
+					],
+					[
+						"d",
+						"0577a327b322a3bf"
+					],
+					[
+						"d",
+						"b2711c9b30b6f63f"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"333333333333d33f"
+				],
+				"internalHeat": [
+					"d",
+					"7b14ae47e17af03f"
+				],
+				"mass": [
+					"d",
+					"d73ba10746e4063f"
+				],
+				"name": "Uranus",
+				"obliquity": [
+					"d",
+					"764f1e166a4dfb3f"
+				],
+				"palette": "ice",
+				"pos": [
+					[
+						"d",
+						"b39c13672fd62c40"
+					],
+					[
+						"d",
+						"defb87c91d71ce3f"
+					],
+					[
+						"d",
+						"ad98cc191b7b2bc0"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"0000000080c4d840"
+				],
+				"type": "gas-giant",
+				"vel": [
+					[
+						"d",
+						"1b3238696068ef3f"
+					],
+					[
+						"d",
+						"0544a7a9ebad823f"
+					],
+					[
+						"d",
+						"af7c12a6f60bef3f"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"8fc2f5285c8fd23f"
+				],
+				"internalHeat": [
+					"d",
+					"e17a14ae47e10440"
+				],
+				"mass": [
+					"d",
+					"d59457f711020b3f"
+				],
+				"name": "Neptune",
+				"obliquity": [
+					"d",
+					"516b9a779ca2df3f"
+				],
+				"palette": "ice",
+				"pos": [
+					[
+						"d",
+						"af170d4e31cc3040"
+					],
+					[
+						"d",
+						"dc8485568055c0bf"
+					],
+					[
+						"d",
+						"4a74fa6ed9fe38c0"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"00000000800bd840"
+				],
+				"type": "gas-giant",
+				"vel": [
+					[
+						"d",
+						"ecb351120b42ee3f"
+					],
+					[
+						"d",
+						"b9ea7096caf5a13f"
+					],
+					[
+						"d",
+						"8bfce6e04795e43f"
+					]
+				],
+				"vortices": [
+					"i",
+					2
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"a4703d0ad7a3e03f"
+				],
+				"crater": [
+					"d",
+					"666666666666e63f"
+				],
+				"frostK": [
+					"d",
+					"0000000000804240"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"e3f4ef7790243c3e"
+				],
+				"mixedLayer": [
+					"d",
+					"000000000000f83f"
+				],
+				"name": "Pluto",
+				"obliquity": [
+					"d",
+					"07ce1951da1b0140"
+				],
+				"oceans": false,
+				"pAr": [
+					"d",
+					"0000000000000000"
+				],
+				"pCH4": [
+					"d",
+					"0000000000000000"
+				],
+				"pCO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pN2": [
+					"d",
+					"f168e388b5f8e43e"
+				],
+				"pO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pSO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pos": [
+					[
+						"d",
+						"777d7ccbc3c723c0"
+					],
+					[
+						"d",
+						"8021f5deca6717c0"
+					],
+					[
+						"d",
+						"e97aba6365f73bc0"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"3333333333919240"
+				],
+				"regolith": [
+					"i",
+					10187349
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"ddcb70def1bff13f"
+					],
+					[
+						"d",
+						"16f2e56fa9a3d03f"
+					],
+					[
+						"d",
+						"bfd49bd0f421e2bf"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"295c8fc2f528e43f"
+				],
+				"crater": [
+					"d",
+					"0000000000000000"
+				],
+				"hot": true,
+				"land": [
+					"d",
+					"000000000000f03f"
+				],
+				"mass": [
+					"d",
+					"e2b1894e021b683e"
+				],
+				"name": "Io",
+				"oceanDepth": [
+					"d",
+					"0000000000000000"
+				],
+				"oceans": false,
+				"pAr": [
+					"d",
+					"0000000000000000"
+				],
+				"pCH4": [
+					"d",
+					"0000000000000000"
+				],
+				"pCO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pN2": [
+					"d",
+					"0000000000000000"
+				],
+				"pO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pSO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pos": [
+					[
+						"d",
+						"ce51fdab2bf20f40"
+					],
+					[
+						"d",
+						"1828e95330f6b93f"
+					],
+					[
+						"d",
+						"34583ad9058f0740"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"6666666666769c40"
+				],
+				"regolith": [
+					"i",
+					13218396
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"5a4ba7b48ca410c0"
+					],
+					[
+						"d",
+						"967f6238d648b6bf"
+					],
+					[
+						"d",
+						"9762fc13e1161440"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"713d0ad7a370e53f"
+				],
+				"crater": [
+					"d",
+					"7b14ae47e17ab43f"
+				],
+				"hot": true,
+				"land": [
+					"d",
+					"000000000000f03f"
+				],
+				"mass": [
+					"d",
+					"9d1914bc8ee0593e"
+				],
+				"name": "Europa",
+				"oceanDepth": [
+					"d",
+					"0000000000000000"
+				],
+				"oceans": false,
+				"pAr": [
+					"d",
+					"0000000000000000"
+				],
+				"pCH4": [
+					"d",
+					"0000000000000000"
+				],
+				"pCO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pN2": [
+					"d",
+					"0000000000000000"
+				],
+				"pO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pSO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pos": [
+					[
+						"d",
+						"f39d510814e60f40"
+					],
+					[
+						"d",
+						"826eb318c705ba3f"
+					],
+					[
+						"d",
+						"d4a92b5b5c860740"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"3333333333639840"
+				],
+				"regolith": [
+					"i",
+					13616820
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"9cebc1c2482ac6bf"
+					],
+					[
+						"d",
+						"fb151827c439a43f"
+					],
+					[
+						"d",
+						"29641a0b8738c1bf"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"85eb51b81e85db3f"
+				],
+				"crater": [
+					"d",
+					"333333333333e33f"
+				],
+				"hot": true,
+				"land": [
+					"d",
+					"000000000000f03f"
+				],
+				"mass": [
+					"d",
+					"c9353ddc99ff733e"
+				],
+				"name": "Ganymede",
+				"oceanDepth": [
+					"d",
+					"0000000000000000"
+				],
+				"oceans": false,
+				"pAr": [
+					"d",
+					"0000000000000000"
+				],
+				"pCH4": [
+					"d",
+					"0000000000000000"
+				],
+				"pCO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pN2": [
+					"d",
+					"0000000000000000"
+				],
+				"pO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pSO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pos": [
+					[
+						"d",
+						"9115316852e50f40"
+					],
+					[
+						"d",
+						"d3d400d41ff3b93f"
+					],
+					[
+						"d",
+						"69a36f04ef960740"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"333333333394a440"
+				],
+				"regolith": [
+					"i",
+					9077364
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"708fd7dcd62e0cc0"
+					],
+					[
+						"d",
+						"e582d187087ea83f"
+					],
+					[
+						"d",
+						"34104d8b94f5ef3f"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"295c8fc2f528cc3f"
+				],
+				"crater": [
+					"d",
+					"000000000000f03f"
+				],
+				"hot": true,
+				"land": [
+					"d",
+					"000000000000f03f"
+				],
+				"mass": [
+					"d",
+					"fa75ae87720b6d3e"
+				],
+				"name": "Callisto",
+				"oceanDepth": [
+					"d",
+					"0000000000000000"
+				],
+				"oceans": false,
+				"pAr": [
+					"d",
+					"0000000000000000"
+				],
+				"pCH4": [
+					"d",
+					"0000000000000000"
+				],
+				"pCO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pN2": [
+					"d",
+					"0000000000000000"
+				],
+				"pO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pSO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pos": [
+					[
+						"d",
+						"b8ca99f44af70f40"
+					],
+					[
+						"d",
+						"fe91d2b8d613ba3f"
+					],
+					[
+						"d",
+						"7844b1e114730740"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"9a99999999d4a240"
+				],
+				"regolith": [
+					"i",
+					6182475
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"aeafc3ad5952acbf"
+					],
+					[
+						"d",
+						"c1885fecedd9b2bf"
+					],
+					[
+						"d",
+						"e33c842c47cb0740"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000e03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000005440"
+		],
+		"epochJD": [
+			"d",
+			"000000802cb44241"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"f168e388b5f8e43e"
+		],
+		"name": "Jupiter expedition",
+		"sceneScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"sky": {
+			"env": "disc",
+			"galactic": "j2000"
+		},
+		"timeScale": [
+			"d",
+			"fca9f1d24d62503f"
+		],
+		"trueScale": true
+	},
+	"nsmerger": {
+		"blurb": "A wide pair of neutron stars with sweeping pulsar beams. This view illustrates their orbit; it does not simulate an inspiral, kilonova or merger waveform.",
+		"bodies": [
+			{
+				"mass": [
+					"d",
+					"333333333333f73f"
+				],
+				"name": "NS-A",
+				"pos": [
+					[
+						"d",
+						"9a9999999999c5bf"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000080"
+					]
+				],
+				"type": "neutron",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"a531c390072321c0"
+					]
+				],
+				"visualSpinRadS": [
+					"d",
+					"0000000000003640"
+				]
+			},
+			{
+				"mass": [
+					"d",
+					"9a9999999999f53f"
+				],
+				"name": "NS-B",
+				"pos": [
+					[
+						"d",
+						"333333333333c73f"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"type": "neutron",
+				"vel": [
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"2394f7a4fe672240"
+					]
+				],
+				"visualSpinRadS": [
+					"d",
+					"0000000000003040"
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000003a40"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"2d431cebe2360a3f"
+		],
+		"name": "Binary Neutron Star Orbit",
+		"sceneScale": [
+			"d",
+			"0000000000804640"
+		],
+		"sky": {
+			"env": "starburst",
+			"roll": [
+				"d",
+				"666666666666fe3f"
+			],
+			"tilt": [
+				"d",
+				"b81e85eb51b8de3f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"333333333333c33f"
+		]
+	},
+	"sandbox": {
+		"blurb": "A 10 M☉ black hole with an illustrated accretion disc and lensing. Spawn bodies and watch their orbits and contact mergers.",
+		"bodies": [
+			{
+				"mass": [
+					"d",
+					"0000000000002440"
+				],
+				"name": "Singularity",
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"type": "bh",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				]
+			},
+			{
+				"name": "Gas Giant",
+				"palette": "jupiter",
+				"pos": [
+					[
+						"d",
+						"7866d1034bb60d40"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"84e999babe530440"
+					]
+				],
+				"type": "gas-giant",
+				"vel": [
+					[
+						"d",
+						"f8b1574c9b2715c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"c6367163f8eb1e40"
+					]
+				]
+			},
+			{
+				"mass": [
+					"d",
+					"333333333333f33f"
+				],
+				"name": "Companion Star",
+				"pos": [
+					[
+						"d",
+						"44e6f26a02121bc0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"bdc5bedddf9efcbf"
+					]
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"5a5bfc6d86b4fe3f"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"822e9629c10a1dc0"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000004140"
+		],
+		"lensing": true,
+		"name": "Black Hole Sandbox",
+		"sceneScale": [
+			"d",
+			"0000000000000040"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"666666666666e63f"
+			],
+			"tilt": [
+				"d",
+				"e17a14ae47e1da3f"
+			]
+		}
+	},
+	"sirius": {
+		"blurb": "The real orbit: a = 7.50 AU, e = 0.59, period 50.13 years. Sirius A is an ordinary A1 star; Sirius B beside it has 1.02 solar masses packed into the volume of Earth, held up by electron degeneracy alone. Its existence was deduced from Sirius A wobbling, forty years before anyone saw it. At true scale B is a point of light — which is exactly the observational problem that made it so hard to find.",
+		"bodies": [
+			{
+				"catalog": "siriusA",
+				"catalogNote": "The brightest star in the sky, which it owes as much to being close as to being bright.",
+				"luminosity": [
+					"d",
+					"6666666666663940"
+				],
+				"mass": [
+					"d",
+					"1b2fdd2406810040"
+				],
+				"name": "Sirius A",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"27c38c40653df73f"
+					],
+					[
+						"d",
+						"d19ef8d85e5bdebf"
+					],
+					[
+						"d",
+						"44d6336a2603ffbf"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"c74b37894160fb3f"
+				],
+				"sp": "A1V",
+				"teff": [
+					"d",
+					"00000000006ac340"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"d8cde39e8c5ef53f"
+					],
+					[
+						"d",
+						"c983d061a97058bf"
+					],
+					[
+						"d",
+						"ba871b4fbdf778bf"
+					]
+				]
+			},
+			{
+				"catalog": "siriusB",
+				"catalogNote": "A white dwarf the size of Earth with the mass of the Sun. Its existence was inferred from Sirius A's wobble in 1844, forty years before anyone saw it, and its density was so absurd that Eddington wrote the star had replied \"shut up, I know what I am doing\".",
+				"luminosity": [
+					"d",
+					"79e9263108acac3f"
+				],
+				"mass": [
+					"d",
+					"7d3f355eba49f03f"
+				],
+				"name": "Sirius B",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"a4b49bce4a8c07c0"
+					],
+					[
+						"d",
+						"14bb86cf6dc2ee3f"
+					],
+					[
+						"d",
+						"75ffaff86e6c0f40"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"158c4aea0434813f"
+				],
+				"sp": "DA2",
+				"teff": [
+					"d",
+					"00000000009cd840"
+				],
+				"type": "white-dwarf",
+				"vel": [
+					[
+						"d",
+						"25c75e8b18a705c0"
+					],
+					[
+						"d",
+						"48b08312a2c3683f"
+					],
+					[
+						"d",
+						"b63dec92804c893f"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000004440"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62503f"
+		],
+		"mesh": false,
+		"name": "Sirius A & B",
+		"sceneScale": [
+			"d",
+			"0000000000000840"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"3333333333330340"
+			],
+			"tilt": [
+				"d",
+				"9a9999999999d93f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"0000000000000840"
+		],
+		"trueScale": true
+	},
+	"solar": {
+		"blurb": "The planets and the Moon where they were at J2000.0 (JPL mean elements) on their real eccentric, inclined orbits, with DE440 masses and real radii, G = 4π². Sizes default to TRUE scale — the planets are points until you fly to one. Toggle \"Sizes\" to get the readable, exaggerated view back. This is also the scenario to fly from: the Spaceflight section builds a real launch vehicle on the pad, and the Moon is here to land on.",
+		"bodies": [
+			{
+				"color": [
+					"i",
+					16773836
+				],
+				"glow": [
+					"i",
+					16755251
+				],
+				"mass": [
+					"d",
+					"000000000000f03f"
+				],
+				"name": "Sun",
+				"pos": [
+					[
+						"d",
+						"c4622d92173a7dbf"
+					],
+					[
+						"d",
+						"d3fe97a100032bbf"
+					],
+					[
+						"d",
+						"d748d84967e666bf"
+					]
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"95f5eb290118603f"
+					],
+					[
+						"d",
+						"8ef080cdee0f023f"
+					],
+					[
+						"d",
+						"b9aac38c5e2466bf"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"b81e85eb51b8be3f"
+				],
+				"crater": [
+					"d",
+					"666666666666ee3f"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"fd25b7de2148863e"
+				],
+				"mixedLayer": [
+					"d",
+					"000000000000f83f"
+				],
+				"name": "Mercury",
+				"obliquity": [
+					"d",
+					"613255302aa9433f"
+				],
+				"oceans": false,
+				"pos": [
+					[
+						"d",
+						"bb6faa2d8f90c1bf"
+					],
+					[
+						"d",
+						"5bae84d768fa983f"
+					],
+					[
+						"d",
+						"bff6f0d73ccedcbf"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"66666666660fa340"
+				],
+				"regolith": [
+					"i",
+					9142905
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"1fe9a5ce7d391f40"
+					],
+					[
+						"d",
+						"7e20bd1b5914ed3f"
+					],
+					[
+						"d",
+						"8eaf04acdbdc02c0"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"a4703d0ad7a3e83f"
+				],
+				"atmColor": [
+					"i",
+					16767392
+				],
+				"atmosphere": true,
+				"cloudColor": [
+					"i",
+					16773842
+				],
+				"cloudCover": [
+					"d",
+					"000000000000f03f"
+				],
+				"cloudSpin": [
+					"d",
+					"0000000000004e40"
+				],
+				"crater": [
+					"d",
+					"9a9999999999b93f"
+				],
+				"haze": [
+					"d",
+					"333333333333f33f"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"40143c54b188c43e"
+				],
+				"mixedLayer": [
+					"d",
+					"0000000000e07040"
+				],
+				"name": "Venus",
+				"obliquity": [
+					"d",
+					"f853e3a59bc40840"
+				],
+				"oceans": false,
+				"pAr": [
+					"d",
+					"ff092e56d4607a3f"
+				],
+				"pCO2": [
+					"d",
+					"52b81e85eb315640"
+				],
+				"pN2": [
+					"d",
+					"c3f5285c8fc20940"
+				],
+				"pSO2": [
+					"d",
+					"6c787aa52c438c3f"
+				],
+				"pos": [
+					[
+						"d",
+						"761219c4e636e7bf"
+					],
+					[
+						"d",
+						"ad7a08fb021ba5bf"
+					],
+					[
+						"d",
+						"45d1cae8532da2bf"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"cdcccccccca3b740"
+				],
+				"regolith": [
+					"i",
+					11569756
+				],
+				"surfaceK": [
+					"d",
+					"0000000000088740"
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"bb86a69cadccd23f"
+					],
+					[
+						"d",
+						"b28eaa133841be3f"
+					],
+					[
+						"d",
+						"9b27666382a91dc0"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"2fdd24068195d33f"
+				],
+				"atmosphere": true,
+				"biota": [
+					"d",
+					"000000000000f03f"
+				],
+				"cloudCover": [
+					"d",
+					"295c8fc2f528dc3f"
+				],
+				"k2": [
+					"d",
+					"894160e5d022d33f"
+				],
+				"land": [
+					"d",
+					"7b14ae47e17ad43f"
+				],
+				"mass": [
+					"d",
+					"bee6dfe0f131c93e"
+				],
+				"mixedLayer": [
+					"d",
+					"0000000000004e40"
+				],
+				"name": "Earth",
+				"obliquity": [
+					"d",
+					"58ca32c4b12eda3f"
+				],
+				"oceanDepth": [
+					"d",
+					"9a99999999990d40"
+				],
+				"oceans": true,
+				"pAr": [
+					"d",
+					"fc54151a8865833f"
+				],
+				"pCH4": [
+					"d",
+					"b7b417a38780c03e"
+				],
+				"pCO2": [
+					"d",
+					"c08809ac14e93b3f"
+				],
+				"pN2": [
+					"d",
+					"f6622827da55e93f"
+				],
+				"pO2": [
+					"d",
+					"543a58ffe730cb3f"
+				],
+				"pos": [
+					[
+						"d",
+						"09de891b9596c7bf"
+					],
+					[
+						"d",
+						"0a13fb9d71992abf"
+					],
+					[
+						"d",
+						"8e90f24bb3dcee3f"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"0000000000e3b840"
+				],
+				"salinity": [
+					"d",
+					"0000000000804140"
+				],
+				"season": [
+					"d",
+					"0000000000002640"
+				],
+				"tideLagS": [
+					"d",
+					"0000000000f08340"
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"d7d977da082219c0"
+					],
+					[
+						"d",
+						"de8f532b5c34eb3e"
+					],
+					[
+						"d",
+						"f15596d43981f2bf"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"b81e85eb51b8be3f"
+				],
+				"crater": [
+					"d",
+					"000000000000f03f"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"d84d6b6c69d5633e"
+				],
+				"mixedLayer": [
+					"d",
+					"000000000000f83f"
+				],
+				"name": "Moon",
+				"obliquity": [
+					"d",
+					"5396218e75719b3f"
+				],
+				"oceans": false,
+				"pos": [
+					[
+						"d",
+						"077934a9cfd6c7bf"
+					],
+					[
+						"d",
+						"e845cf52a1df3cbf"
+					],
+					[
+						"d",
+						"60bcecfef0cdee3f"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"9a99999999259b40"
+				],
+				"regolith": [
+					"i",
+					10130828
+				],
+				"tidalLock": "Earth",
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"c881459e469818c0"
+					],
+					[
+						"d",
+						"076606282ac25c3f"
+					],
+					[
+						"d",
+						"c8411955da08f5bf"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"000000000000d03f"
+				],
+				"atmColor": [
+					"i",
+					14201996
+				],
+				"atmThick": [
+					"d",
+					"295c8fc2f528cc3f"
+				],
+				"atmosphere": true,
+				"cloudColor": [
+					"i",
+					15259840
+				],
+				"cloudCover": [
+					"d",
+					"9a9999999999b93f"
+				],
+				"crater": [
+					"d",
+					"9a9999999999e13f"
+				],
+				"frostK": [
+					"d",
+					"0000000000806240"
+				],
+				"haze": [
+					"d",
+					"000000000000d03f"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"6a333d3c36a8953e"
+				],
+				"mixedLayer": [
+					"d",
+					"000000000000f83f"
+				],
+				"name": "Mars",
+				"obliquity": [
+					"d",
+					"1895d4096822dc3f"
+				],
+				"oceans": false,
+				"pAr": [
+					"d",
+					"9d30bced9d2c203f"
+				],
+				"pCO2": [
+					"d",
+					"c3a04ca3c9c5783f"
+				],
+				"pN2": [
+					"d",
+					"767d303a6a96253f"
+				],
+				"pO2": [
+					"d",
+					"6843dd8b5859e53e"
+				],
+				"pos": [
+					[
+						"d",
+						"55e36bbbf222f63f"
+					],
+					[
+						"d",
+						"c20f0efae489a13f"
+					],
+					[
+						"d",
+						"9b8db403309390bf"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"00000000007baa40"
+				],
+				"regolith": [
+					"i",
+					11100218
+				],
+				"season": [
+					"d",
+					"0000000000004f40"
+				],
+				"transport": [
+					"d",
+					"7b14ae47e17ac43f"
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"865b423e73b2cf3f"
+					],
+					[
+						"d",
+						"62723a5ad831bcbf"
+					],
+					[
+						"d",
+						"e6a897d5d32d1640"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"7f6abc749318e03f"
+				],
+				"internalHeat": [
+					"d",
+					"b81e85eb51b8fa3f"
+				],
+				"mass": [
+					"d",
+					"d38b26fd5f494f3f"
+				],
+				"name": "Jupiter",
+				"obliquity": [
+					"d",
+					"a323b9fc87f4ab3f"
+				],
+				"palette": "jupiter",
+				"pos": [
+					[
+						"d",
+						"c73091a4f2ed0f40"
+					],
+					[
+						"d",
+						"b34be13eacfcb93f"
+					],
+					[
+						"d",
+						"989d0148178b0740"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"000000007011f140"
+				],
+				"type": "gas-giant",
+				"vel": [
+					[
+						"d",
+						"d942b5392bb0fabf"
+					],
+					[
+						"d",
+						"e335038a394a9cbf"
+					],
+					[
+						"d",
+						"445debebbac80240"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"17d9cef753e3d53f"
+				],
+				"internalHeat": [
+					"d",
+					"7b14ae47e17afc3f"
+				],
+				"mass": [
+					"d",
+					"aa547a9a5dbc323f"
+				],
+				"name": "Saturn",
+				"obliquity": [
+					"d",
+					"4260e5d022dbdd3f"
+				],
+				"palette": "saturn",
+				"pos": [
+					[
+						"d",
+						"e70cdabd6ea11940"
+					],
+					[
+						"d",
+						"52232169b99cd73f"
+					],
+					[
+						"d",
+						"fac4c7a6e62b1a40"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"00000000006fec40"
+				],
+				"ringColor": [
+					"i",
+					14865328
+				],
+				"ringInner": [
+					"d",
+					"c3f5285c8fc2f33f"
+				],
+				"ringOuter": [
+					"d",
+					"295c8fc2f5280240"
+				],
+				"rings": true,
+				"type": "gas-giant",
+				"vel": [
+					[
+						"d",
+						"173303eab3fdf8bf"
+					],
+					[
+						"d",
+						"0577a327b322a3bf"
+					],
+					[
+						"d",
+						"b2711c9b30b6f63f"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"333333333333d33f"
+				],
+				"internalHeat": [
+					"d",
+					"7b14ae47e17af03f"
+				],
+				"mass": [
+					"d",
+					"d73ba10746e4063f"
+				],
+				"name": "Uranus",
+				"obliquity": [
+					"d",
+					"764f1e166a4dfb3f"
+				],
+				"palette": "ice",
+				"pos": [
+					[
+						"d",
+						"b39c13672fd62c40"
+					],
+					[
+						"d",
+						"defb87c91d71ce3f"
+					],
+					[
+						"d",
+						"ad98cc191b7b2bc0"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"0000000080c4d840"
+				],
+				"type": "gas-giant",
+				"vel": [
+					[
+						"d",
+						"1b3238696068ef3f"
+					],
+					[
+						"d",
+						"0544a7a9ebad823f"
+					],
+					[
+						"d",
+						"af7c12a6f60bef3f"
+					]
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"8fc2f5285c8fd23f"
+				],
+				"internalHeat": [
+					"d",
+					"e17a14ae47e10440"
+				],
+				"mass": [
+					"d",
+					"d59457f711020b3f"
+				],
+				"name": "Neptune",
+				"obliquity": [
+					"d",
+					"516b9a779ca2df3f"
+				],
+				"palette": "ice",
+				"pos": [
+					[
+						"d",
+						"af170d4e31cc3040"
+					],
+					[
+						"d",
+						"dc8485568055c0bf"
+					],
+					[
+						"d",
+						"4a74fa6ed9fe38c0"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"00000000800bd840"
+				],
+				"type": "gas-giant",
+				"vel": [
+					[
+						"d",
+						"ecb351120b42ee3f"
+					],
+					[
+						"d",
+						"b9ea7096caf5a13f"
+					],
+					[
+						"d",
+						"8bfce6e04795e43f"
+					]
+				],
+				"vortices": [
+					"i",
+					2
+				]
+			},
+			{
+				"albedo": [
+					"d",
+					"a4703d0ad7a3e03f"
+				],
+				"crater": [
+					"d",
+					"666666666666e63f"
+				],
+				"frostK": [
+					"d",
+					"0000000000804240"
+				],
+				"hot": true,
+				"mass": [
+					"d",
+					"e3f4ef7790243c3e"
+				],
+				"mixedLayer": [
+					"d",
+					"000000000000f83f"
+				],
+				"name": "Pluto",
+				"obliquity": [
+					"d",
+					"07ce1951da1b0140"
+				],
+				"oceans": false,
+				"pAr": [
+					"d",
+					"0000000000000000"
+				],
+				"pCH4": [
+					"d",
+					"0000000000000000"
+				],
+				"pCO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pN2": [
+					"d",
+					"f168e388b5f8e43e"
+				],
+				"pO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pSO2": [
+					"d",
+					"0000000000000000"
+				],
+				"pos": [
+					[
+						"d",
+						"777d7ccbc3c723c0"
+					],
+					[
+						"d",
+						"8021f5deca6717c0"
+					],
+					[
+						"d",
+						"e97aba6365f73bc0"
+					]
+				],
+				"radiusKm": [
+					"d",
+					"3333333333919240"
+				],
+				"regolith": [
+					"i",
+					10187349
+				],
+				"type": "planet",
+				"vel": [
+					[
+						"d",
+						"ddcb70def1bff13f"
+					],
+					[
+						"d",
+						"16f2e56fa9a3d03f"
+					],
+					[
+						"d",
+						"bfd49bd0f421e2bf"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000e03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000005440"
+		],
+		"epochJD": [
+			"d",
+			"000000802cb44241"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"2d431cebe2362a3f"
+		],
+		"name": "Solar System",
+		"sceneScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"sky": {
+			"env": "disc",
+			"galactic": "j2000"
+		},
+		"timeScale": [
+			"d",
+			"0000000000001840"
+		],
+		"trueScale": true
+	},
+	"stellar_zoo": {
+		"blurb": "Ten famous stars at their true relative sizes, from Betelgeuse — whose photosphere would reach the asteroid belt — down to Sirius B, an Earth-sized white dwarf. That is a range of 90 000 to 1, so most of them are points until you fly to them. They are on genuinely circular orbits about their common centre of mass, computed from the real N-body force at t = 0; a ring of unequal masses has no stable mode, so left running it will buckle and come apart. That is the correct answer, not a bug.",
+		"bodies": [
+			{
+				"catalog": "betelgeuse",
+				"catalogNote": "A red supergiant so large that its photosphere would reach past the asteroid belt, and so tenuous that the outer half of it is closer to a vacuum than to air. Its radius and distance are both uncertain by tens of percent — it has no sharp edge to measure. In 2019 it dimmed by 60%, which turned out to be a dust cloud condensing over a cool patch thrown off its own surface.",
+				"luminosity": [
+					"d",
+					"0000000000c3fe40"
+				],
+				"mass": [
+					"d",
+					"0000000000803040"
+				],
+				"name": "Betelgeuse",
+				"phase": [
+					"d",
+					"cdccccccccccfc3f"
+				],
+				"pos": [
+					[
+						"d",
+						"0000000000805140"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"0000000000e08740"
+				],
+				"sp": "M1-2Ia-ab",
+				"teff": [
+					"d",
+					"000000000020ac40"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"b96dabf128580e40"
+					]
+				]
+			},
+			{
+				"catalog": "rigel",
+				"catalogNote": "A blue supergiant already past the main sequence: 120 000 L☉ from a star that has been burning for only eight million years. It has been a red supergiant before and is likely to become one again before it explodes.",
+				"luminosity": [
+					"d",
+					"00000000004cfd40"
+				],
+				"mass": [
+					"d",
+					"0000000000003540"
+				],
+				"name": "Rigel",
+				"phase": [
+					"d",
+					"9a9999999999f13f"
+				],
+				"pos": [
+					[
+						"d",
+						"98332ed2ca504c40"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"d75ae04c8e924440"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"9a99999999b95340"
+				],
+				"sp": "B8Ia",
+				"teff": [
+					"d",
+					"0000000000a2c740"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"f40e810650d600c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"6d36bbe6a22c0740"
+					]
+				]
+			},
+			{
+				"catalog": "aldebaran",
+				"catalogNote": "A red giant of almost exactly the Sun's mass — which makes it a preview: an Earth-mass core of degenerate helium the size of this planet, inside an envelope 45 times the Sun's radius.",
+				"luminosity": [
+					"d",
+					"0000000000707b40"
+				],
+				"mass": [
+					"d",
+					"8fc2f5285c8ff23f"
+				],
+				"name": "Aldebaran",
+				"phase": [
+					"d",
+					"9a9999999999f53f"
+				],
+				"pos": [
+					[
+						"d",
+						"30675ca495a13540"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"7b5e89b2bba45040"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"cdcccccccc8c4640"
+				],
+				"sp": "K5III",
+				"teff": [
+					"d",
+					"000000000078ae40"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"a463a2acf10711c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"7be395da8622f63f"
+					]
+				]
+			},
+			{
+				"catalog": "polaris",
+				"catalogNote": "The nearest Cepheid, pulsating every 3.97 days. Cepheids obey a period–luminosity law, which is how the distance to anything beyond our own galaxy is measured — the whole cosmic distance ladder rests on stars like this one.",
+				"luminosity": [
+					"d",
+					"0000000000b09340"
+				],
+				"mass": [
+					"d",
+					"9a99999999991540"
+				],
+				"name": "Polaris",
+				"phase": [
+					"d",
+					"cdccccccccccf83f"
+				],
+				"pos": [
+					[
+						"d",
+						"2d675ca495a135c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"7c5e89b2bba45040"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"0000000000c04240"
+				],
+				"sp": "F7Ib",
+				"teff": [
+					"d",
+					"00000000007fb740"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"ad6214a308010dc0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"7718735414d9f2bf"
+					]
+				]
+			},
+			{
+				"catalog": "achernar",
+				"catalogNote": "The flattest star known: its equator is 35% further from the centre than its poles. It spins near enough to break-up that it throws off a gaseous decretion disc, which is what the \"e\" in its spectral type means.",
+				"luminosity": [
+					"d",
+					"00000000009ca840"
+				],
+				"mass": [
+					"d",
+					"cdcccccccccc1a40"
+				],
+				"name": "Achernar",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"97332ed2ca504cc0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"d85ae04c8e924440"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"1f85eb51b81e1b40"
+				],
+				"sp": "B6Vep",
+				"spinFrac": [
+					"d",
+					"00d08ea47360ef3f"
+				],
+				"teff": [
+					"d",
+					"00000000004ccd40"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"d6f84696bf8d01c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"416661311d2908c0"
+					]
+				]
+			},
+			{
+				"catalog": "bellatrix",
+				"catalogNote": "Orion's left shoulder, and the nearest hot B star. At 8.6 M☉ it sits almost exactly on the line between ending as a white dwarf and ending as a neutron star — which of the two it will be is genuinely not known.",
+				"luminosity": [
+					"d",
+					"0000000080fdc140"
+				],
+				"mass": [
+					"d",
+					"3333333333332140"
+				],
+				"name": "Bellatrix",
+				"phase": [
+					"d",
+					"000000000000f03f"
+				],
+				"pos": [
+					[
+						"d",
+						"00000000008051c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"a844dec7b94d033d"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"0000000000001740"
+				],
+				"sp": "B2III",
+				"teff": [
+					"d",
+					"00000000004ad540"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"c1c19cde554cbebc"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"48718512a1770bc0"
+					]
+				]
+			},
+			{
+				"catalog": "vega",
+				"catalogNote": "For a century the definition of magnitude zero — and then interferometry found it is a rapid rotator seen almost pole-on, so we had been calibrating photometry against its hot pole. It spins at 236 km/s, 88% of break-up; that measured velocity predicts an equator-to-pole radius ratio of 1.192 against the 1.193 observed, and a 10 260 K pole over an 8 610 K equator against 10 070 / 8 910 measured.",
+				"luminosity": [
+					"d",
+					"8fc2f5285c0f4440"
+				],
+				"mass": [
+					"d",
+					"14ae47e17a140140"
+				],
+				"name": "Vega",
+				"phase": [
+					"d",
+					"000000000000d03f"
+				],
+				"pos": [
+					[
+						"d",
+						"98332ed2ca504cc0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"d65ae04c8e9244c0"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"4c37894160e50240"
+				],
+				"sp": "A0Va",
+				"spinFrac": [
+					"d",
+					"005084472b08ec3f"
+				],
+				"teff": [
+					"d",
+					"0000000000c1c240"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"bbc15f6a2b380140"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"b518862e53b307c0"
+					]
+				]
+			},
+			{
+				"catalog": "siriusA",
+				"catalogNote": "The brightest star in the sky, which it owes as much to being close as to being bright.",
+				"luminosity": [
+					"d",
+					"6666666666663940"
+				],
+				"mass": [
+					"d",
+					"1b2fdd2406810040"
+				],
+				"name": "Sirius A",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"32675ca495a135c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"7b5e89b2bba450c0"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"c74b37894160fb3f"
+				],
+				"sp": "A1V",
+				"teff": [
+					"d",
+					"00000000006ac340"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"7201ef6e3f330a40"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"f3fd7642a206f1bf"
+					]
+				]
+			},
+			{
+				"catalog": "sun",
+				"catalogNote": "The calibration point for everything else in astrophysics, and a thoroughly ordinary star: more massive than about 95% of the stars in the galaxy.",
+				"luminosity": [
+					"d",
+					"000000000000f03f"
+				],
+				"mass": [
+					"d",
+					"000000000000f03f"
+				],
+				"name": "Sun",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"2b675ca495a13540"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"7c5e89b2bba450c0"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"000000000000f03f"
+				],
+				"sp": "G2V",
+				"teff": [
+					"d",
+					"00000000008cb640"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"e1dcc25b3d640b40"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"78d0fc5ed4ccf13f"
+					]
+				]
+			},
+			{
+				"catalog": "siriusB",
+				"catalogNote": "A white dwarf the size of Earth with the mass of the Sun. Its existence was inferred from Sirius A's wobble in 1844, forty years before anyone saw it, and its density was so absurd that Eddington wrote the star had replied \"shut up, I know what I am doing\".",
+				"luminosity": [
+					"d",
+					"79e9263108acac3f"
+				],
+				"mass": [
+					"d",
+					"7d3f355eba49f03f"
+				],
+				"name": "Sirius B",
+				"phase": [
+					"d",
+					"000000000000e03f"
+				],
+				"pos": [
+					[
+						"d",
+						"97332ed2ca504c40"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"d95ae04c8e9244c0"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"158c4aea0434813f"
+				],
+				"sp": "DA2",
+				"teff": [
+					"d",
+					"00000000009cd840"
+				],
+				"type": "white-dwarf",
+				"vel": [
+					[
+						"d",
+						"1cfba20a8d730340"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"4f75588ec3c50a40"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000004e40"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62603f"
+		],
+		"mesh": false,
+		"name": "The Stellar Zoo",
+		"sceneScale": [
+			"d",
+			"000000000000e03f"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"666666666666f23f"
+			],
+			"tilt": [
+				"d",
+				"c3f5285c8fc2d53f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"000000000000f83f"
+		],
+		"trueScale": true
+	},
+	"threebody": {
+		"blurb": "The Chenciner–Montgomery choreography: three equal masses chasing each other along one shared figure-eight orbit. A real exact solution.",
+		"bodies": [
+			{
+				"color": [
+					"i",
+					16767392
+				],
+				"glow": [
+					"i",
+					16744512
+				],
+				"mass": [
+					"d",
+					"000000000000f03f"
+				],
+				"name": "Body 1",
+				"pos": [
+					[
+						"d",
+						"59ad6595460aef3f"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"722cb5ff7d1dcfbf"
+					]
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"de12bb8d176f0740"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"ef87909baabb0540"
+					]
+				]
+			},
+			{
+				"color": [
+					"i",
+					10537215
+				],
+				"glow": [
+					"i",
+					4227327
+				],
+				"mass": [
+					"d",
+					"000000000000f03f"
+				],
+				"name": "Body 2",
+				"pos": [
+					[
+						"d",
+						"59ad6595460aefbf"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"722cb5ff7d1dcf3f"
+					]
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"de12bb8d176f0740"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"ef87909baabb0540"
+					]
+				]
+			},
+			{
+				"color": [
+					"i",
+					16752800
+				],
+				"glow": [
+					"i",
+					16728160
+				],
+				"mass": [
+					"d",
+					"000000000000f03f"
+				],
+				"name": "Body 3",
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"de12bb8d176f17c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"ef87909baabb15c0"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"666666666666f63f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000003640"
+		],
+		"lensing": false,
+		"name": "Three-Body (figure-eight)",
+		"sceneScale": [
+			"d",
+			"0000000000001040"
+		],
+		"sky": {
+			"env": "globular",
+			"roll": [
+				"d",
+				"666666666666f63f"
+			],
+			"tilt": [
+				"d",
+				"333333333333d33f"
+			]
+		}
+	},
+	"trisolaris": {
+		"blurb": "Three suns, one world. Alpha and Beta form a tight binary; Trisolaris follows an eccentric orbit around both, while hot Gamma returns every 51 years. Changing sunlight drives temperate seasons and cold spells.",
+		"bodies": [
+			{
+				"luminosity": [
+					"d",
+					"82e2c798bb960040"
+				],
+				"mass": [
+					"d",
+					"333333333333f33f"
+				],
+				"name": "Alpha",
+				"pos": [
+					[
+						"d",
+						"41b9d99cf0ebf63f"
+					],
+					[
+						"d",
+						"658734a3e3d610c0"
+					],
+					[
+						"d",
+						"440abca95d0e22c0"
+					]
+				],
+				"teff": [
+					"d",
+					"2f3f7c05afafb940"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"5c892f1f7675f63f"
+					],
+					[
+						"d",
+						"567c4ade18c3bdbf"
+					],
+					[
+						"d",
+						"2bd2bb36a9371ac0"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"dbd7817346b4e03f"
+				],
+				"mass": [
+					"d",
+					"333333333333eb3f"
+				],
+				"name": "Beta",
+				"pos": [
+					[
+						"d",
+						"da5273368a85fc3f"
+					],
+					[
+						"d",
+						"658734a3e3d610c0"
+					],
+					[
+						"d",
+						"440abca95d0e22c0"
+					]
+				],
+				"teff": [
+					"d",
+					"9cf64a39bc73b440"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"5c892f1f7675f63f"
+					],
+					[
+						"d",
+						"567c4ade18c3bdbf"
+					],
+					[
+						"d",
+						"866068fac74d2140"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"52ed7e8faaad2f40"
+				],
+				"mass": [
+					"d",
+					"0000000000000040"
+				],
+				"name": "Gamma",
+				"pos": [
+					[
+						"d",
+						"3772ed96eddff9bf"
+					],
+					[
+						"d",
+						"d5ebdcfbaa421140"
+					],
+					[
+						"d",
+						"b1fc5f94ee812240"
+					]
+				],
+				"teff": [
+					"d",
+					"a4d475505f75c240"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"e7dbf5e13405f7bf"
+					],
+					[
+						"d",
+						"9e3409049681be3f"
+					],
+					[
+						"d",
+						"7a8da684ed5ad03f"
+					]
+				]
+			},
+			{
+				"dayLength": [
+					"d",
+					"176cc1166cc1863f"
+				],
+				"home": true,
+				"mass": [
+					"d",
+					"54e41071732ac93e"
+				],
+				"name": "Trisolaris",
+				"obliquity": [
+					"d",
+					"3d0ad7a3703dda3f"
+				],
+				"pos": [
+					[
+						"d",
+						"f6a5ea4d00a2e2bf"
+					],
+					[
+						"d",
+						"658734a3e3d610c0"
+					],
+					[
+						"d",
+						"440abca95d0e22c0"
+					]
+				],
+				"type": "world",
+				"vel": [
+					[
+						"d",
+						"58892f1f7675f63f"
+					],
+					[
+						"d",
+						"567c4ade18c3bdbf"
+					],
+					[
+						"d",
+						"e8b7f2cc94e516c0"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"9a9999999999e13f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000003440"
+		],
+		"climate": {
+			"T0": [
+				"d",
+				"0000000000007240"
+			],
+			"mixedLayer": [
+				"d",
+				"0000000000002840"
+			],
+			"pCO2": [
+				"d",
+				"b81e85eb51b8be3f"
+			]
+		},
+		"focus": "Alpha",
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"2d431cebe2363a3f"
+		],
+		"mesh": false,
+		"name": "Trisolaris",
+		"sceneScale": [
+			"d",
+			"0000000000001040"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"666666666666d63f"
+			],
+			"tilt": [
+				"d",
+				"9a9999999999e13f"
+			]
+		},
+		"surface": true,
+		"timeScale": [
+			"d",
+			"666666666666d63f"
+		]
+	},
+	"trisolaris_alpha": {
+		"blurb": "An S-type solution: Trisolaris orbits Alpha at 0.8 AU, Beta circles the pair at 6.5 AU, and Gamma stays out at 52 AU.",
+		"bodies": [
+			{
+				"luminosity": [
+					"d",
+					"792d211ff46cf73f"
+				],
+				"mass": [
+					"d",
+					"9a9999999999f13f"
+				],
+				"name": "Alpha",
+				"pos": [
+					[
+						"d",
+						"3eff98bcdf241840"
+					],
+					[
+						"d",
+						"d996f9220ba21dc0"
+					],
+					[
+						"d",
+						"f9634d223ed937c0"
+					]
+				],
+				"teff": [
+					"d",
+					"d2aac3310e23b840"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"78bdecd22bccfd3f"
+					],
+					[
+						"d",
+						"5beb91ba157cc1bf"
+					],
+					[
+						"d",
+						"5daa0538ca34f1bf"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"2e431cebe236da3f"
+				],
+				"mass": [
+					"d",
+					"9a9999999999e93f"
+				],
+				"name": "Beta",
+				"pos": [
+					[
+						"d",
+						"c2e3484ab21a2340"
+					],
+					[
+						"d",
+						"3e34b866952a1bc0"
+					],
+					[
+						"d",
+						"5c53469cf97533c0"
+					]
+				],
+				"teff": [
+					"d",
+					"210d316eb5b8b340"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"7f1adc9d74f8eabf"
+					],
+					[
+						"d",
+						"2cb336209bd4cf3f"
+					],
+					[
+						"d",
+						"85324014cea7fa3f"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"2e431cebe2361a40"
+				],
+				"mass": [
+					"d",
+					"9a9999999999f93f"
+				],
+				"name": "Gamma",
+				"pos": [
+					[
+						"d",
+						"65b05a5107da21c0"
+					],
+					[
+						"d",
+						"9efec9ff5afa2040"
+					],
+					[
+						"d",
+						"beb2ee735a203a40"
+					]
+				],
+				"teff": [
+					"d",
+					"e6702de0688dbf40"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"ef7fca45897cebbf"
+					],
+					[
+						"d",
+						"c2998ccee3279fbf"
+					],
+					[
+						"d",
+						"9ce2eaf4d0f8b7bf"
+					]
+				]
+			},
+			{
+				"dayLength": [
+					"d",
+					"176cc1166cc1863f"
+				],
+				"home": true,
+				"mass": [
+					"d",
+					"54e41071732ac93e"
+				],
+				"name": "Trisolaris",
+				"obliquity": [
+					"d",
+					"3d0ad7a3703dda3f"
+				],
+				"pos": [
+					[
+						"d",
+						"0e2274b65e8f1440"
+					],
+					[
+						"d",
+						"d996f9220ba21dc0"
+					],
+					[
+						"d",
+						"f9634d223ed937c0"
+					]
+				],
+				"type": "world",
+				"vel": [
+					[
+						"d",
+						"74bdecd22bccfd3f"
+					],
+					[
+						"d",
+						"5beb91ba157cc1bf"
+					],
+					[
+						"d",
+						"0f36bab8b36c1ec0"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"9a9999999999e13f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000003840"
+		],
+		"climate": {
+			"T0": [
+				"d",
+				"0000000000007240"
+			],
+			"mixedLayer": [
+				"d",
+				"0000000000002c40"
+			]
+		},
+		"focus": "Alpha",
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"2d431cebe2363a3f"
+		],
+		"mesh": false,
+		"name": "Trisolaris - Alpha's Refuge",
+		"sceneScale": [
+			"d",
+			"3333333333330340"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"cdccccccccccf03f"
+			],
+			"tilt": [
+				"d",
+				"713d0ad7a370dd3f"
+			]
+		},
+		"surface": true,
+		"timeScale": [
+			"d",
+			"666666666666d63f"
+		]
+	},
+	"trisolaris_chaos": {
+		"blurb": "The same three suns with NO protective hierarchy — a true chaotic three-body system. Trisolaris gets thrown between the stars, roasted, frozen, and usually ejected or consumed within a few centuries. This is the version that has no solution.",
+		"bodies": [
+			{
+				"luminosity": [
+					"d",
+					"82e2c798bb960040"
+				],
+				"mass": [
+					"d",
+					"333333333333f33f"
+				],
+				"name": "Alpha",
+				"pos": [
+					[
+						"d",
+						"9a99999999990940"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"teff": [
+					"d",
+					"2f3f7c05afafb940"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000080"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"279401d6de9f1440"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"dbd7817346b4e03f"
+				],
+				"mass": [
+					"d",
+					"333333333333eb3f"
+				],
+				"name": "Beta",
+				"pos": [
+					[
+						"d",
+						"989999999999f9bf"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"230aad86952b0640"
+					]
+				],
+				"teff": [
+					"d",
+					"9cf64a39bc73b440"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"8006347f80dc11c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"259401d6de9f04c0"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"52ed7e8faaad2f40"
+				],
+				"mass": [
+					"d",
+					"0000000000000040"
+				],
+				"name": "Gamma",
+				"pos": [
+					[
+						"d",
+						"a09999999999f9bf"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"200aad86952b06c0"
+					]
+				],
+				"teff": [
+					"d",
+					"a4d475505f75c240"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"7e06347f80dc1140"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"2c9401d6de9f04c0"
+					]
+				]
+			},
+			{
+				"dayLength": [
+					"d",
+					"176cc1166cc1863f"
+				],
+				"home": true,
+				"mass": [
+					"d",
+					"54e41071732ac93e"
+				],
+				"name": "Trisolaris",
+				"obliquity": [
+					"d",
+					"3d0ad7a3703dda3f"
+				],
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000002340"
+					]
+				],
+				"type": "world",
+				"vel": [
+					[
+						"d",
+						"49acff10f3bc10c0"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"9a9999999999e13f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000004440"
+		],
+		"climate": {
+			"T0": [
+				"d",
+				"0000000000007240"
+			],
+			"mixedLayer": [
+				"d",
+				"0000000000002440"
+			]
+		},
+		"focus": "Alpha",
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"613255302aa9433f"
+		],
+		"mesh": false,
+		"name": "Trisolaris — Chaotic Era",
+		"sceneScale": [
+			"d",
+			"0000000000000840"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"666666666666d63f"
+			],
+			"tilt": [
+				"d",
+				"9a9999999999e13f"
+			]
+		},
+		"surface": true,
+		"timeScale": [
+			"d",
+			"666666666666d63f"
+		]
+	},
+	"trisolaris_compact": {
+		"blurb": "A compact, bright hierarchy: Trisolaris circles Alpha and Beta at 1.35 AU while Gamma sweeps the 15 AU outer orbit. Three suns and stronger encounters change the sunlight reaching the world.",
+		"bodies": [
+			{
+				"luminosity": [
+					"d",
+					"5afe43faedfbfb3f"
+				],
+				"mass": [
+					"d",
+					"666666666666f23f"
+				],
+				"name": "Alpha",
+				"pos": [
+					[
+						"d",
+						"740958f22c1e0940"
+					],
+					[
+						"d",
+						"159640a2001ef5bf"
+					],
+					[
+						"d",
+						"ce193f7d4fd618c0"
+					]
+				],
+				"teff": [
+					"d",
+					"f393b84299eab840"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"cf73da3ce3c8f33f"
+					],
+					[
+						"d",
+						"e4b123fdb848b13f"
+					],
+					[
+						"d",
+						"f10c2ff7aaa41ac0"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"000000000040d43f"
+				],
+				"mass": [
+					"d",
+					"000000000000e83f"
+				],
+				"name": "Beta",
+				"pos": [
+					[
+						"d",
+						"5f5b1011b2090b40"
+					],
+					[
+						"d",
+						"159640a2001ef5bf"
+					],
+					[
+						"d",
+						"ce193f7d4fd618c0"
+					]
+				],
+				"teff": [
+					"d",
+					"59cb7d9ef1f8b240"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"cf73da3ce3c8f33f"
+					],
+					[
+						"d",
+						"e4b123fdb848b13f"
+					],
+					[
+						"d",
+						"af556fef2c092640"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"fc3a70ce88161740"
+				],
+				"mass": [
+					"d",
+					"cdccccccccccf83f"
+				],
+				"name": "Gamma",
+				"pos": [
+					[
+						"d",
+						"ac5986ebfeb70fc0"
+					],
+					[
+						"d",
+						"cf0c0722b9e2f93f"
+					],
+					[
+						"d",
+						"74ed1a0212721e40"
+					]
+				],
+				"teff": [
+					"d",
+					"548f998a1dd8be40"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"2f9d13ee9440f8bf"
+					],
+					[
+						"d",
+						"fe18dfb1dc2fb5bf"
+					],
+					[
+						"d",
+						"e83006f450ebd8bf"
+					]
+				]
+			},
+			{
+				"dayLength": [
+					"d",
+					"176cc1166cc1863f"
+				],
+				"home": true,
+				"mass": [
+					"d",
+					"54e41071732ac93e"
+				],
+				"name": "Trisolaris",
+				"obliquity": [
+					"d",
+					"3d0ad7a3703dda3f"
+				],
+				"pos": [
+					[
+						"d",
+						"01fa10004866f93f"
+					],
+					[
+						"d",
+						"159640a2001ef5bf"
+					],
+					[
+						"d",
+						"ce193f7d4fd618c0"
+					]
+				],
+				"type": "world",
+				"vel": [
+					[
+						"d",
+						"cb73da3ce3c8f33f"
+					],
+					[
+						"d",
+						"e4b123fdb848b13f"
+					],
+					[
+						"d",
+						"8fbf6cc2ee9116c0"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"9a9999999999e13f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000003440"
+		],
+		"climate": {
+			"T0": [
+				"d",
+				"0000000000007240"
+			],
+			"mixedLayer": [
+				"d",
+				"0000000000002840"
+			]
+		},
+		"focus": "Alpha",
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"2d431cebe2363a3f"
+		],
+		"mesh": false,
+		"name": "Trisolaris - Compact Haven",
+		"sceneScale": [
+			"d",
+			"0000000000001040"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"cdcccccccccce43f"
+			],
+			"tilt": [
+				"d",
+				"000000000000e03f"
+			]
+		},
+		"surface": true,
+		"timeScale": [
+			"d",
+			"666666666666d63f"
+		]
+	},
+	"trisolaris_wander": {
+		"blurb": "Three suns that genuinely wander. A tight Beta+Gamma pair dives past the home sun every 3.8 years on a chaotically evolving inclined orbit, so the sky is never the same twice. Over an ensemble of runs, counting suns that show a disc at least a quarter of the Sun's width: one 21% of the time, two 44%, three 32%, none 3% — against two-suns-always for the other architectures. Stand on the planet (V); this is the one built for the view. Unlike them it is not stable, and it is not meant to be: the world lives a few centuries, then is ejected or torn apart.",
+		"bodies": [
+			{
+				"contactAU": [
+					"d",
+					"bc8feda47e9f783f"
+				],
+				"luminosity": [
+					"d",
+					"4fce40fa60f8bc3f"
+				],
+				"mass": [
+					"d",
+					"8fc2f5285c8fe23f"
+				],
+				"name": "Alpha",
+				"pos": [
+					[
+						"d",
+						"d52744b8b4650f40"
+					],
+					[
+						"d",
+						"94ab5e3d9af2a9bc"
+					],
+					[
+						"d",
+						"c6e9d093cc46b6be"
+					]
+				],
+				"teff": [
+					"d",
+					"1e9e03d8c642b040"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"f101bf95208a013f"
+					],
+					[
+						"d",
+						"97cb5fe09ecaed3f"
+					],
+					[
+						"d",
+						"a20abb48146f0240"
+					]
+				]
+			},
+			{
+				"contactAU": [
+					"d",
+					"01dd38a334ce7f3f"
+				],
+				"luminosity": [
+					"d",
+					"0000000000880340"
+				],
+				"mass": [
+					"d",
+					"000000000000f43f"
+				],
+				"name": "Beta",
+				"pos": [
+					[
+						"d",
+						"58872ef0357cf0bf"
+					],
+					[
+						"d",
+						"27673ac195a78d3c"
+					],
+					[
+						"d",
+						"54077f244cebc3bf"
+					]
+				],
+				"teff": [
+					"d",
+					"5fabc4fd7072ba40"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"435eb76751cb1140"
+					],
+					[
+						"d",
+						"a998146a1706d1bf"
+					],
+					[
+						"d",
+						"62dd4ecf21d9f63f"
+					]
+				]
+			},
+			{
+				"contactAU": [
+					"d",
+					"db6b08eac52d7b3f"
+				],
+				"luminosity": [
+					"d",
+					"13f372f98bb0d73f"
+				],
+				"mass": [
+					"d",
+					"f6285c8fc2f5e83f"
+				],
+				"name": "Gamma",
+				"pos": [
+					[
+						"d",
+						"1e0157136b46f4bf"
+					],
+					[
+						"d",
+						"27673ac195a78d3c"
+					],
+					[
+						"d",
+						"aa7e9075f3ebcf3f"
+					]
+				],
+				"teff": [
+					"d",
+					"8f0f3c4e986cb340"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"435fda6730841cc0"
+					],
+					[
+						"d",
+						"a998146a1706d1bf"
+					],
+					[
+						"d",
+						"2e94a75af60110c0"
+					]
+				]
+			},
+			{
+				"dayLength": [
+					"d",
+					"176cc1166cc1863f"
+				],
+				"home": true,
+				"mass": [
+					"d",
+					"54e41071732ac93e"
+				],
+				"name": "Trisolaris",
+				"obliquity": [
+					"d",
+					"3d0ad7a3703dda3f"
+				],
+				"pos": [
+					[
+						"d",
+						"f798b3af73831040"
+					],
+					[
+						"d",
+						"94ab5e3d9af2a9bc"
+					],
+					[
+						"d",
+						"2ff7365bdc6dd03f"
+					]
+				],
+				"type": "world",
+				"vel": [
+					[
+						"d",
+						"ac6789c502df19c0"
+					],
+					[
+						"d",
+						"97cb5fe09ecaed3f"
+					],
+					[
+						"d",
+						"c1a9c62877111f40"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"9a9999999999c93f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000003240"
+		],
+		"climate": {
+			"T0": [
+				"d",
+				"0000000000007240"
+			],
+			"mixedLayer": [
+				"d",
+				"0000000000003440"
+			]
+		},
+		"focus": "Alpha",
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"613255302aa9333f"
+		],
+		"mesh": false,
+		"name": "Trisolaris — Wandering Suns",
+		"sceneScale": [
+			"d",
+			"0000000000001040"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"333333333333eb3f"
+			],
+			"tilt": [
+				"d",
+				"a4703d0ad7a3e03f"
+			]
+		},
+		"surface": true,
+		"timeScale": [
+			"d",
+			"666666666666d63f"
+		]
+	},
+	"trisolaris_wide": {
+		"blurb": "A wide circumbinary world: Alpha and Beta are 0.55 AU apart, Trisolaris follows a 2.6 AU eccentric orbit, and Gamma returns every century from 36 AU.",
+		"bodies": [
+			{
+				"luminosity": [
+					"d",
+					"6e567daeb672f33f"
+				],
+				"mass": [
+					"d",
+					"cdccccccccccf03f"
+				],
+				"name": "Alpha",
+				"pos": [
+					[
+						"d",
+						"2bf2f264bcc312c0"
+					],
+					[
+						"d",
+						"61bf4c7e68e110c0"
+					],
+					[
+						"d",
+						"e63186a1f6f929c0"
+					]
+				],
+				"teff": [
+					"d",
+					"1b7922cde858b740"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"1b4fe9d3c49fec3f"
+					],
+					[
+						"d",
+						"f942c38aefcbc4bf"
+					],
+					[
+						"d",
+						"f1c4c9cd7bd717c0"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"adfa5c6dc5fee43f"
+				],
+				"mass": [
+					"d",
+					"cdccccccccccec3f"
+				],
+				"name": "Beta",
+				"pos": [
+					[
+						"d",
+						"f8bebf31899010c0"
+					],
+					[
+						"d",
+						"61bf4c7e68e110c0"
+					],
+					[
+						"d",
+						"e63186a1f6f929c0"
+					]
+				],
+				"teff": [
+					"d",
+					"e0b84cd8682ab540"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"1b4fe9d3c49fec3f"
+					],
+					[
+						"d",
+						"f942c38aefcbc4bf"
+					],
+					[
+						"d",
+						"8d0eacb04d7b1740"
+					]
+				]
+			},
+			{
+				"luminosity": [
+					"d",
+					"89fd65f7e4a51d40"
+				],
+				"mass": [
+					"d",
+					"666666666666fa3f"
+				],
+				"name": "Gamma",
+				"pos": [
+					[
+						"d",
+						"d8978661f3f91440"
+					],
+					[
+						"d",
+						"4127a46920f31340"
+					],
+					[
+						"d",
+						"202ea44b0fb32e40"
+					]
+				],
+				"teff": [
+					"d",
+					"13ef1c4f8c20c040"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"1c7711490deaf0bf"
+					],
+					[
+						"d",
+						"45b51907ef93c83f"
+					],
+					[
+						"d",
+						"fe095e2b25e9e23f"
+					]
+				]
+			},
+			{
+				"dayLength": [
+					"d",
+					"176cc1166cc1863f"
+				],
+				"home": true,
+				"mass": [
+					"d",
+					"54e41071732ac93e"
+				],
+				"name": "Trisolaris",
+				"obliquity": [
+					"d",
+					"3d0ad7a3703dda3f"
+				],
+				"pos": [
+					[
+						"d",
+						"095c5361ab0f1fc0"
+					],
+					[
+						"d",
+						"61bf4c7e68e110c0"
+					],
+					[
+						"d",
+						"e63186a1f6f929c0"
+					]
+				],
+				"type": "world",
+				"vel": [
+					[
+						"d",
+						"154fe9d3c49fec3f"
+					],
+					[
+						"d",
+						"f942c38aefcbc4bf"
+					],
+					[
+						"d",
+						"8ea4b282095312c0"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"9a9999999999e13f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000003c40"
+		],
+		"climate": {
+			"T0": [
+				"d",
+				"0000000000007240"
+			],
+			"mixedLayer": [
+				"d",
+				"0000000000003240"
+			]
+		},
+		"focus": "Alpha",
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"2d431cebe2363a3f"
+		],
+		"mesh": false,
+		"name": "Trisolaris - Wide Seasons",
+		"sceneScale": [
+			"d",
+			"0000000000000840"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"9a9999999999b93f"
+			],
+			"tilt": [
+				"d",
+				"333333333333e33f"
+			]
+		},
+		"surface": true,
+		"timeScale": [
+			"d",
+			"666666666666d63f"
+		]
+	},
+	"vega": {
+		"blurb": "Vega spins at 236 km/s, 88% of the speed at which it would fly apart, and we happen to look almost straight down its rotation axis. That is why it was the photometric zero point for a century and why the calibration was quietly wrong: we were measuring its hot pole. The bulge and the pole-to-equator temperature gradient here are not artistic — the measured rotation predicts an equatorial radius 1.192 times the polar against 1.193 observed, and von Zeipel gravity darkening then gives a 10 260 K pole over an 8 610 K equator against 10 070 / 8 910 measured. (Vega also has a debris disc, but it runs from 86 to 200 AU — twenty thousand times the width of the star — so there is no single zoom that shows you both.)",
+		"bodies": [
+			{
+				"catalog": "vega",
+				"catalogNote": "For a century the definition of magnitude zero — and then interferometry found it is a rapid rotator seen almost pole-on, so we had been calibrating photometry against its hot pole. It spins at 236 km/s, 88% of break-up; that measured velocity predicts an equator-to-pole radius ratio of 1.192 against the 1.193 observed, and a 10 260 K pole over an 8 610 K equator against 10 070 / 8 910 measured.",
+				"luminosity": [
+					"d",
+					"8fc2f5285c0f4440"
+				],
+				"mass": [
+					"d",
+					"14ae47e17a140140"
+				],
+				"name": "Vega",
+				"phase": [
+					"d",
+					"000000000000d03f"
+				],
+				"pos": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				],
+				"radiusSun": [
+					"d",
+					"4c37894160e50240"
+				],
+				"sp": "A0Va",
+				"spinFrac": [
+					"d",
+					"005084472b08ec3f"
+				],
+				"teff": [
+					"d",
+					"0000000000c1c240"
+				],
+				"type": "star",
+				"vel": [
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					],
+					[
+						"d",
+						"0000000000000000"
+					]
+				]
+			}
+		],
+		"bodyScale": [
+			"d",
+			"000000000000f03f"
+		],
+		"camRadius": [
+			"d",
+			"0000000000002240"
+		],
+		"lensing": false,
+		"maxStep": [
+			"d",
+			"fca9f1d24d62503f"
+		],
+		"mesh": false,
+		"name": "Vega — a star seen pole-on",
+		"sceneScale": [
+			"d",
+			"0000000000c06640"
+		],
+		"sky": {
+			"env": "disc",
+			"roll": [
+				"d",
+				"000000000000e03f"
+			],
+			"tilt": [
+				"d",
+				"ec51b81e85ebd13f"
+			]
+		},
+		"timeScale": [
+			"d",
+			"9a9999999999c93f"
+		],
+		"trueScale": true
+	}
+}

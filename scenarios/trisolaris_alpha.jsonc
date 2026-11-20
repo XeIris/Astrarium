@@ -1,0 +1,36 @@
+// S-type: the world orbits Alpha, Beta orbits that pair, Gamma orbits everything.
+{
+  "format": 1,
+  "name": "Trisolaris - Alpha's Refuge",
+  "group": "trisolaris",
+  "blurb": "An S-type solution: Trisolaris orbits Alpha at 0.8 AU, Beta circles the pair at 6.5 AU, and Gamma stays out at 52 AU.",
+  "sky": { "env": "disc", "roll": 1.05, "tilt": 0.46 },
+  "sceneScale": 2.4,
+  "bodyScale": 0.55,
+  "camRadius": 24,
+  "focus": "Alpha",
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.35,
+  "maxStep": 0.0004,
+  "surface": true,
+  "climate": { "T0": 288, "mixedLayer": 14 },
+  "bodies": [
+    {
+      "type": "star", "name": "Alpha", "mass": 1.1, "teff": 6179.055446843342,
+      "luminosity": 1.4641000000000004
+    },
+    {
+      "type": "star", "name": "Beta", "mass": 0.8, "teff": 5048.708712640481, "luminosity": 0.4096000000000001,
+      "orbit": { "around": ["Alpha", "Trisolaris"], "a": 6.5, "e": 0.18, "i": 8, "nu": 51.56620156177409 }
+    },
+    {
+      "type": "star", "name": "Gamma", "mass": 1.6, "teff": 8077.409670677245, "luminosity": 6.553600000000001,
+      "orbit": { "around": ["Alpha", "Beta", "Trisolaris"], "a": 52, "e": 0.2, "i": 18, "nu": 108 }
+    },
+    {
+      "type": "world", "name": "Trisolaris", "mass": 3e-06, "dayLength": 97.4, "home": true,
+      "obliquity": 23.49126960036375, "orbit": { "around": "Alpha", "a": 0.8, "e": 0.12, "nu": 180 }
+    },
+  ]
+}

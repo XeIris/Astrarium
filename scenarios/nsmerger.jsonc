@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "name": "Binary Neutron Star Orbit",
+  "group": "neutron-stars",
+  "blurb": "A wide pair of neutron stars with sweeping pulsar beams. This view illustrates their orbit; it does not simulate an inspiral, kilonova or merger waveform.",
+  "sky": { "env": "starburst", "roll": 1.9, "tilt": 0.48 },
+  "sceneScale": 45,
+  "bodyScale": 1,
+  "camRadius": 26,
+  "lensing": false,
+  "timeScale": 0.15,
+  "maxStep": 5e-05,
+  "bodies": [
+    {
+      "type": "neutron", "name": "NS-A", "mass": 1.45, "visualSpinRadS": 22, "pos": [-0.16875, 0, 0],
+      "vel": [0, 0, -8.568417095019706]
+    },
+    {
+      "type": "neutron", "name": "NS-B", "mass": 1.35, "visualSpinRadS": 16, "pos": [0.18125, 0, 0],
+      "vel": [0, 0, 9.203114657613758]
+    },
+  ]
+}

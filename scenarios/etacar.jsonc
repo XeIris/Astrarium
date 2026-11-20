@@ -1,0 +1,35 @@
+// The real companion: ~30 M☉, 5.54-year orbit, e ≈ 0.9. Its periastron
+// passage is what makes the whole system flare in X-rays.
+{
+  "format": 1,
+  "name": "Eta Carinae — against the Eddington limit",
+  "group": "real-stars",
+  "blurb": "A hundred solar masses radiating five million times the Sun. At that luminosity the radiation pressure pushing outward on free electrons is comparable to the star’s own gravity holding it in — L/L_Edd is near one, and its outer layers are barely bound at all. In the 1840s it threw off somewhere between ten and forty solar masses in a single eruption, briefly became the second brightest star in the sky, and survived. The debris is the Homunculus Nebula, expanding at its measured 650 km/s — drawn at 26 AU rather than its true 38 000, because the binary that threw it off is 15 AU across and there is no single frame that holds both.",
+  "sky": { "env": "starburst", "roll": 1.35, "tilt": 0.52 },
+  "sceneScale": 0.9,
+  "bodyScale": 1,
+  "trueScale": true,
+  "camRadius": 78,
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.3,
+  "maxStep": 0.002,
+  "paint": [
+    {
+      "body": "Eta Carinae A", "color": "#ffcf9a", "density": 0.85, "expand": 0.137, "kind": "cloud",
+      "lobes": 2, "radius": 26
+    },
+  ],
+  "bodies": [
+    {
+      "type": "star", "name": "Eta Carinae A", "catalog": "etacar",
+      "pos": [2.00920889355247, -0.29001266318065877, -1.4306773833516064],
+      "vel": [5.68081925043332, -0.17469617436970497, -0.8618032843382882]
+    },
+    {
+      "type": "star", "name": "Eta Carinae B", "mass": 30, "phase": "ms-mid", "radiusSun": 20, "teff": 37000,
+      "luminosity": 800000, "pos": [-6.697362978508234, 0.9667088772688626, 4.768924611172022],
+      "vel": [-18.936064168111066, 0.5823205812323499, 2.8726776144609607]
+    },
+  ]
+}
