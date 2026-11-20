@@ -397,7 +397,10 @@ func through_the_stage() -> void:
 	var crowd := ScenarioStore.key_for(heavy)
 	check("its entry is kept, marked", Presets.PRESETS.has(crowd) and not Presets.PRESETS[crowd].warnings.is_empty())
 	stage.state.paused = false
+	# A frame per body is ~300 frames: past the 15 s deadline on a slow runner, which
+	# would test the deadline instead (that has its own test below).
 	stage.slice_ms = 0
+	stage.slice_deadline_ms = 600000
 	stage.load_preset(crowd, true)
 	var held := true
 	var guard := 0
@@ -407,6 +410,7 @@ func through_the_stage() -> void:
 		held = held and stage.state.sim_years == years
 		guard += 1
 	stage.slice_ms = 30
+	stage.slice_deadline_ms = 15000
 	check("Load anyway spawns every body (%d)" % stage.state.bodies.size(), stage.state.bodies.size() == 301 and stage.state.preset_key == crowd)
 	check("over %d frames, with the clock held" % guard, held and guard > 100)
 	stage._watch_frame(1.5)
