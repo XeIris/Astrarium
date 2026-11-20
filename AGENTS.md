@@ -221,7 +221,7 @@ shoot a whole fxlab matrix in one process instead of flying in real time.
 - Run Godot through the runner, not bare: `python3 tools/check.py --only NAME` for a
   check, `python3 tools/check.py --timeout S --run <Godot args>` for anything else (a
   screenshot, an `eval=`, a probe script). It stops a child that errors and then idles
-  or sits silent and idle (`--stall`), kills its process tree on a timeout or when the
+  or sits silent and idle (`--stall`), stops its process tree on a timeout or when the
   runner is signalled, and prints the failing lines. Godot exits 0 after many
   `SCRIPT ERROR`s; trust the runner's verdict, not the exit code. Give `--budget` a
   value under your shell tool's own limit so the report still prints, and run longer
@@ -241,6 +241,9 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 
 - a rule in this file that a pattern can state: add it to `tools/rulecheck.py`
   (in `fast`), with a bad and a good sample
+- a new physical term or constant: give its likeliest mistake a mutation in
+  `tools/mutationcheck.py` (`CORE`; a `-twin` when both kernels carry it) and run
+  `python3 tools/mutationcheck.py --only core`; `check.py mutation` runs every group
 - presets, structure or contact radii: `tools/presetcheck.sh`
 - ordinary forces, collisions or the native kernel: `tools/invariantcheck.gd`,
   `tools/nbodycheck.gd` and `tools/numericalcheck.gd`; the secular terms:

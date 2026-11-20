@@ -611,7 +611,3 @@ static func resolve_collisions(bodies: Array) -> Array:
 ## Orbital speed for a circular orbit of radius r (AU) about mass M (M☉).
 static func circular_speed(M: float, r: float) -> float:
 	return sqrt(G * M / r)
-
-## Vis-viva speed for an orbit with given semi-major axis a at radius r.
-static func vis_viva(M: float, r: float, a: float) -> float:
-	return sqrt(G * M * (2.0 / r - 1.0 / a))

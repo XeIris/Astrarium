@@ -23,12 +23,13 @@ import time
 from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
-SUITES = ("dev", "fast", "encounters", "native", "flight", "scenario-replay", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study")
+SUITES = ("dev", "fast", "encounters", "native", "flight", "scenario-replay", "rendered", "assets", "procedural", "clean", "lifecycle", "export", "compatibility", "perf", "m5-budget", "m5-medium", "stability", "stability-study", "mutation")
 ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MULTILINE)
 # Each check in these runs with nothing beside it: they measure time, run check.py
-# themselves (clean), read the previous step's output (export), or need exact object
-# counts (lifecycle; its checks run beside each other only, see `alone`).
-ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clean", "export", "lifecycle"}
+# themselves (clean), read the previous step's output (export), need exact object
+# counts (lifecycle; its checks run beside each other only, see `alone`), or break the
+# tree in place (mutation).
+ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clean", "export", "lifecycle", "mutation"}
 # The soak's features in runtime_checks.gd's order, one process each.
 SOAK_FEATURES = ("spawn_remove", "edit_mass", "true_scale", "editor", "paint", "xsec", "cam_modes", "quality",
                  "lessons", "voyager", "model_viewer", "eva_pod", "ranger", "discovery", "docking", "kerr",
@@ -188,6 +189,7 @@ CA_PENDING = re.compile(r'^ERROR: Condition "ret != noErr" is true\. Returning: 
 ERROR_QUIET = 10  # s: a child this long silent after an engine error is stopped; it has failed already
 STALL_CPU = 0.03  # share of one core under which a silent child counts as idle
 RUN_TIMEOUT = 300  # s: --run's limit unless --timeout gives one
+STOP_GRACE = 5  # s from SIGTERM to SIGKILL when a child is stopped; Godot exits on SIGTERM at once
 FAILURE_LINE = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):|\bFAIL|^Traceback|^\w*Error\b")
 EPILOG = """exit status: 0 every check passed; 1 a check failed (a timeout, a stall or an engine
 error included); 2 bad arguments; 3 incomplete without a failure (--budget ran out); 128+N
@@ -481,6 +483,14 @@ def checks(suite, godot, output, repeat, export_preset):
         yield ("package-native", [sys.executable, str(ROOT / "tools/package_native.py"), str(archive), export_preset],
                r"^NATIVEPACKAGE DONE .+$", 30)
         yield ("exportcheck", [sys.executable, str(ROOT / "tools/exportcheck.py"), str(archive)], r"^EXPORTCHECK PASS:.* 0 failures$", 30)
+    elif suite == "mutation":
+        # Plausible mistakes planted one at a time; the checks named for each must reject it.
+        # core (the orrery's physics, rebuilding native/ for its twins) takes minutes; galaxy
+        # about an hour and a half, most of it in galaxylookcheck's window.
+        for group, timeout in (("core", 1800), ("galaxy", 10800)):
+            yield (f"mutationcheck-{group}", [sys.executable, str(ROOT / "tools/mutationcheck.py"), "--godot", godot, "--only", group,
+                                              "--log-dir", str(output / f"mutation-{group}")],
+                   r"^MUTATIONCHECK DONE as-expected=(\d+)/\1 ", timeout)
     elif suite == "compatibility":
         # Known strict trajectory differences remain failures; no widened tolerances or expected-failure masking.
         yield script("sciencecheck", r"^sciencecheck: [1-9]\d* checks, 0 failed$", "compatibility=web")
@@ -645,15 +655,44 @@ class Processes:
 PROCESSES = Processes()
 
 
-def stop_tree(pid):
-    """SIGKILL a child, its process group and every descendant."""
-    if os.name != "posix":
-        with contextlib.suppress(OSError):
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, timeout=30)
+def exited(pid):
+    """True once `pid` is gone or a zombie. Never reaps it: a worker may be waiting on it."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout
+        return not state.strip() or state.strip().startswith("Z")
+    return False
+
+
+def stop_tree(*pids, grace=None):
+    """Stop each pid's process group and every descendant: SIGTERM, then SIGKILL after
+    up to `grace` s (STOP_GRACE). The grace lets mutationcheck put back the file it broke."""
+    if not pids:
         return
-    below = descendants(process_table() or {}, pid)
-    with contextlib.suppress(OSError):
-        os.killpg(pid, signal.SIGKILL)
+    grace = STOP_GRACE if grace is None else grace
+    if os.name != "posix":
+        for pid in pids:
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, timeout=30)
+        return
+    # Listed first: a descendant whose parent exits is reparented and no longer found.
+    table = process_table() or {}
+    below = [other for pid in pids for other in descendants(table, pid)]
+    if grace:
+        for pid in pids:
+            with contextlib.suppress(OSError):
+                os.killpg(pid, signal.SIGTERM)
+        end = time.monotonic() + grace
+        while time.monotonic() < end and not all(exited(pid) for pid in pids):
+            time.sleep(0.05)
+    for pid in pids:
+        with contextlib.suppress(OSError):
+            os.killpg(pid, signal.SIGKILL)
     for other in below:
         with contextlib.suppress(OSError):
             os.kill(other, signal.SIGKILL)
@@ -1444,9 +1483,7 @@ def run_plan(plan, output, options, guard, report, keys=None):
         complete = not failed and not report.get("budget_reached")
         return complete
     finally:
-        for process in list(live.values()):
-            if process.poll() is None:
-                stop_tree(process.pid)
+        stop_tree(*[process.pid for process in list(live.values()) if process.returncode is None])
         flush(final=True)
         for index in sorted(started - set(progress.done)):  # the run itself was stopped (a signal)
             report["results"].append({"name": plan[index].name, "problem": "interrupted: the run was stopped first",

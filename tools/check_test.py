@@ -104,6 +104,24 @@ class CheckTests(unittest.TestCase):
         check.time.sleep(0.2)
         self.assertFalse(check.process_alive(child), "the child outlived its runner")
 
+    @unittest.skipUnless(os.name == "posix", "signals")
+    def test_a_stopped_child_gets_sigterm_then_sigkill_after_the_grace(self):
+        # mutationcheck puts back the file it broke on SIGTERM; a SIGKILL first leaves it broken.
+        restored = self.output / "restored"
+        tidy = self.script("tidy", "import signal, sys, time\n"
+                           f"def put_back(*_):\n    open({str(restored)!r}, 'w').write('ok'); sys.exit(1)\n"
+                           "signal.signal(signal.SIGTERM, put_back)\nprint('mutated', flush=True)\ntime.sleep(60)", timeout=1)
+        stubborn = self.script("stubborn", "import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+                               "print('ignoring', flush=True)\ntime.sleep(60)", timeout=1)
+        with patch.object(check, "STOP_GRACE", 2):
+            complete, results = self.run_plan([tidy, stubborn], jobs=2, keep_going=True)
+        self.assertFalse(complete)
+        seconds = {r["name"]: r["seconds"] for r in results}
+        self.assertEqual({r["name"]: r["problem"] for r in results}, {"tidy": "timeout", "stubborn": "timeout"})
+        self.assertEqual(restored.read_text(), "ok")
+        self.assertLess(seconds["tidy"], 2.5, "a child that exits on SIGTERM waited out the grace")
+        self.assertTrue(2.5 < seconds["stubborn"] < 6, seconds)
+
     @unittest.skipUnless(os.name == "posix", "reaping reads ps")
     def test_orphans_of_a_dead_runner_are_reaped_once(self):
         dead = subprocess.Popen([sys.executable, "-c", "pass"])
@@ -124,7 +142,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertIn("orphan", lines[0])
         self.assertNotIn("stranger", lines[0])
-        self.assertEqual(orphan.wait(timeout=5), -check.signal.SIGKILL)
+        self.assertEqual(orphan.wait(timeout=5), -check.signal.SIGTERM)
         self.assertIsNone(stranger.poll())
         self.assertEqual(check.json.loads((folder / f"{dead.pid}.json").read_text())["finished"], "abandoned")
         self.assertEqual(check.reap_orphans(folder), [])
