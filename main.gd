@@ -475,7 +475,9 @@ func _sync_climate(b: Body) -> void:
 		var v = b.viz.inner if b.viz is Bodies.AccretionWrap else b.viz
 		if v != null and v.has_method("snap_climate"): v.snap_climate()
 
-func remove_body(id) -> void:
+## `refresh` false leaves the HUD to the caller: rebuilding its body list per removal
+## makes emptying a scene N², and floods Godot's message queue past a few hundred.
+func remove_body(id, refresh := true) -> void:
 	var idx := -1
 	for i in state.bodies.size():
 		if state.bodies[i].id == id:
@@ -496,12 +498,12 @@ func remove_body(id) -> void:
 	if state.focus_id == id:
 		state.focus_id = null
 		state.follow_id = null
-	refresh_ui()
+	if refresh: refresh_ui()
 
 # Empty the scene, including flashes and everything the painter tracks by id.
 func clear_bodies() -> void:
 	while not state.bodies.is_empty():
-		remove_body(state.bodies[0].id)
+		remove_body(state.bodies[0].id, false)
 	for f in flashes:
 		f.flash.kill()
 	flashes.clear()
@@ -732,9 +734,10 @@ func recoil_camera(b: Body, blast_size: float) -> void:
 	cam.radius_to = minf(maxf(cam.radius, blast_size * 2.4), 20000.0)
 
 # Every mass change can cross a hard structural threshold, even a small merger.
-func check_structural_limits(b: Body) -> void:
+## `near` indexes state.bodies at their current positions and masses; null builds one.
+func check_structural_limits(b: Body, near: Neighbours = null) -> void:
 	if not b.alive or b.type == "bh": return
-	if _check_tidal_limit(b): return
+	if _check_tidal_limit(b, near): return
 	if _check_nova(b): return
 	if Physics.secular and b.type == "star" and b.phase != null and float(b.phase) >= Structure.LIFE_CLOCK[-1][0]:
 		core_collapse(b)
@@ -789,15 +792,8 @@ func _check_nova(b: Body) -> bool:
 # when the radial velocity has turned outward, the osculating periapsis was inside,
 # and the orbit's time since periapsis fits in the interval.
 var _tidal_rv := {}   # "victim:primary" → [r·v, sim_years] at the last check
-func _check_tidal_limit(b: Body) -> bool:
-	var prim: Body = null
-	var pull := 0.0
-	for o in state.bodies:
-		if o == b or not o.alive: continue
-		var d2 := b.pos.distance_sq_to(o.pos)
-		if d2 <= 0.0: continue
-		var t: float = o.mass / (d2 * sqrt(d2))
-		if t > pull: pull = t; prim = o
+func _check_tidal_limit(b: Body, near: Neighbours = null) -> bool:
+	var prim := (near if near != null else Neighbours.new(state.bodies)).strongest_pull(b)
 	if prim == null: return false
 	var r_d := Structure.disruption_radius(b.type, b.mass, b.radius, prim.mass)
 	var contact := (prim.rs if prim.type == "bh" else (prim.contact_au if prim.contact_au != 0.0 else prim.radius)) \
@@ -2016,6 +2012,8 @@ func sync_sim_controls() -> void:
 	hud.set_slider("maxStep", U.log10(state.max_step), "%s yr" % U.expo(state.max_step, 1))
 	hud.set_slider("gwBoost", state.gw_boost, ("%s×" % U.fixed(state.gw_boost, 2)) if state.gw_boost else "off")
 
+var _energy_due_us := 0
+
 func update_sim_stats() -> void:
 	# Say when step_physics hits STEP_GUARD: it then runs simulated time slow, silently.
 	var capped := state.last_steps >= STEP_GUARD
@@ -2025,8 +2023,17 @@ func update_sim_stats() -> void:
 		hud.set_warn("setSteps", true, "Integration stopped at a numerical precision limit. Unsafe steps were not accepted. Check the body inputs and step cap; reduce the requested time scale for tiny systems. A larger step does not fix this limit.")
 	else:
 		hud.set_warn("setSteps", capped, "The integrator hit its 8000 sub-step guard. Only the integrated time advances the clock, so the simulation is running slower than the requested rate. Reduce the time scale to give each frame less work; increasing Max step trades accuracy for speed." if capped else "")
+	# The energy is N² GDScript (~145 ms at 512 bodies). A read that costs more than 5 ms
+	# waits 20 times its cost, so a large scene spends a twentieth of the wall clock on it
+	# and a small one reads it on every call; a new or invalid reference is read at once.
+	var started := Time.get_ticks_usec()
+	var stale: bool = state.energy0 == null or not is_finite(float(state.energy0)) \
+		or state.energy_n != state.bodies.size() or state.energy_pn != Physics.post_newtonian
+	if started < _energy_due_us and not stale: return
 	# Body creation/removal changes the energy budget independently of integration.
 	var E := Derive.total_energy(state.bodies)
+	var cost := Time.get_ticks_usec() - started
+	_energy_due_us = started + 20 * cost if cost > 5000 else 0
 	if not is_finite(E):
 		state.energy0 = null
 		state.energy_n = state.bodies.size()
@@ -2988,12 +2995,7 @@ func show_cross_section(b: Body) -> void:
 func secular_facts(b: Body) -> Array:
 	var rows := []
 	if not Physics.secular: return rows
-	var prim: Body = null
-	var pull := 0.0
-	for o in state.bodies:
-		if o == b or not o.alive: continue
-		var d2 := b.pos.distance_sq_to(o.pos)
-		if d2 > 0.0 and o.mass / (d2 * sqrt(d2)) > pull: pull = o.mass / (d2 * sqrt(d2)); prim = o
+	var prim := Neighbours.new(state.bodies).strongest_pull(b)
 	if prim != null and b.tide_k2 > 0.0:
 		var rel := DVec3.new().sub_vectors(b.pos, prim.pos)
 		var vrel := DVec3.new().sub_vectors(b.vel, prim.vel)
@@ -3506,6 +3508,7 @@ func animate(dt: float) -> void:
 	ctx.holes = holes; ctx.camera = pipe.scene_cam; ctx.cam_pos = cam_pos; ctx.time = state.time
 	ctx.scene_scale = state.scene_scale; ctx.sim_dt = sim_stepped; ctx.suns = state.suns
 	ctx.bodies = state.bodies; ctx.viewport_h = float(pipe.view_size.y)
+	ctx.near = Neighbours.new(state.bodies)
 	ctx.visible_band = state.band == Spectrum.VISIBLE_BAND
 	var vis_dt := 0.0 if state.paused else dt
 	if not drawn: _held_dt += vis_dt
@@ -3523,8 +3526,14 @@ func animate(dt: float) -> void:
 			# A star's visual steps its activity, whose flares the climate reads.
 			b.activity.step(sim_stepped)
 		apply_size_ease(b, dt)
-	# Structural limits, on anything whose mass moved this frame.
-	for b in state.bodies.duplicate(): check_structural_limits(b)
+	# Structural limits, on anything whose mass moved this frame. An event changes a mass
+	# or the body list, and the next search needs an index of what is left.
+	var near := ctx.near
+	for b: Body in state.bodies.duplicate():
+		var count := state.bodies.size()
+		var mass := b.mass
+		check_structural_limits(b, near)
+		if state.bodies.size() != count or b.mass != mass: near = Neighbours.new(state.bodies)
 
 	# Sample after this frame's camera and body updates: a photometer's line of
 	# sight must match the image rather than lag a camera move by one frame.

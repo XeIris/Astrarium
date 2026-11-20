@@ -80,6 +80,7 @@ CHANGED_RULES = (
     (("sim/physics.gd", "sim/nbody.gd", "sim/world.gd", "native/*"),
      ("galaxycheck", "encountercheck", "invariantcheck", "nbodycheck", "numericalcheck", "secularcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
       "missioncheck-*", "accretion*", "sharedtimecheck", "transitioncheck", "realismcheck", "flightphysicscheck")),
+    (("sim/neighbours.gd", "sim/suns.gd"), ("neighbourcheck", "secularcheck", "realismcheck", "lookcheck")),
     (("sim/structure.gd", "sim/derive.gd", "sim/presets.gd", "sim/edupresets.gd", "sim/starcat.gd",
       "sim/stellar.gd", "sim/scale.gd", "sim/climate.gd", "sim/climate_inputs.gd", "sim/atmosphere.gd", "sim/ebm.gd", "sim/suns.gd", "sim/bodies.gd"),
      ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
@@ -316,6 +317,8 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("sciencecheck", r"^sciencecheck: [1-9]\d* checks, 0 failed$")
         yield script("savecheck", r"^SAVECHECK ([1-9]\d*)/\1 checks passed \(platform=(?:macOS|Linux|Windows); native \+ forced backup publication\)\.$")
         yield script("secularcheck", r"^SECULARCHECK DONE checks=[1-9]\d* failures=0$")
+        # About a second: the neighbour index against the full scans it replaces.
+        yield script("neighbourcheck", r"^NEIGHBOURCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("flighttimecheck", r"^FLIGHT TIME PASS \(0 failures\)$")
         yield script("orbitcheck", r"^ORBITCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("soicheck", r"^SOICHECK DONE checks=[1-9]\d* failures=0$")

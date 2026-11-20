@@ -261,6 +261,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
   shader's height against the CPU's
 - how a world's look follows its climate: `tools/lookcheck.tscn`, and with `pixels=1` the frames
 - tidal disruption, natal kicks, the disc model, the climate or its draw: `tools/realismcheck.tscn`
+- the per-frame neighbour searches (tidal primary, eclipses, planetshine): `tools/neighbourcheck.gd`
 - the Observatory's sky, dates or sites: `tools/observatorycheck.gd`; how the mode meets the
   stage: `tools/observatorystagecheck.gd`; a telescope's frames: `tools/imagingcheck.gd`;
   how the sky looks: `tools/observatorylookcheck.tscn`
