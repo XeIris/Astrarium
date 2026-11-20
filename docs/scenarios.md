@@ -1,6 +1,6 @@
 # Scenario design notes
 
-Code: `sim/presets.gd`, `sim/edupresets.gd`. [web/README.md](../web/README.md)
+Code: `scenarios/*.jsonc` ([the format](scenario-format.md)), `sim/presets.gd`. [web/README.md](../web/README.md)
 describes the scenarios for readers; this file keeps the design constraints and
 measurements behind them.
 

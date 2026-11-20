@@ -1,0 +1,22 @@
+{
+  "format": 1,
+  "name": "Sirius A & B",
+  "group": "real-stars",
+  "blurb": "The real orbit: a = 7.50 AU, e = 0.59, period 50.13 years. Sirius A is an ordinary A1 star; Sirius B beside it has 1.02 solar masses packed into the volume of Earth, held up by electron degeneracy alone. Its existence was deduced from Sirius A wobbling, forty years before anyone saw it. At true scale B is a point of light — which is exactly the observational problem that made it so hard to find.",
+  "sky": { "env": "disc", "roll": 2.4, "tilt": 0.4 },
+  "sceneScale": 3,
+  "bodyScale": 1,
+  "trueScale": true,
+  "camRadius": 40,
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 3,
+  "maxStep": 0.001,
+  "bodies": [
+    { "type": "star", "name": "Sirius A", "catalog": "siriusA" },
+    {
+      "type": "white-dwarf", "name": "Sirius B", "catalog": "siriusB",
+      "orbit": { "around": "Sirius A", "a": 7.4957, "e": 0.5923, "i": 13.750987083139757, "nu": 126.05071492878112 }
+    },
+  ]
+}

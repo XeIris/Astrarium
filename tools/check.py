@@ -81,10 +81,13 @@ CHANGED_RULES = (
      ("galaxycheck", "encountercheck", "invariantcheck", "nbodycheck", "numericalcheck", "secularcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
       "missioncheck-*", "accretion*", "sharedtimecheck", "transitioncheck", "realismcheck", "flightphysicscheck")),
     (("sim/neighbours.gd", "sim/suns.gd"), ("neighbourcheck", "secularcheck", "realismcheck", "lookcheck")),
-    (("sim/structure.gd", "sim/derive.gd", "sim/presets.gd", "sim/edupresets.gd", "sim/starcat.gd",
+    (("sim/structure.gd", "sim/derive.gd", "sim/presets.gd", "scenarios/*", "sim/scenario_file.gd", "sim/jsonc.gd", "sim/starcat.gd",
       "sim/stellar.gd", "sim/scale.gd", "sim/climate.gd", "sim/climate_inputs.gd", "sim/atmosphere.gd", "sim/ebm.gd", "sim/suns.gd", "sim/bodies.gd"),
      ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
-      "secularcheck", "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck")),
+      "secularcheck", "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck", "scenariofilecheck")),
+    # Scenario files, their reader and store, and the Scenario panel that uploads them.
+    (("sim/scenario_file.gd", "sim/jsonc.gd", "sim/scenario_store.gd", "scenarios/*", "tools/fixtures/scenario_states.json", "ui/hud.gd"),
+     ("scenariofilecheck",)),
     # What runs on the ground, and the proof it runs nowhere else.
     (("sim/surface/*", "shaders/surface/*", "shaders/observatory/site_terrain.gdshader", "sim/showcase.gd", "sim/planet_pin.gd", "sim/climate_look.gd",
       "sim/planet_elevation.gd", "assets/planet-relief/*", "sim/flight/localview.gd", "sim/observatory/site_scene.gd"),
@@ -106,7 +109,7 @@ CHANGED_RULES = (
       "sim/perihelion.gd"),
      ("coursecheck", "editorcheck", "structureinputcheck", "_soak_check-*")),
     # The photometer replay, the chirp template, the perihelion meter (with edu_mercury's 1PN rate) and the dates.
-    (("sim/lightcurve.gd", "sim/gwdetector.gd", "sim/perihelion.gd", "sim/timescales.gd", "sim/edupresets.gd"),
+    (("sim/lightcurve.gd", "sim/gwdetector.gd", "sim/perihelion.gd", "sim/timescales.gd", "scenarios/edu_*.jsonc"),
      ("sciencecheck",)),
     # The shock layer's spectrum and the shader terms it hands the glow.
     (("sim/flight/plasma_spectrum.gd", "sim/flight/ionisation.gd", "shaders/flight/entry_plasma.gdshaderinc"),
@@ -311,6 +314,8 @@ def checks(suite, godot, output, repeat, export_preset):
         # About a second: AGENTS.md's physics rules that a pattern can state (tools/rulecheck.py --list).
         yield ("rulecheck", [sys.executable, str(ROOT / "tools/rulecheck.py")], r"^RULECHECK DONE rules=[1-9]\d* violations=0$", 60)
         yield script("skycheck", r"^SKYCHECK DONE checks=[1-9]\d* failures=0$")
+        # Scenario files: the built-ins against the builds they replaced, every refusal, and upload through the stage.
+        yield headless_scene("scenariofilecheck", r"^SCENARIOFILE DONE [1-9]\d* checks, 0 failures$")
         yield headless_scene("voyagercheck", r"^VOYAGER DONE failures=0$", "title=0")
         yield script("cameracheck", r"^CAMERACHECK DONE checks=[1-9]\d* failures=0$")
         yield script("invariantcheck", r"^INVARIANTCHECK DONE checks=[1-9]\d* failures=0 native=(?:true|false)$")

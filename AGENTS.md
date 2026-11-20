@@ -148,6 +148,14 @@ puts its own offsets on inner nodes. Visual updates must not change physical
 mass, position or velocity. `ctx` is a `VisualCtx`
 ([docs/godot.md](docs/godot.md#the-body-visual-contract)).
 
+## Scenario files
+
+Every orrery scenario that needs no code is a file in `scenarios/` (format:
+[docs/scenario-format.md](docs/scenario-format.md)); `sim/presets.gd` keeps only
+`solar` and `jovian_voyage`. A new scenario is a new file, not a builder. A file is
+validated whole before the stage changes, and an unknown key is an error.
+`tools/fixtures/scenario_states.json` pins each built-in's starting state bit for bit.
+
 ## The course
 
 - `sim/lessons.gd` is data with no scene access. A step's `do` block is a
@@ -253,6 +261,8 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - re-entry plasma colour or `Ionisation`: `tools/plasmacheck.gd`
 - lessons, presets or the stage: `tools/coursecheck.tscn`
 - spawn/edit/preset input domain: `tools/structureinputcheck.tscn`
+- scenario files, their reader, uploads or the Custom group: `tools/scenariofilecheck.tscn`
+  (`snapshot=1` after an intended change to a built-in's starting state)
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`
 - the composition editor, its pie and its preview: `tools/compositioncheck.tscn`
 - the ground, sea and weather at a pin, and that they run nowhere else: `tools/surfacecheck.tscn`, and with

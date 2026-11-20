@@ -1,0 +1,40 @@
+// A genuine non-hierarchical three-body system: expect the planet to be flung out,
+// swallowed or ejected within centuries. Reload to reroll.
+// three comparable masses on a near-equilateral (Lagrange) layout, which
+// is unstable for mass ratios like these — it breaks up on its own.
+{
+  "format": 1,
+  "name": "Trisolaris — Chaotic Era",
+  "group": "trisolaris",
+  "blurb": "The same three suns with NO protective hierarchy — a true chaotic three-body system. Trisolaris gets thrown between the stars, roasted, frozen, and usually ejected or consumed within a few centuries. This is the version that has no solution.",
+  "sky": { "env": "disc", "roll": 0.35, "tilt": 0.55 },
+  "sceneScale": 3,
+  "bodyScale": 0.55,
+  "camRadius": 40,
+  "focus": "Alpha",
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.35,
+  "maxStep": 0.0006,
+  "surface": true,
+  "climate": { "T0": 288, "mixedLayer": 10 },
+  "bodies": [
+    {
+      "type": "star", "name": "Alpha", "mass": 1.2, "teff": 6575.683677449632, "luminosity": 2.0736,
+      "pos": [3.2, 0, 0], "vel": [0, 0, 5.156123489233358]
+    },
+    {
+      "type": "star", "name": "Beta", "mass": 0.85, "teff": 5235.7352492191385,
+      "luminosity": 0.5220062499999999, "pos": [-1.5999999999999996, 0, 2.771281292110204],
+      "vel": [-4.465333926725748, 0, -2.578061744616678]
+    },
+    {
+      "type": "star", "name": "Gamma", "mass": 2, "teff": 9450.744642952755, "luminosity": 15.839191898578665,
+      "pos": [-1.6000000000000014, 0, -2.771281292110203], "vel": [4.465333926725746, 0, -2.578061744616681]
+    },
+    {
+      "type": "world", "name": "Trisolaris", "mass": 3e-06, "dayLength": 97.4, "home": true,
+      "obliquity": 23.49126960036375, "pos": [0, 0, 9.5], "vel": [-4.184520974736253, 0, 0]
+    },
+  ]
+}
