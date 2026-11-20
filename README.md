@@ -267,7 +267,24 @@ running against its usual time and timeout, and an estimate of the time left
 `PROGRESS` block every 30 s instead. A `WARN` line names a check nearing its
 timeout, running well past its usual time, or silent for two minutes past it.
 `python3 tools/check.py --watch` shows every run in progress in any worktree of
-this clone, including one an agent started; `--status` prints it once.
+this clone, including one an agent started, with each running check's last log
+line; `--status` prints it once (`--json` for a script). `--monitor`, or
+double-clicking `tools/monitor.command`, opens that view in a Terminal window of its
+own; it reads a few small status files once a second.
+
+The runner stops a check that can no longer pass instead of waiting out its timeout:
+one still running 10 s after its output stops following an engine error (a GDScript
+error ends the function holding `quit()`, and Godot then idles), or one with no
+output, no new processes and under 3% of a core for 90 s (`--stall`). A timeout or
+a stop kills the child's whole process tree, and SIGTERM or SIGHUP to the runner (an
+agent's tool timeout, a closed terminal) stops its children and still writes the
+report; after a SIGKILL the next `check.py` invocation stops what was left. A failure
+prints its error lines and the end of its log. `--only NAME,GLOB` runs named checks
+from any suite; `--run GODOT_ARGS...` (last on the line) runs any one Godot command
+the same way and prints its output, failing on an engine error even when Godot exits
+0; `--budget SECONDS` bounds the whole run and exits 3 when it ran out before a
+failure. `--list` prints each check's timeout and usual time. See `--help` for the
+exit statuses.
 ### The fast path
 
 For the inner loop, run what the change touches, headless, and replay whole
@@ -374,6 +391,8 @@ fail explicitly. Multiple requested methods run in order.
 
 | check | what it does |
 |---|---|
+| `tools/rulecheck.py` | the AGENTS.md physics rules a pattern can state, in about a second: one G, one GM☉, structural thresholds only in `structure.gd`, `rs` from mass, no render scale in the physics, double state, SI flight, read-only visuals and surface, data-only lessons, and the constants both N-body kernels define (`--list`); each rule's samples are tested first |
+| `tools/worktrees.py` | lists this clone's worktrees (branch, last commit, changes, authored models, last check run) and readies one to play or edit without the editor's project list: clones the main checkout's gitignored models in (copy-on-write on APFS) and imports headless, about 6 s for a fresh worktree; `play NAME [game args]`, `edit NAME`, or double-click `tools/worktrees.command` |
 | `tools/presetcheck.sh` | loads all 35 scenarios, runs a second of each, reports script/shader errors and lost bodies |
 | `tools/coursecheck.tscn` | renders all 36 lessons / 111 steps; rejects engine errors, missing subjects and unknown directives; `selftest=1` must exit 1 with three errors and one warning |
 | `tools/physcheck.sh` | compatibility report against frozen JavaScript; numeric differences are printed, not rejected; child/engine failures and missing output fail |
