@@ -283,6 +283,9 @@ func _ready() -> void:
 		get_tree().quit(1))
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	stage = load("res://main.tscn").instantiate()
+	# Measure at the native raster, not with a MetalFX preset saved in Settings: its
+	# upscaler reshapes a point source's core and glow.
+	stage._cmd["settings"] = "default"
 	add_child(stage)
 	await get_tree().process_frame
 	stage.set_process(false)

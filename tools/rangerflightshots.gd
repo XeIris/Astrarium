@@ -32,7 +32,7 @@ func _ready() -> void:
 	if not output.is_empty(): DirAccess.make_dir_recursive_absolute(output)
 	OS.add_logger(logger); get_tree().create_timer(120).timeout.connect(func(): get_tree().quit(1))
 	PlanetMaps.synchronous=true
-	stage=load("res://main.tscn").instantiate(); add_child(stage)
+	stage=load("res://main.tscn").instantiate(); stage._cmd["settings"] = "default"; add_child(stage)
 	await get_tree().process_frame
 	stage.set_process(false); stage._start("flight",true)
 	await get_tree().process_frame

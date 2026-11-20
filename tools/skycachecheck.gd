@@ -168,6 +168,9 @@ func _ready() -> void:
 		get_tree().quit(1))
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	stage = load("res://main.tscn").instantiate()
+	# Compare at the native raster, not with a MetalFX preset saved in Settings: its
+	# upscaler turns the cache's small sky differences into large ones at the stars.
+	stage._cmd["settings"] = "default"
 	add_child(stage)
 	await get_tree().process_frame
 	stage.set_process(false)
