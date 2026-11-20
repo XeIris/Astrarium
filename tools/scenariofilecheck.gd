@@ -49,6 +49,8 @@ const DECIMALS := [
 	["7.4957", "4182e2c798fb1d40"], ["7.4957000000000003", "4182e2c798fb1d40"],
 	["5e-324", "0100000000000000"], ["4.9406564584124654e-324", "0100000000000000"],
 	["2.2250738585072014e-308", "0000000000001000"], ["1.7976931348623157e+308", "ffffffffffffef7f"],
+	["1e-330", "0000000000000000"], ["-1e-330", "0000000000000080"],
+	["2.4703282292062327e-324", "0000000000000000"], ["2.4703282292062328e-324", "0100000000000000"],
 	["6.02214076e+23", "17c557ca85e1df44"], ["6.0221407599999999e+23", "17c557ca85e1df44"],
 	["1e-12", "11ea2d819997713d"], ["9.9999999999999998e-13", "11ea2d819997713d"],
 	["3.0035e-06", "52754696f731c93e"], ["0.00115273063734272", "eaecdc18e7e2523f"],
@@ -75,6 +77,12 @@ func decimals() -> void:
 			PackedFloat64Array([got]).to_byte_array().hex_encode() == v[1])
 	var r := Jsonc.parse("{\"a\": 1e400}")
 	check("1e400 reads as infinite, for the finite checks to refuse", r.error.is_empty() and is_inf(float(r.data.a)))
+	# Windows' pow() overflows the estimate for the largest double; the exact step must recover it.
+	check("an estimate that overflowed still finds the largest double",
+		Jsonc._nearest(17976931348623157, 292, INF) == 1.7976931348623157e308)
+	check("and a value past its rounding edge stays infinite", is_inf(Jsonc._nearest(18, 307, INF)))
+	check("an estimate that underflowed still finds the smallest subnormal",
+		Jsonc._nearest(5, -324, 0.0) == Jsonc._from_bits(1))
 
 # THE BUILT-INS, against the builds they were written from.
 static func encode(v: Variant) -> Variant:
@@ -102,32 +110,43 @@ static func decode(v: Variant) -> Variant:
 	return v
 
 ## Empty when equal: numbers by value (int or float, so 0.0 == -0.0), everything else exactly.
-static func diff(a: Variant, b: Variant, path := "") -> String:
+## `ulps` > 0 lets numbers differ by that many representable doubles.
+static func diff(a: Variant, b: Variant, path := "", ulps := 0) -> String:
 	var an := a is int or a is float
 	var bn := b is int or b is float
 	if an or bn:
-		return "" if an and bn and float(a) == float(b) else "%s: %s vs %s" % [path, var_to_str(a), var_to_str(b)]
+		var same := an and bn and (float(a) == float(b) or ulps > 0 and ulp_distance(float(a), float(b)) <= ulps)
+		return "" if same else "%s: %s vs %s" % [path, var_to_str(a), var_to_str(b)]
 	if a is Array or a is PackedFloat64Array:
 		if not (b is Array or b is PackedFloat64Array) or a.size() != b.size(): return "%s: %s vs %s" % [path, var_to_str(a), var_to_str(b)]
 		for i in a.size():
-			var d := diff(a[i], b[i], "%s[%d]" % [path, i])
+			var d := diff(a[i], b[i], "%s[%d]" % [path, i], ulps)
 			if not d.is_empty(): return d
 		return ""
 	if a is Dictionary:
 		if not b is Dictionary: return "%s: not an object" % path
 		for k in a:
 			if not b.has(k): return "%s.%s: missing" % [path, k]
-			var d := diff(a[k], b[k], "%s.%s" % [path, k])
+			var d := diff(a[k], b[k], "%s.%s" % [path, k], ulps)
 			if not d.is_empty(): return d
 		for k in b:
 			if not a.has(k): return "%s.%s: extra" % [path, k]
 		return ""
 	return "" if typeof(a) == typeof(b) and a == b else "%s: %s vs %s" % [path, var_to_str(a), var_to_str(b)]
 
+static func ulp_distance(a: float, b: float) -> int:
+	if not (is_finite(a) and is_finite(b)) or (a < 0.0) != (b < 0.0): return 0 if a == b else 1 << 62
+	var buf := PackedByteArray()
+	buf.resize(16)
+	buf.encode_double(0, absf(a))
+	buf.encode_double(8, absf(b))
+	return absi(buf.decode_s64(0) - buf.decode_s64(8))
+
 # What load_preset_spec assumes when a preset leaves a setting out.
 const CONSUMER_DEFAULTS := {"bodyScale": 1.0, "trueScale": false, "timeScale": 2.0, "maxStep": 5e-3,
 	"gwBoost": 0.0, "discIntensity": 0.9, "spawnAtRest": false, "lensing": false, "mesh": true, "surface": false}
 const FILE_ONLY := ["group", "order", "file", "warnings", "massSlider", "build"]
+const ORBIT_ULPS := 4
 
 func compare_builtins() -> void:
 	var fixture: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(FIXTURE))
@@ -153,9 +172,15 @@ func compare_builtins() -> void:
 			if k == "bodies" or k in FILE_ONLY: continue
 			var d := diff(want.get(k, CONSUMER_DEFAULTS.get(k)), got.get(k, CONSUMER_DEFAULTS.get(k)), k)
 			check("%s: %s" % [key, d], d.is_empty())
-		var d := diff(want.bodies, got.build.call(), "bodies")
+		# An orbit goes through sin and cos, which libms do not round alike: the fixture
+		# is macOS's, and glibc and MinGW put sirius an ulp away. States stay exact.
+		var trig := FileAccess.get_file_as_string(Presets.SCENARIO_DIR.path_join(name)).contains("\"orbit\"")
+		var d := diff(want.bodies, got.build.call(), "bodies", ORBIT_ULPS if trig else 0)
 		check("%s: %s" % [key, d], d.is_empty())
 	check("every built-in file was read (%d)" % files, files >= 36)
+	var five := Jsonc._from_bits(Jsonc._bits(1.0) + 5)
+	check("the orbit allowance is %d ulps and no more" % ORBIT_ULPS,
+		diff([1.0], [Jsonc._from_bits(Jsonc._bits(1.0) + ORBIT_ULPS)], "", ORBIT_ULPS).is_empty() and not diff([1.0], [five], "", ORBIT_ULPS).is_empty())
 	check("the Trisolaris file builds four bodies with Trisolaris placed by its orbit",
 		FileAccess.get_file_as_string("res://scenarios/trisolaris.jsonc").contains("\"testParticle\": true"))
 

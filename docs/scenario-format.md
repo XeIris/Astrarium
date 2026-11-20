@@ -238,7 +238,10 @@ the fixture with `tools/scenariofilecheck.tscn -- snapshot=1` and say why in the
 commit.
 
 `trisolaris`, `trisolaris_alpha`, `trisolaris_wide` and `sirius` are written
-as orbits, which the orbit engine reproduces exactly. The rest are written as
+as orbits, which the orbit engine reproduces exactly on macOS, where the fixture
+was written. An orbit goes through `sin` and `cos`, which libms do not round
+alike, so the check allows those four files' bodies 4 ulps (glibc and MinGW
+put `sirius` one away). The rest are written as
 `pos`/`vel`: their builders computed orbits in a different arithmetic order, or
 summed the N-body pull (`star_ring`). `trisolaris_compact` is also states,
 because its outer orbit's 12° inclination has no degree value that converts to

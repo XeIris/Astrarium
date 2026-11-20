@@ -260,14 +260,18 @@ static func decimal(text: String) -> float:
 # d·10^e to the nearest double, starting from an approximation a few ulps away.
 static func _nearest(d: int, e: int, approx: float) -> float:
 	var c := approx
-	if not is_finite(c): return c
+	# pow() differs by platform in its last bit, so near either end the estimate can
+	# overflow or underflow; start from the end it passed.
+	if is_inf(c): c = _from_bits(0x7FEFFFFFFFFFFFFF)
 	if c <= 0.0: c = _from_bits(1)
 	for _guard in 64:
 		var up := _next(c, 1)
 		var cmp_up := _cmp_mid(d, e, c, up)
 		if cmp_up > 0 or (cmp_up == 0 and _odd(c)):
 			c = up
+			if is_inf(c): return c
 			continue
+		if c == 0.0: break
 		var down := _next(c, -1)
 		var cmp_down := _cmp_mid(d, e, down, c)
 		if cmp_down < 0 or (cmp_down == 0 and _odd(c)):

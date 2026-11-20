@@ -154,7 +154,8 @@ Every orrery scenario that needs no code is a file in `scenarios/` (format:
 [docs/scenario-format.md](docs/scenario-format.md)); `sim/presets.gd` keeps only
 `solar` and `jovian_voyage`. A new scenario is a new file, not a builder. A file is
 validated whole before the stage changes, and an unknown key is an error.
-`tools/fixtures/scenario_states.json` pins each built-in's starting state bit for bit.
+`tools/fixtures/scenario_states.json` pins each built-in's starting state bit for bit
+(orbit-built bodies to 4 ulps, since libms round trig differently).
 
 ## The course
 
