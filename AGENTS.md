@@ -221,7 +221,7 @@ shoot a whole fxlab matrix in one process instead of flying in real time.
 - Run Godot through the runner, not bare: `python3 tools/check.py --only NAME` for a
   check, `python3 tools/check.py --timeout S --run <Godot args>` for anything else (a
   screenshot, an `eval=`, a probe script). It stops a child that errors and then idles
-  or sits silent and idle (`--stall`), kills its process tree on a timeout or when the
+  or sits silent and idle (`--stall`), stops its process tree on a timeout or when the
   runner is signalled, and prints the failing lines. Godot exits 0 after many
   `SCRIPT ERROR`s; trust the runner's verdict, not the exit code. Give `--budget` a
   value under your shell tool's own limit so the report still prints, and run longer

@@ -276,7 +276,8 @@ The runner stops a check that can no longer pass instead of waiting out its time
 one still running 10 s after its output stops following an engine error (a GDScript
 error ends the function holding `quit()`, and Godot then idles), or one with no
 output, no new processes and under 3% of a core for 90 s (`--stall`). A timeout or
-a stop kills the child's whole process tree, and SIGTERM or SIGHUP to the runner (an
+a stop ends the child's whole process tree (SIGTERM, then SIGKILL after 5 s, so a
+child that tidies up on a signal can), and SIGTERM or SIGHUP to the runner (an
 agent's tool timeout, a closed terminal) stops its children and still writes the
 report; after a SIGKILL the next `check.py` invocation stops what was left. A failure
 prints its error lines and the end of its log. `--only NAME,GLOB` runs named checks
@@ -335,7 +336,9 @@ constant off, a sign or a power wrong, or the same mistake in both kernels, wher
 parity cannot see it. It fails unless the checks named for each one reject it.
 `core` covers the orrery's physics in minutes; `galaxy` takes about an hour and a
 half. It rewrites files in place, so it runs alone, the worktree must be left alone
-meanwhile, and a run that includes it records no passes for `--changed`.
+meanwhile, and a run that includes it records no passes for `--changed`. Stopped by
+the runner (a timeout, a stall, `--budget`), it puts the files back on the SIGTERM
+that comes first.
 Body motion uses conservative Newtonian pair gravity; relativistic visuals and
 the illustrative tight-pair drag have separate limits described in
 [the compact-dynamics model](docs/physics/compact-dynamics.md).

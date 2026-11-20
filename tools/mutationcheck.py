@@ -3,8 +3,8 @@
 that should catch it, require every one to fail, and restore the files. A mutation a
 check passes is a hole in that check. First every check named must pass the unchanged
 tree, or it would catch everything. Files are restored byte for byte, on an interrupt
-too, and a run killed outright (check.py's timeout) leaves a journal that the next run
-restores first.
+or SIGTERM too (check.py sends one before it kills), and a run killed outright leaves a
+journal that the next run restores first.
 
     python3 tools/mutationcheck.py [--godot PATH] [--only NAME|core|galaxy[,...]] [--checks NAME[,...]] [--list]
 
@@ -326,7 +326,9 @@ CORE = {
 }
 GROUPS = {"core": list(CORE), "galaxy": list(GALAXY) + list(KNOWN_MISSES)}
 TABLE = {**CORE, **GALAXY, **KNOWN_MISSES}
-OPTIONS = types.SimpleNamespace(godot=None, timeout=None, allow_macos_ca_error=False)  # what check.run_child reads
+# What check.run_child reads. A stall shorter than check.py's own (90 s) judges a check a
+# mutation hangs as rejecting it, before check.py stops this whole run as stalled.
+OPTIONS = types.SimpleNamespace(godot=None, timeout=None, allow_macos_ca_error=False, stall=60)
 
 
 def normal(entry):
@@ -401,9 +403,8 @@ def run_named(check, folder, index):
         while worker.is_alive():
             worker.join(0.2)
     finally:
-        for process in list(live.values()):
-            if process.poll() is None:
-                os.killpg(process.pid, signal.SIGKILL)
+        # No grace: this runs inside our own SIGTERM's grace, and the restore comes after it.
+        runner.stop_tree(*[p.pid for p in list(live.values()) if p.returncode is None], grace=0)
     if not out:
         raise RuntimeError(f"check.py could not run {check.name}")
     result = out[0][0]
