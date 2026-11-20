@@ -49,7 +49,13 @@ const DECIMALS := [
 	["7.4957", "4182e2c798fb1d40"], ["7.4957000000000003", "4182e2c798fb1d40"],
 	["5e-324", "0100000000000000"], ["4.9406564584124654e-324", "0100000000000000"],
 	["2.2250738585072014e-308", "0000000000001000"], ["1.7976931348623157e+308", "ffffffffffffef7f"],
+	["0", "0000000000000000"], ["-0", "0000000000000080"], ["0.000e7", "0000000000000000"],
 	["1e-330", "0000000000000000"], ["-1e-330", "0000000000000080"],
+	# Mantissas past int64, and 1 + 2⁻⁵³ (the midpoint above 1) written out: a tie goes to even.
+	["9.999999999999999999", "0000000000002440"], ["0.9999999999999999999", "000000000000f03f"],
+	["1.00000000000000011102230246251565404236316680908203125", "000000000000f03f"],
+	["1.00000000000000011102230246251565404236316680908203126", "010000000000f03f"],
+	["1e99999999999999999999", "000000000000f07f"], ["1e-99999999999999999999", "0000000000000000"],
 	["2.4703282292062327e-324", "0000000000000000"], ["2.4703282292062328e-324", "0100000000000000"],
 	["6.02214076e+23", "17c557ca85e1df44"], ["6.0221407599999999e+23", "17c557ca85e1df44"],
 	["1e-12", "11ea2d819997713d"], ["9.9999999999999998e-13", "11ea2d819997713d"],
@@ -79,10 +85,14 @@ func decimals() -> void:
 	check("1e400 reads as infinite, for the finite checks to refuse", r.error.is_empty() and is_inf(float(r.data.a)))
 	# Windows' pow() overflows the estimate for the largest double; the exact step must recover it.
 	check("an estimate that overflowed still finds the largest double",
-		Jsonc._nearest(17976931348623157, 292, INF) == 1.7976931348623157e308)
-	check("and a value past its rounding edge stays infinite", is_inf(Jsonc._nearest(18, 307, INF)))
+		Jsonc._nearest(Jsonc._big(17976931348623157), 292, INF) == 1.7976931348623157e308)
+	check("and a value past its rounding edge stays infinite", is_inf(Jsonc._nearest(Jsonc._big(18), 307, INF)))
+	# Past MAX_DIGITS only "anything nonzero" survives, which is what decides a tie.
+	var tie := "1.00000000000000011102230246251565404236316680908203125" + "0".repeat(1000)
+	check("a tie written with a thousand more zeros still goes to even", Jsonc.decimal(tie) == 1.0)
+	check("and one more nonzero digit far out rounds up", Jsonc.decimal(tie + "1") == 1.0000000000000002)
 	check("an estimate that underflowed still finds the smallest subnormal",
-		Jsonc._nearest(5, -324, 0.0) == Jsonc._from_bits(1))
+		Jsonc._nearest(Jsonc._big(5), -324, 0.0) == Jsonc._from_bits(1))
 
 # THE BUILT-INS, against the builds they were written from.
 static func encode(v: Variant) -> Variant:
@@ -110,7 +120,8 @@ static func decode(v: Variant) -> Variant:
 	return v
 
 ## Empty when equal: numbers by value (int or float, so 0.0 == -0.0), everything else exactly.
-## `ulps` > 0 lets numbers differ by that many representable doubles.
+## `ulps` > 0 lets a number, or each component of a vector, differ by that many ulps of
+## the vector's largest component: trig puts a near-zero component many of its own ulps off.
 static func diff(a: Variant, b: Variant, path := "", ulps := 0) -> String:
 	var an := a is int or a is float
 	var bn := b is int or b is float
@@ -119,6 +130,13 @@ static func diff(a: Variant, b: Variant, path := "", ulps := 0) -> String:
 		return "" if same else "%s: %s vs %s" % [path, var_to_str(a), var_to_str(b)]
 	if a is Array or a is PackedFloat64Array:
 		if not (b is Array or b is PackedFloat64Array) or a.size() != b.size(): return "%s: %s vs %s" % [path, var_to_str(a), var_to_str(b)]
+		if ulps > 0 and a.size() > 0 and Array(a).all(func(x): return x is float or x is int) and Array(b).all(func(x): return x is float or x is int):
+			var scale := 0.0
+			for x in a: scale = maxf(scale, absf(float(x)))
+			var tol := float(ulps) * (Jsonc._next(scale, 1) - scale) if scale > 0.0 else 0.0
+			for i in a.size():
+				if not (absf(float(a[i]) - float(b[i])) <= tol): return "%s[%d]: %s vs %s" % [path, i, var_to_str(a[i]), var_to_str(b[i])]
+			return ""
 		for i in a.size():
 			var d := diff(a[i], b[i], "%s[%d]" % [path, i], ulps)
 			if not d.is_empty(): return d
@@ -163,26 +181,31 @@ func compare_builtins() -> void:
 		if not fixture.has(key):
 			check("%s is in the fixture (snapshot=1 after an intended change)" % key, false)
 			continue
-		var want: Dictionary = decode(fixture[key])
-		var got: Dictionary = r.preset
-		var keys := {}
-		for k in want: keys[k] = true
-		for k in got: keys[k] = true
-		for k in keys:
-			if k == "bodies" or k in FILE_ONLY: continue
-			var d := diff(want.get(k, CONSUMER_DEFAULTS.get(k)), got.get(k, CONSUMER_DEFAULTS.get(k)), k)
-			check("%s: %s" % [key, d], d.is_empty())
 		# An orbit goes through sin and cos, which libms do not round alike: the fixture
 		# is macOS's, and glibc and MinGW put sirius an ulp away. States stay exact.
 		var trig := FileAccess.get_file_as_string(Presets.SCENARIO_DIR.path_join(name)).contains("\"orbit\"")
-		var d := diff(want.bodies, got.build.call(), "bodies", ORBIT_ULPS if trig else 0)
-		check("%s: %s" % [key, d], d.is_empty())
+		compare_preset(key, decode(fixture[key]), r.preset, ORBIT_ULPS if trig else 0)
+	# The two built in code go through Kepler's equation in libm, like an orbit file.
+	for key in ["solar", "jovian_voyage"]:
+		check("%s is in the fixture" % key, fixture.has(key) and Presets.PRESETS.has(key))
+		if fixture.has(key) and Presets.PRESETS.has(key): compare_preset(key, decode(fixture[key]), Presets.PRESETS[key], ORBIT_ULPS)
 	check("every built-in file was read (%d)" % files, files >= 36)
 	var five := Jsonc._from_bits(Jsonc._bits(1.0) + 5)
 	check("the orbit allowance is %d ulps and no more" % ORBIT_ULPS,
 		diff([1.0], [Jsonc._from_bits(Jsonc._bits(1.0) + ORBIT_ULPS)], "", ORBIT_ULPS).is_empty() and not diff([1.0], [five], "", ORBIT_ULPS).is_empty())
 	check("the Trisolaris file builds four bodies with Trisolaris placed by its orbit",
 		FileAccess.get_file_as_string("res://scenarios/trisolaris.jsonc").contains("\"testParticle\": true"))
+
+func compare_preset(key: String, want: Dictionary, got: Dictionary, ulps: int) -> void:
+	var keys := {}
+	for k in want: keys[k] = true
+	for k in got: keys[k] = true
+	for k in keys:
+		if k == "bodies" or k in FILE_ONLY: continue
+		var d := diff(want.get(k, CONSUMER_DEFAULTS.get(k)), got.get(k, CONSUMER_DEFAULTS.get(k)), k)
+		check("%s: %s" % [key, d], d.is_empty())
+	var d := diff(want.bodies, got.build.call(), "bodies", ulps)
+	check("%s: %s" % [key, d], d.is_empty())
 
 func snapshot() -> int:
 	var out := {}
@@ -259,6 +282,16 @@ func refusals() -> void:
 	refuse("an unknown sky environment", file(STAR, "\"sky\": {\"env\": \"nebulous\"}"), "nebulous")
 	refuse("an uploaded file choosing a group", file(STAR, "\"group\": \"learning\""), "built-in")
 	refuse("a mass slider with no black hole", file(STAR, "\"massSlider\": true"), "black hole")
+	refuse("a null name", "{\"format\": 1, \"name\": null, \"bodies\": []}", "name is required")
+	refuse("a null format", "{\"format\": null, \"name\": \"t\", \"bodies\": []}", "format is required")
+	refuse("an unknown list group", file(STAR, "\"group\": \"trisolars\""), "must be one of", true)
+	refuse("a home world that the file's climate pushes out of range",
+		file(STAR + ", {\"type\": \"world\", \"name\": \"Home\", \"home\": true, \"albedoBase\": 0.6, \"orbit\": {\"around\": \"Sun\", \"a\": 1}}",
+			"\"climate\": {\"albedoIce\": 0.5}"), "bodies[1]")
+	check("distinct upload names keep distinct copies",
+		ScenarioStore.key_for("a b.jsonc") != ScenarioStore.key_for("a_b.jsonc") and ScenarioStore.key_for("A.jsonc") != ScenarioStore.key_for("a.jsonc"))
+	check("and one name always lands on one copy (%s)" % ScenarioStore.key_for("/x/My System.jsonc"),
+		ScenarioStore.key_for("/x/My System.jsonc") == ScenarioStore.key_for("/y/My System.jsonc") and ScenarioStore.key_for("plain_name.jsonc") == "custom_plain_name")
 	var many := []
 	for i in ScenarioFile.MAX_BODIES + 1: many.append("{\"type\": \"planet\", \"name\": \"p%d\", \"pos\": [%d, 0, 0]}" % [i, i])
 	refuse("more bodies than a file may hold", file(", ".join(many)), "the most a file may hold")
@@ -360,6 +393,7 @@ func through_the_stage() -> void:
 	var crowd := ScenarioStore.key_for(heavy)
 	check("its entry is kept, marked", Presets.PRESETS.has(crowd) and not Presets.PRESETS[crowd].warnings.is_empty())
 	stage.state.paused = false
+	stage.slice_ms = 0
 	stage.load_preset(crowd, true)
 	var held := true
 	var guard := 0
@@ -368,8 +402,9 @@ func through_the_stage() -> void:
 		await frames(1)
 		held = held and stage.state.sim_years == years
 		guard += 1
+	stage.slice_ms = 30
 	check("Load anyway spawns every body (%d)" % stage.state.bodies.size(), stage.state.bodies.size() == 301 and stage.state.preset_key == crowd)
-	check("with the clock held while it loads", held)
+	check("over %d frames, with the clock held" % guard, held and guard > 100)
 	stage._watch_frame(1.5)
 	stage._watch_frame(1.5)
 	check("two frames over a second pause the simulation and say so", stage.state.paused and stage.hud.notice_text().contains("under 1 FPS"))
@@ -385,6 +420,43 @@ func through_the_stage() -> void:
 	check("past the deadline the load stops and the previous scenario returns (%s)" % stage.state.preset_key, stage.state.preset_key == key and stage.state.bodies.size() == 3)
 	check("and the notice says it failed (%s)" % stage.hud.notice_text(), stage.hud.notice_text().contains("failed"))
 	stage.slice_deadline_ms = 15000
+
+	# Past the deadline after another warned scenario, Blank Canvas comes back; without it, an empty stage.
+	stage.load_preset(crowd, true)
+	guard = 0
+	while stage._loading and guard < 600:
+		await frames(1)
+		guard += 1
+	var blank: Dictionary = Presets.PRESETS.blank
+	Presets.PRESETS.erase("blank")
+	stage.slice_deadline_ms = 0
+	stage.load_preset(crowd, true)
+	guard = 0
+	while stage._loading and guard < 600:
+		await frames(1)
+		guard += 1
+	Presets.PRESETS.blank = blank
+	stage.slice_deadline_ms = 15000
+	check("with no Blank Canvas the failed load leaves an empty stage (%d bodies)" % stage.state.bodies.size(),
+		stage.state.bodies.is_empty() and stage.state.preset == null and stage.hud.notice_text().contains("failed"))
+
+	# A galaxy taking the stage mid-load stops the load; the slow-frame watch ends with it.
+	stage.slice_ms = 0
+	stage.load_preset(crowd, true)
+	await frames(3)
+	var midway: bool = stage._loading
+	stage.slice_ms = 30
+	stage.load_preset(GalModels.ORDER[0])
+	await frames(10)
+	check("a galaxy entered mid-load stops it (was loading: %s, %d bodies)" % [midway, stage.state.bodies.size()],
+		midway and not stage._loading and stage.state.bodies.is_empty() and stage.galaxy.active)
+	stage._watch_slow = 0
+	stage._watch_until = Time.get_ticks_msec() + 3000
+	stage._watch_frame(1.5)
+	stage._watch_frame(1.5)
+	check("and the slow-frame watch stands down in the galaxy", stage._watch_slow == -1 and not stage.state.paused)
+	stage.load_preset(key)
+	check("the orrery loads again after it", stage.state.preset_key == key and not stage.galaxy.active)
 
 	stage.request_remove_scenario(crowd)
 	check("remove asks first", Presets.PRESETS.has(crowd) and stage.hud.sels.has("[data-notice=remove]"))

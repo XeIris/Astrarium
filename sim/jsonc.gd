@@ -225,7 +225,12 @@ static func decimal(text: String) -> float:
 	var e := 0
 	var epos := t.findn("e")
 	if epos >= 0:
-		e = int(t.substr(epos + 1))
+		var digits := t.substr(epos + 1)
+		var eneg := digits.begins_with("-")
+		digits = digits.trim_prefix("-").trim_prefix("+").lstrip("0")
+		# A longer exponent is past either end of the range, and would overflow to_int.
+		e = 100000 if digits.length() > 6 else digits.to_int()
+		if eneg: e = -e
 		t = t.substr(0, epos)
 	var dot := t.find(".")
 	if dot >= 0:
@@ -235,30 +240,43 @@ static func decimal(text: String) -> float:
 	while t.length() > 1 and t.ends_with("0"):
 		t = t.substr(0, t.length() - 1)
 		e += 1
-	if t.is_empty() or t == "0": return -0.0 if neg else 0.0
-	var x: float
-	if t.length() <= 15 and absi(e) <= 22:
+	# Zero is negated at run time: GDScript pools equal constants, and a -0.0 literal
+	# (== 0.0) would make every 0.0 in this function negative.
+	var x := 0.0
+	if t.is_empty() or t == "0": return -x if neg else x
+	# Midpoints between doubles have at most 767 significant digits, so the digits past
+	# MAX_DIGITS matter only as "something more": one sticky 1 keeps the rounding.
+	if t.length() > MAX_DIGITS:
+		var rest := t.substr(MAX_DIGITS)
+		e += rest.length()
+		t = t.substr(0, MAX_DIGITS)
+		if not rest.lstrip("0").is_empty():
+			t += "1"
+			e -= 1
+	var mag := t.length() + e   # 10^(mag − 1) ≤ |x| < 10^mag
+	if mag > 310: x = INF
+	elif mag < -323: x = 0.0   # under half the smallest subnormal
+	elif t.length() <= 15 and absi(e) <= 22:
 		# Clinger's fast path: both operands exact, so one rounding.
 		x = float(t.to_int()) * _pow10[e] if e >= 0 else float(t.to_int()) / _pow10[-e]
-	elif t.length() > 19 or absi(e) > 340:
-		x = text.to_float()
-		return x
 	else:
-		var d := t.to_int()
-		var approx := float(d)
-		if absi(e) <= 22: approx = approx * _pow10[e] if e >= 0 else approx / _pow10[-e]
-		else:
-			# in steps, so the scale neither overflows nor underflows on the way
-			var left := e
-			while left != 0:
-				var step := clampi(left, -150, 150)
-				approx *= pow(10.0, step)
-				left -= step
-		x = _nearest(d, e, approx)
+		var lead := t.substr(0, 17)
+		x = _nearest(_big_digits(t), e, _scaled(float(lead.to_int()), e + t.length() - lead.length()))
 	return -x if neg else x
 
-# d·10^e to the nearest double, starting from an approximation a few ulps away.
-static func _nearest(d: int, e: int, approx: float) -> float:
+const MAX_DIGITS := 800
+
+# v·10^k in steps, so the scale neither overflows nor underflows on the way.
+static func _scaled(v: float, k: int) -> float:
+	if absi(k) <= 22: return v * _pow10[k] if k >= 0 else v / _pow10[-k]
+	while k != 0:
+		var step := clampi(k, -150, 150)
+		v *= pow(10.0, step)
+		k -= step
+	return v
+
+# digits·10^e (digits a bignum) to the nearest double, starting a few ulps away.
+static func _nearest(digits: Array, e: int, approx: float) -> float:
 	var c := approx
 	# pow() differs by platform in its last bit, so near either end the estimate can
 	# overflow or underflow; start from the end it passed.
@@ -266,14 +284,14 @@ static func _nearest(d: int, e: int, approx: float) -> float:
 	if c <= 0.0: c = _from_bits(1)
 	for _guard in 64:
 		var up := _next(c, 1)
-		var cmp_up := _cmp_mid(d, e, c, up)
+		var cmp_up := _cmp_mid(digits, e, c)
 		if cmp_up > 0 or (cmp_up == 0 and _odd(c)):
 			c = up
 			if is_inf(c): return c
 			continue
 		if c == 0.0: break
 		var down := _next(c, -1)
-		var cmp_down := _cmp_mid(d, e, down, c)
+		var cmp_down := _cmp_mid(digits, e, down)
 		if cmp_down < 0 or (cmp_down == 0 and _odd(c)):
 			c = down
 			continue
@@ -298,8 +316,8 @@ static func _next(x: float, dir: int) -> float:
 static func _odd(x: float) -> bool:
 	return _bits(x) & 1 == 1
 
-# Sign of d·10^e − (lo + hi)/2 for adjacent positive doubles, compared exactly.
-static func _cmp_mid(d: int, e: int, lo: float, hi: float) -> int:
+# Sign of digits·10^e − the midpoint between `lo` and the next double up, compared exactly.
+static func _cmp_mid(digits: Array, e: int, lo: float) -> int:
 	var bits := _bits(lo)
 	var field := (bits >> 52) & 0x7FF
 	var mant := bits & 0xFFFFFFFFFFFFF
@@ -309,7 +327,7 @@ static func _cmp_mid(d: int, e: int, lo: float, hi: float) -> int:
 		mant |= 1 << 52
 		k = field - 1075
 	# midpoint = (2·mant + 1)·2^(k−1)
-	var left := _big(d)
+	var left := digits.duplicate()
 	var right := _big(2 * mant + 1)
 	var two := k - 1
 	if e >= 0: _mul_pow10(left, e)
@@ -325,6 +343,21 @@ static func _big(v: int) -> Array:
 	while v > 0:
 		out.append(v % LIMB)
 		v /= LIMB
+	return out
+
+static func _big_digits(t: String) -> Array:
+	var out := []
+	for i in range(0, t.length(), 7):
+		var chunk := t.substr(i, 7)
+		_mul_small(out, int(pow(10, chunk.length())))
+		var carry := chunk.to_int()
+		var j := 0
+		while carry > 0:
+			if j == out.size(): out.append(0)
+			var sum: int = out[j] + carry
+			out[j] = sum % LIMB
+			carry = sum / LIMB
+			j += 1
 	return out
 
 static func _mul_small(a: Array, k: int) -> void:

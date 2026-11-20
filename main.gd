@@ -135,19 +135,12 @@ func _ready() -> void:
 			clampi(frame_pos.x, usable_rect.position.x, frame_limit.x),
 			clampi(frame_pos.y, usable_rect.position.y, frame_limit.y)) + frame_offset
 
-	PRESET_GROUPS = [
-		# The course's own scenarios are in the list like everything else. A lesson
-		# opens one, but nothing about them is only reachable through a lesson.
-		_preset_group("learning", "Learning scenarios"),
-		_preset_group("trisolaris", "Trisolaris scenarios"),
-		_preset_group("black-holes", "BH scenarios"),
-		_preset_group("neutron-stars", "Neutron star scenarios"),
-		_preset_group("sandboxes", "Sandboxes"),
-		_preset_group("real-stars", "Real stars"),
-		_preset_group("stellar-systems", "Stellar system scenarios"),
-		# The galactic scene's own scenarios: a different world, not orrery presets.
-		{"id": "galaxies", "label": "Galaxies", "keys": GalModels.ORDER.duplicate()},
-	]
+	# The course's own scenarios are in the list like everything else. A lesson
+	# opens one, but nothing about them is only reachable through a lesson.
+	PRESET_GROUPS = []
+	for id in ScenarioFile.GROUPS: PRESET_GROUPS.append(_preset_group(id, ScenarioFile.GROUPS[id]))
+	# The galactic scene's own scenarios: a different world, not orrery presets.
+	PRESET_GROUPS.append({"id": "galaxies", "label": "Galaxies", "keys": GalModels.ORDER.duplicate()})
 	_load_custom_scenarios()
 
 	pipe = RenderPipeline.new()
@@ -1458,9 +1451,7 @@ func _preset_specs(key: String, p: Dictionary) -> Variant:
 	return specs
 
 func _preset_begin(key: String, p: Dictionary) -> void:
-	_slice_generation += 1
-	_watch_slow = -1
-	_loading = false
+	_cancel_scenario_load()
 	# The Observatory is the solar preset on a date: another scenario ends the mode, so its
 	# clock and observer never outlive the bodies they read.
 	if observatory.active or showcase.active: set_app_mode("sandbox")
@@ -1549,13 +1540,21 @@ func _preset_finish(p: Dictionary) -> void:
 
 # A scenario file loaded anyway: its bodies spawn over several frames, under a deadline,
 # with the clock held; past the deadline the previous scenario comes back.
-const SLICE_MS := 30
+var slice_ms := 30               # a check sets 0 to yield after every body
 var slice_deadline_ms := 15000   # a check shortens it to reach the failure path
 var _slice_generation := 0
 var _loading := false
 # After a load anyway, frames slower than 1 s; two of them pause the clock. −1: not watching.
 var _watch_slow := -1
 var _watch_until := 0
+
+## Whatever takes the stage next owns it: a load still spawning stops at its next frame,
+## and the slow-frame watch ends with the scenario that started it.
+func _cancel_scenario_load() -> void:
+	_slice_generation += 1
+	_loading = false
+	_climates_deferred = false
+	_watch_slow = -1
 
 func _load_sliced(key: String, p: Dictionary) -> void:
 	var specs = _preset_specs(key, p)
@@ -1573,11 +1572,11 @@ func _load_sliced(key: String, p: Dictionary) -> void:
 			_loading = false
 			var back: String = previous if Presets.PRESETS.has(previous) and Presets.PRESETS[previous].get("warnings", []).is_empty() \
 				and Presets.PRESETS[previous].get("errors", []).is_empty() else "blank"
-			load_preset_spec(back, Presets.PRESETS[back])
+			if not (Presets.PRESETS.has(back) and load_preset_spec(back, Presets.PRESETS[back])): reset_stage()
 			hud.show_scenario_notice("Loading %s failed: %d of %d bodies took longer than %s s, so it was stopped." % [
 				p.name, i + 1, specs.size(), slice_deadline_ms / 1000.0], [["Close", hud.hide_scenario_notice]])
 			return
-		if now - slice > SLICE_MS:
+		if now - slice >= slice_ms:
 			hud.show_scenario_notice("Loading %s: %d of %d bodies…" % [p.name, i + 1, specs.size()])
 			await get_tree().process_frame
 			if generation != _slice_generation: return
@@ -1590,12 +1589,15 @@ func _load_sliced(key: String, p: Dictionary) -> void:
 
 func _watch_frame(real_dt: float) -> void:
 	if _watch_slow < 0: return
+	if state.preset == null:
+		_watch_slow = -1
+		return
 	if real_dt > 1.0: _watch_slow += 1
 	if _watch_slow >= 2:
 		_watch_slow = -1
 		state.paused = true
 		hud.show_scenario_notice("%s runs under 1 FPS here, so the simulation is paused. The scene stays loaded." % state.preset.name,
-			[["Unload", func(): load_preset("blank")], ["Close", hud.hide_scenario_notice]])
+			[["Unload", func(): if not load_preset("blank"): reset_stage()], ["Close", hud.hide_scenario_notice]])
 	elif Time.get_ticks_msec() > _watch_until:
 		_watch_slow = -1
 
@@ -1899,6 +1901,7 @@ func quit_to_start() -> void:
 
 ## Back to an empty universe with the default camera and sky.
 func reset_stage() -> void:
+	_cancel_scenario_load()
 	if showcase.active: showcase.leave()
 	if galaxy.active: leave_galaxy()
 	close_map()
@@ -2481,6 +2484,7 @@ func _on_showcase_action(kind: String) -> void:
 # THE GALACTIC SCENE (sim/galaxy/): its own world in kpc and Myr. The orrery's bodies
 # are cleared on the way in; leaving restores the default sky and an empty stage.
 func enter_galaxy(key: String) -> bool:
+	_cancel_scenario_load()
 	if observatory.active or showcase.active: set_app_mode("sandbox")
 	close_map()
 	if flight.active: end_flight()

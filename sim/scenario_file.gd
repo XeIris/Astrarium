@@ -18,6 +18,13 @@ const DT_FRAME := 1.0 / 60.0
 # when per-body costs change.
 const COST := {"body_ms": 0.1, "star_ms": 0.07, "pair_step_ms": 4.0e-5, "budget_ms": 100.0}
 
+## The Scenario panel's list groups a built-in may name, in panel order, with their headings.
+const GROUPS := {
+	"learning": "Learning scenarios", "trisolaris": "Trisolaris scenarios", "black-holes": "BH scenarios",
+	"neutron-stars": "Neutron star scenarios", "sandboxes": "Sandboxes", "real-stars": "Real stars",
+	"stellar-systems": "Stellar system scenarios",
+}
+
 const TYPES := ["planet", "world", "gas-giant", "star", "white-dwarf", "neutron", "bh"]
 const ROCKY := ["planet", "world"]
 const STELLAR := ["star", "white-dwarf"]
@@ -121,9 +128,9 @@ static func from_data(data: Variant, builtin := false, lines := {}) -> Dictionar
 	for key in data:
 		if not TOP_KEYS.has(key):
 			c.err(key, "unknown key")
-	if not data.has("format"): c.err("", "format is required (format: %d)" % FORMAT)
-	if not data.has("name"): c.err("", "name is required")
-	if not data.has("bodies"): c.err("", "bodies is required (it may be empty: [])")
+	if data.get("format") == null: c.err("", "format is required (format: %d)" % FORMAT)
+	if data.get("name") == null: c.err("", "name is required")
+	if data.get("bodies") == null: c.err("", "bodies is required (it may be empty: [])")
 	if not c.errors.is_empty(): return _result(c.errors)
 	for key in data:
 		var v: Variant = data[key]
@@ -140,6 +147,7 @@ static func from_data(data: Variant, builtin := false, lines := {}) -> Dictionar
 			"str":
 				if not v is String or v.is_empty(): c.err(key, "must be a name")
 				elif key == "group" and not builtin: c.err(key, "only built-in scenarios choose a group")
+				elif key == "group" and not GROUPS.has(v): c.err(key, "must be one of %s" % ", ".join(GROUPS.keys()))
 				else: preset[key] = v
 			"num":
 				var e := _num_error(v, sch[1], sch[2], sch.size() > 3)
@@ -166,7 +174,10 @@ static func from_data(data: Variant, builtin := false, lines := {}) -> Dictionar
 		preset.paint = _paint(c, data.paint)
 	if not c.errors.is_empty(): return _result(c.errors)
 	for i in specs.size():
-		var reason := Structure.input_error(_normalized(specs[i]))
+		var spec := _normalized(specs[i])
+		# What the stage will check: the home world with the file's climate merged in.
+		if spec.type == "world" and spec.get("home") == true and preset.get("climate"): spec.merge(preset.climate)
+		var reason := Structure.input_error(spec)
 		if not reason.is_empty(): c.err("bodies[%d]" % i, reason)
 	if not c.errors.is_empty(): return _result(c.errors)
 	var built := _place(c, specs)

@@ -29,6 +29,8 @@ ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MU
 # themselves (clean), read the previous step's output (export), need exact object
 # counts (lifecycle; its checks run beside each other only, see `alone`), or break the
 # tree in place (mutation).
+# Presets built in sim/presets.gd rather than read from scenarios/: solar and jovian_voyage.
+CODE_PRESETS = 2
 ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clean", "export", "lifecycle", "mutation"}
 # The soak's features in runtime_checks.gd's order, one process each.
 SOAK_FEATURES = ("spawn_remove", "edit_mass", "true_scale", "editor", "paint", "xsec", "cam_modes", "quality",
@@ -81,12 +83,15 @@ CHANGED_RULES = (
      ("galaxycheck", "encountercheck", "invariantcheck", "nbodycheck", "numericalcheck", "secularcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
       "missioncheck-*", "accretion*", "sharedtimecheck", "transitioncheck", "realismcheck", "flightphysicscheck")),
     (("sim/neighbours.gd", "sim/suns.gd"), ("neighbourcheck", "secularcheck", "realismcheck", "lookcheck")),
+    # neighbourcheck builds one of its scenes from the Solar System preset.
+    (("sim/presets.gd", "sim/derive.gd"), ("neighbourcheck",)),
     (("sim/structure.gd", "sim/derive.gd", "sim/presets.gd", "scenarios/*", "sim/scenario_file.gd", "sim/jsonc.gd", "sim/starcat.gd",
       "sim/stellar.gd", "sim/scale.gd", "sim/climate.gd", "sim/climate_inputs.gd", "sim/atmosphere.gd", "sim/ebm.gd", "sim/suns.gd", "sim/bodies.gd"),
      ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
       "secularcheck", "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck", "scenariofilecheck")),
     # Scenario files, their reader and store, and the Scenario panel that uploads them.
-    (("sim/scenario_file.gd", "sim/jsonc.gd", "sim/scenario_store.gd", "scenarios/*", "tools/fixtures/scenario_states.json", "ui/hud.gd"),
+    (("sim/scenario_file.gd", "sim/jsonc.gd", "sim/scenario_store.gd", "scenarios/*", "tools/fixtures/scenario_states.json", "ui/hud.gd",
+      "sim/sky.gd"),
      ("scenariofilecheck",)),
     # What runs on the ground, and the proof it runs nowhere else.
     (("sim/surface/*", "shaders/surface/*", "shaders/observatory/site_terrain.gdshader", "sim/showcase.gd", "sim/planet_pin.gd", "sim/climate_look.gd",
@@ -448,7 +453,8 @@ def checks(suite, godot, output, repeat, export_preset):
         accretion_gd = scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$", "native=0")
         yield ("accretion-gdscript", *accretion_gd[1:])
         yield Check("presetcheck", ["sh", str(ROOT / "tools/presetcheck.sh"), str(output / "presets-engine.log"), *window[len(base):]],
-                    r"^PRESETCHECK DONE 38$", 300, lane="window")  # windowed, like scene()
+                    rf"^PRESETCHECK DONE {len(list((ROOT / 'scenarios').glob('*.jsonc'))) + CODE_PRESETS}$", 300,
+                    lane="window")  # windowed, like scene()
     elif suite in ("assets", "procedural"):
         if suite == "assets":
             yield ("craft-parity", base + ["--headless", "res://tools/crafttest.tscn", "--", "parity"],

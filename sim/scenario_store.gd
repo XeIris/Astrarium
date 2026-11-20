@@ -9,13 +9,16 @@ const PREFIX := "custom_"
 ## Checks point this at a temporary directory so they never read or write the user's.
 static var dir := "user://scenarios"
 
+## The same file name always gives the same key, and two names never share one: a name
+## that had to be lower-cased or have characters replaced carries a hash of itself.
 static func key_for(path: String) -> String:
-	var stem := path.get_file().get_basename().to_lower()
+	var stem := path.get_file().get_basename()
 	var out := ""
 	for i in stem.length():
-		var c := stem[i]
+		var c := stem[i].to_lower()
 		out += c if (c >= "a" and c <= "z") or (c >= "0" and c <= "9") else "_"
-	return PREFIX + (out if not out.is_empty() else "scenario")
+	if out != stem or out.is_empty(): out += "_" + stem.sha256_text().substr(0, 8)
+	return PREFIX + out
 
 static func path_of(key: String) -> String:
 	return dir.path_join(key + ".jsonc")
@@ -52,10 +55,18 @@ static func add(path: String) -> Dictionary:
 	var key := key_for(path)
 	var err := DirAccess.make_dir_recursive_absolute(dir)
 	if err != OK: return {"ok": false, "errors": ["cannot create %s: %s" % [dir, error_string(err)]]}
-	var out := FileAccess.open(path_of(key), FileAccess.WRITE)
+	# Written beside the copy and renamed over it, so a failed write leaves the old one.
+	var part := path_of(key) + ".part"
+	var out := FileAccess.open(part, FileAccess.WRITE)
 	if out == null: return {"ok": false, "errors": ["cannot save the copy: %s" % error_string(FileAccess.get_open_error())]}
-	out.store_string(text)
+	var wrote := out.store_string(text)
+	out.flush()
+	wrote = wrote and out.get_error() == OK
 	out.close()
+	err = DirAccess.rename_absolute(part, path_of(key)) if wrote else ERR_FILE_CANT_WRITE
+	if err != OK:
+		DirAccess.remove_absolute(part)
+		return {"ok": false, "errors": ["cannot save the copy: %s" % error_string(err)]}
 	r.preset.file = path_of(key)
 	return {"ok": true, "key": key, "preset": _entry(key, r), "errors": []}
 

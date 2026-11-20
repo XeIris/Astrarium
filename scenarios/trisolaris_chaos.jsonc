@@ -1,5 +1,5 @@
 // A genuine non-hierarchical three-body system: expect the planet to be flung out,
-// swallowed or ejected within centuries. Reload to reroll.
+// swallowed or ejected within centuries. Reloading restarts from the same state.
 // three comparable masses on a near-equilateral (Lagrange) layout, which
 // is unstable for mass ratios like these — it breaks up on its own.
 {

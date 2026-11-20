@@ -8174,7 +8174,7 @@
 		]
 	},
 	"trisolaris_wander": {
-		"blurb": "Three suns that genuinely wander. A tight Beta+Gamma pair dives past the home sun every 3.8 years on a chaotically evolving inclined orbit, so the sky is never the same twice: one sun 21% of the time, two 44%, three 32%, dark 3% — against two-suns-always for the other architectures. Stand on the planet (V); this is the one built for the view. Unlike them it is not stable, and it is not meant to be: the world lives a few centuries, then is ejected or torn apart.",
+		"blurb": "Three suns that genuinely wander. A tight Beta+Gamma pair dives past the home sun every 3.8 years on a chaotically evolving inclined orbit, so the sky is never the same twice. Over an ensemble of runs, counting suns that show a disc at least a quarter of the Sun's width: one 21% of the time, two 44%, three 32%, none 3% — against two-suns-always for the other architectures. Stand on the planet (V); this is the one built for the view. Unlike them it is not stable, and it is not meant to be: the world lives a few centuries, then is ejected or torn apart.",
 		"bodies": [
 			{
 				"contactAU": [

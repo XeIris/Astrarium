@@ -19,16 +19,20 @@ reel and anything a lesson scripts.
   `group` loads but is not listed.
 - Uploaded scenarios: **Upload scenario file…** below the scenario list copies
   the file, comments included, to `user://scenarios/custom_<name>.jsonc` and
-  lists it under **Custom scenarios**. Uploading a file with the same name
-  replaces the copy; ✕ removes it after asking. The original is never touched.
+  lists it under **Custom scenarios**. `<name>` is the file name in lower case
+  with every other character but a–z and 0–9 as `_`; a name that needed either
+  change also gets 8 hex digits of its SHA-256, so two file names never share a
+  copy. Uploading a file with the same name replaces the copy, through a
+  temporary file, so a failed write keeps the old one; ✕ removes it after
+  asking. The original is never touched.
   A file that is refused is not copied. Checks use a temporary directory
   (`settings=default`), never the user's.
 - A file is UTF-8 JSON with `//` and `/* */` comments and trailing commas
   allowed, at most 4 MB. Godot's JSON parser accepts neither comments nor
   reports duplicate keys (it keeps the last one), so the game reads these files
   with its own reader. That reader reports line and column, refuses duplicate
-  keys and reads every number as the nearest double (`String.to_float` can be an
-  ulp off).
+  keys and reads every number, of any length, as the nearest double
+  (`String.to_float` can be an ulp off).
 
 ## Values
 
@@ -98,9 +102,9 @@ without warnings stays synchronous, because lessons rely on it.
 | `format` | integer | `1` | **required** |
 | `name` | string | 1–80 characters | **required** |
 | `blurb` | string | ≤ 4000 characters | empty |
-| `group` | string | a list group id; built-ins only | `custom` for uploads; unlisted for built-ins |
+| `group` | string | `learning` `trisolaris` `black-holes` `neutron-stars` `sandboxes` `real-stars` `stellar-systems` (`ScenarioFile.GROUPS`); built-ins only | `custom` for uploads; unlisted for built-ins |
 | `order` | number | finite | after the group's other new files, by key |
-| `sky` | object | `SkyModel.request_error` ([sky schema](scenarios.md)) | the default sky |
+| `sky` | object | see [Sky](#sky) | the default sky |
 | `bodies` | array of bodies | ≤ 2048 | **required** (may be empty) |
 | `paint` | array of paint specs | see Paint | none |
 | `sceneScale` | scene units per AU | > 0 | the widest start distance from the barycentre becomes 20 units; 2.0 with < 2 bodies |
@@ -120,6 +124,26 @@ without warnings stays synchronous, because lessons rely on it.
 | `surface` | bool | needs a home world | false |
 | `climate` | object | `ClimateInputs.KEYS` and their domains | the home world's drawn or stated inputs |
 | `massSlider` | bool | needs a black hole | false (the sandbox's mass row) |
+
+### Sky
+
+`SkyModel.request_error` checks these; any other key is an error.
+
+| key | type, unit | range | when omitted |
+|---|---|---|---|
+| `env` | an environment, `{"name": weight}`, or a list of names and `[name, weight]` pairs | `disc` `core` `globular` `halo` `starburst` `intergalactic` | `disc` |
+| `tilt`, `roll` | radians | finite | 0.34, 0.9: the galactic plane's normal lies `tilt` from the scene's +y axis, at azimuth `roll` |
+| `galactic` | string | `"j2000"`: the band where it is in Earth's sky, overriding `tilt` and `roll` | the frame from `tilt` and `roll` |
+| `starDensity` | number | 0–12 | from `env` |
+| `glow`, `bulge`, `hii` | number | 0–6 | from `env` |
+| `dust`, `reflection`, `galaxies` | number | 0–4 | from `env` |
+| `planeConcentration` | number | 0–5 | from `env` |
+| `bandScaleH` | number | 0–0.25 | from `env` |
+| `bulgeSize` | number | 0–1.2 | from `env` |
+
+Several environments blend: amounts add and shapes average, as
+[the sky notes](physics/sky.md#environments) explain. A number stated here
+overrides the blend.
 
 ## Bodies
 
