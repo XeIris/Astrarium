@@ -19,10 +19,11 @@ reel and anything a lesson scripts.
   `group` loads but is not listed.
 - Uploaded scenarios: **Upload scenario file…** below the scenario list copies
   the file, comments included, to `user://scenarios/custom_<name>.jsonc` and
-  lists it under **Custom scenarios**. `<name>` is the file name in lower case
-  with every other character but a–z and 0–9 as `_`; a name that needed either
-  change also gets 8 hex digits of its SHA-256, so two file names never share a
-  copy. Uploading a file with the same name replaces the copy, through a
+  lists it under **Custom scenarios**. `<name>` is the whole file name with
+  every byte but a–z and 0–9 written as `_` and two hex digits (`My
+  System.jsonc` is `custom__4dy_20_53ystem_2ejsonc`), so two file names never
+  share a copy; a name that escapes to over 200 characters is refused. Uploading
+  a file with the same name replaces the copy, through a
   temporary file, so a failed write keeps the old one; ✕ removes it after
   asking. The original is never touched.
   A file that is refused is not copied. Checks use a temporary directory

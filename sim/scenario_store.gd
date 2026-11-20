@@ -9,16 +9,30 @@ const PREFIX := "custom_"
 ## Checks point this at a temporary directory so they never read or write the user's.
 static var dir := "user://scenarios"
 
-## The same file name always gives the same key, and two names never share one: a name
-## that had to be lower-cased or have characters replaced carries a hash of itself.
+## The file name, escaped: a–z and 0–9 stay and every other UTF-8 byte becomes `_` and two
+## hex digits. One name always gives one key, and no two names share one.
 static func key_for(path: String) -> String:
-	var stem := path.get_file().get_basename()
 	var out := ""
-	for i in stem.length():
-		var c := stem[i].to_lower()
-		out += c if (c >= "a" and c <= "z") or (c >= "0" and c <= "9") else "_"
-	if out != stem or out.is_empty(): out += "_" + stem.sha256_text().substr(0, 8)
+	for byte in path.get_file().to_utf8_buffer():
+		out += char(byte) if (byte >= 97 and byte <= 122) or (byte >= 48 and byte <= 57) else "_%02x" % byte
 	return PREFIX + out
+
+## The file name a key was made from.
+static func name_of(key: String) -> String:
+	var k := key.trim_prefix(PREFIX)
+	var bytes := PackedByteArray()
+	var i := 0
+	while i < k.length():
+		if k[i] == "_":
+			bytes.append(k.substr(i + 1, 2).hex_to_int())
+			i += 3
+		else:
+			bytes.append(k.unicode_at(i))
+			i += 1
+	return bytes.get_string_from_utf8()
+
+## Keeps "<key>.jsonc.part" inside the 255 bytes a file name may have.
+const MAX_KEY := 200
 
 static func path_of(key: String) -> String:
 	return dir.path_join(key + ".jsonc")
@@ -39,7 +53,7 @@ static func _entry(key: String, r: Dictionary) -> Dictionary:
 		var p: Dictionary = r.preset
 		p.group = GROUP
 		return p
-	return {"name": key.trim_prefix(PREFIX).replace("_", " "), "group": GROUP, "errors": r.errors}
+	return {"name": name_of(key).get_basename(), "group": GROUP, "errors": r.errors}
 
 ## Validates `path` and, if it reads, copies it in, replacing a copy of the same name.
 ## Returns { ok, key, preset, errors }.
@@ -53,6 +67,7 @@ static func add(path: String) -> Dictionary:
 	var r := ScenarioFile.from_text(text)
 	if not r.ok: return {"ok": false, "errors": r.errors}
 	var key := key_for(path)
+	if key.length() > MAX_KEY: return {"ok": false, "errors": ["the file name is too long to keep a copy under; shorten it"]}
 	var err := DirAccess.make_dir_recursive_absolute(dir)
 	if err != OK: return {"ok": false, "errors": ["cannot create %s: %s" % [dir, error_string(err)]]}
 	# Written beside the copy and renamed over it, so a failed write leaves the old one.

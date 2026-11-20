@@ -288,10 +288,11 @@ func refusals() -> void:
 	refuse("a home world that the file's climate pushes out of range",
 		file(STAR + ", {\"type\": \"world\", \"name\": \"Home\", \"home\": true, \"albedoBase\": 0.6, \"orbit\": {\"around\": \"Sun\", \"a\": 1}}",
 			"\"climate\": {\"albedoIce\": 0.5}"), "bodies[1]")
-	check("distinct upload names keep distinct copies",
-		ScenarioStore.key_for("a b.jsonc") != ScenarioStore.key_for("a_b.jsonc") and ScenarioStore.key_for("A.jsonc") != ScenarioStore.key_for("a.jsonc"))
-	check("and one name always lands on one copy (%s)" % ScenarioStore.key_for("/x/My System.jsonc"),
-		ScenarioStore.key_for("/x/My System.jsonc") == ScenarioStore.key_for("/y/My System.jsonc") and ScenarioStore.key_for("plain_name.jsonc") == "custom_plain_name")
+	for pair in [["a b.jsonc", "a_b.jsonc"], ["A.jsonc", "a.jsonc"], ["a b.jsonc", "a_b_c8687a08.jsonc"], ["a.json", "a.jsonc"]]:
+		check("%s and %s keep distinct copies" % pair, ScenarioStore.key_for(pair[0]) != ScenarioStore.key_for(pair[1]))
+	check("one name always lands on one copy (%s)" % ScenarioStore.key_for("/x/My System.jsonc"),
+		ScenarioStore.key_for("/x/My System.jsonc") == ScenarioStore.key_for("/y/My System.jsonc"))
+	check("and the key gives the name back", ScenarioStore.name_of(ScenarioStore.key_for("/x/Système_2 (b).jsonc")) == "Système_2 (b).jsonc")
 	var many := []
 	for i in ScenarioFile.MAX_BODIES + 1: many.append("{\"type\": \"planet\", \"name\": \"p%d\", \"pos\": [%d, 0, 0]}" % [i, i])
 	refuse("more bodies than a file may hold", file(", ".join(many)), "the most a file may hold")
@@ -377,6 +378,9 @@ func through_the_stage() -> void:
 	write("My System.jsonc", file(STAR + "," + EARTH + "," + EARTH.replace("Earth", "Mars").replace("\"a\": 1", "\"a\": 1.5")))
 	stage.upload_scenario(good)
 	check("uploading the same name replaces it", stage.state.bodies.size() == 3 and stage.PRESET_GROUPS.filter(func(g): return g.id == ScenarioStore.GROUP)[0].keys.size() == 1)
+
+	var long := write("L".repeat(100) + ".jsonc", file(STAR))
+	check("a name too long to escape is refused (%s)" % ScenarioStore.add(long).errors, not ScenarioStore.add(long).ok and not FileAccess.file_exists(ScenarioStore.path_of(ScenarioStore.key_for(long))))
 
 	var before: int = stage.state.bodies.size()
 	var bad := write("Broken.jsonc", file("{\"type\": \"star\", \"name\": \"Sun\", \"mas\": 1}"))
