@@ -60,7 +60,7 @@ var _wind_t := Vector3.ZERO
 var _sea_acc := 99.0
 var _depth_tex: ImageTexture = null
 
-func _init(view: LocalView, b: Body, where: PlanetPin, render_quality: String, run_seed: int) -> void:
+func _init(view: LocalView, b: Body, where: PlanetPin, render_quality: String, run_seed: int, surveyed: SurfaceRelief = null) -> void:
 	SurfaceStats.count("site_init")
 	local = view
 	body = b
@@ -71,11 +71,24 @@ func _init(view: LocalView, b: Body, where: PlanetPin, render_quality: String, r
 	group.name = "SurfaceSite"
 	local.root.add_child(group)
 	local.place(group, DVec3.new())
-	var seed_ := hash([str(U.nz(b.spec.get("seed"), b.name)), run_seed, where.n])
+	var seed_ := site_seed(b, where, run_seed)
 	weather.setup(b, climate, where.lat, where.lon, seed_)
-	var r := PlanetRelief.of_body(b)
-	crust = r
-	relief = SurfaceRelief.new()
+	crust = PlanetRelief.of_body(b)
+	# A relief already surveyed (a landing's, SurfaceGround) is the ground the vehicle stands on; carving
+	# another would move it.
+	relief = surveyed if surveyed != null else plan_relief(b, where, crust, int(CELLS.get(quality, 97)), seed_)
+	# On a map, the sea is where the map says, not wherever the ground is low: Qattara is dry.
+	_map_sea = crust.map_kind != 1 or _map_has_sea(b, where, relief.radius_m)
+	if surveyed == null: _task = WorkerThreadPool.add_task(relief.build, false, "surface relief")
+
+## The seed a site's roughness, weather and waves are drawn from.
+static func site_seed(b: Body, where: PlanetPin, run_seed: int) -> int:
+	return hash([str(U.nz(b.spec.get("seed"), b.name)), run_seed, where.n])
+
+## The survey of the ground at a pin, not yet run: `build()` carves it. `cells` a side on each grid.
+static func plan_relief(b: Body, where: PlanetPin, r: PlanetRelief, cells: int, seed_: int) -> SurfaceRelief:
+	var climate: Climate = b.climate
+	var relief := SurfaceRelief.new()
 	relief.relief = r
 	relief.center = where.p
 	# East and north on the mesh's own ball, with its pole on +Y.
@@ -85,7 +98,7 @@ func _init(view: LocalView, b: Body, where: PlanetPin, render_quality: String, r
 	relief.radius_m = b.radius * Rocketry.AU_M
 	relief.g = climate.gravity
 	relief.seed = seed_ & 0x7fffffff
-	relief.cells = int(CELLS.get(quality, 97))
+	relief.cells = cells
 	relief.crater = r.crater
 	# Heights count from the world's sea, if it has one; whether one is in view waits for the grid.
 	relief.has_sea = str(where.ground.kind) in ["sea", "sea ice"] or (climate.wet and climate.ocean > 0.0 and r.sea_km > -30.0)
@@ -99,9 +112,15 @@ func _init(view: LocalView, b: Body, where: PlanetPin, render_quality: String, r
 	if r.map_kind > 0: relief.elevation = PlanetElevation.of(b.name)
 	if r.map_kind == 1 and relief.elevation != null:
 		relief.map_coastal = PlanetPin.coastal(b.name, where.lat, where.lon, relief.elevation.cell_rad())
-	# On a map, the sea is where the map says, not wherever the ground is low: Qattara is dry.
-	_map_sea = r.map_kind != 1 or _map_has_sea(b, where, relief.radius_m)
-	_task = WorkerThreadPool.add_task(relief.build, false, "surface relief")
+	return relief
+
+## The level the planet's patch is dropped to under a site's grids, m: under the sea, which is opaque and
+## has the same level, or under the lowest of the far grid, or the patch comes up through the valleys.
+static func patch_level(grids: Array, has_sea: bool) -> float:
+	if has_sea: return -30.0
+	var lowest := INF
+	for v in (grids[1].h as PackedFloat32Array): lowest = minf(lowest, v)
+	return lowest - 30.0
 
 var _map_sea := true
 
@@ -121,9 +140,10 @@ static func _map_has_sea(b: Body, where: PlanetPin, radius_m: float) -> bool:
 ## Done surveying? Builds the scene on the first call that finds it finished.
 func poll() -> bool:
 	if built: return true
-	if _task < 0 or not WorkerThreadPool.is_task_completed(_task): return false
-	WorkerThreadPool.wait_for_task_completion(_task)
-	_task = -1
+	if _task >= 0:
+		if not WorkerThreadPool.is_task_completed(_task): return false
+		WorkerThreadPool.wait_for_task_completion(_task)
+		_task = -1
 	if relief.grids.is_empty(): return false
 	_build_scene()
 	built = true
@@ -192,15 +212,10 @@ func _build_scene() -> void:
 	SurfaceStats.count("site_build")
 	var grids: Array = relief.grids
 	ground_y = height_at(0.0, 0.0)
-	var far: Dictionary = grids[1]
-	var h: PackedFloat32Array = far.h
-	# Under the sea, which is opaque and has the same level; or under the lowest of the far grid, or
-	# the planet's patch comes up through the valleys.
-	var lowest := INF
-	for v in h: lowest = minf(lowest, v)
+	var lowest := patch_level(grids, false) + 30.0
 	var at_sea: bool = str(pin.ground.kind) in ["sea", "sea ice"]
 	has_sea = at_sea or (relief.has_sea and lowest < 0.0 and _map_sea)
-	patch_y = -30.0 if has_sea else lowest - 30.0
+	patch_y = patch_level(grids, has_sea)
 	eye_y = EYE_SEA if at_sea else ground_y + EYE_LAND
 	lapse = ClimateLook.lapse_k_m(climate)
 	temp_here = float(pin.ground.temp_k)
@@ -360,19 +375,24 @@ func update(dt: float, sim_seconds: float, up: Vector3, bodies: Array, cam_y: fl
 				["uHaze", haze], ["uDensity", density], ["uScaleH", scale_h], ["uCover", float(w.cover)], ["uTide", float(tide.height)]]:
 			_ocean_mat.set_shader_parameter(key_val[0], key_val[1])
 	_rain_tick(w, cam_y)
-	if _mat != null:
-		_mat.set_shader_parameter("uSunDir", sun_l)
-		_mat.set_shader_parameter("uEye", maxf(cam_y - patch_y, 1.0))
-		var gm := local.ground_mat
-		for p in ["uHaze", "uDensity", "uScaleH", "uHasAir"]:
-			_mat.set_shader_parameter(p, gm.get_shader_parameter(p))
-		# Under cloud the sunlight has not gone, it has been scattered: the deck's bright underside lights
-		# the ground from everywhere. A factor by eye; nothing here casts a shadow from the deck.
-		var fill: float = float(gm.get_shader_parameter("uSkyI")) * (1.0 + OVERCAST_FILL * float(w.cover))
-		_mat.set_shader_parameter("uSkyI", fill)
-		# The planet's patch past the grids stands in the same light, or it reads as dark water. Its shading
-		# divides by π; the site's emission does not.
-		gm.set_shader_parameter("uSkyI", fill * PI)
+	light_terrain(sun_l, cam_y, float(w.cover))
+
+## The ground's light and air for this frame: `sun_l` in the site's frame, `eye_y` the eye's height in it.
+## The flight pass's ground material supplies the air, as it does for the planet's patch.
+func light_terrain(sun_l: Vector3, eye_y: float, cover: float) -> void:
+	if _mat == null: return
+	_mat.set_shader_parameter("uSunDir", sun_l)
+	_mat.set_shader_parameter("uEye", maxf(eye_y - patch_y, 1.0))
+	var gm := local.ground_mat
+	for p in ["uHaze", "uDensity", "uScaleH", "uHasAir"]:
+		_mat.set_shader_parameter(p, gm.get_shader_parameter(p))
+	# Under cloud the sunlight has not gone, it has been scattered: the deck's bright underside lights
+	# the ground from everywhere. A factor by eye; nothing here casts a shadow from the deck.
+	var fill: float = float(gm.get_shader_parameter("uSkyI")) * (1.0 + OVERCAST_FILL * cover)
+	_mat.set_shader_parameter("uSkyI", fill)
+	# The planet's patch past the grids stands in the same light, or it reads as dark water. Its shading
+	# divides by π; the site's emission does not.
+	gm.set_shader_parameter("uSkyI", fill * PI)
 
 var sky_cover := 0.0
 var cloud_wind := Vector3.ZERO

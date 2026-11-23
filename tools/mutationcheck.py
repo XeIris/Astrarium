@@ -323,6 +323,20 @@ CORE = {
                  ["neutron star inside NICER's"]),
     "flight-gm-sun": ([("sim/flight/rocketry.gd", "const GM_SUN := 1.32712440018e20", "const GM_SUN := 1.32712440018e19")],
                       ["invariantcheck"], "flight's GM☉ a tenth of the orrery's", ["orrery G is GM☉"]),
+    "ground-body-angle-sign": ([("sim/surface/surface_ground.gd", "return out.set_v(rr.x * ct + rr.z * st, -rr.y, rr.x * st - rr.z * ct)",
+                                 "return out.set_v(rr.x * ct - rr.z * st, -rr.y, -rr.x * st - rr.z * ct)")], ["groundcheck"],
+                               "the flight frame turned the wrong way into the planet's, so a landing reads another place's ground",
+                               ["reads its own latitude and east longitude"]),
+    "ground-adopted-when-done": ([("sim/surface/surface_ground.gd", "if adopted or v.coord < adopt_at: return",
+                                   "if adopted or (_task >= 0 and not WorkerThreadPool.is_task_completed(_task)): return")], ["groundcheck"],
+                                 "the survey adopted when the worker finishes, not on the flight clock", ["by the clock"]),
+    "ground-held-rate-inertial": ([("sim/flight/guidance.gd", "var closing := v_vert if (alt >= hold_below or v.ground == null) else v.closing_rate(Guidance._g)",
+                                    "var closing := v_vert")], ["groundcheck"],
+                                  "the held descent rate held inertially, not against a ground falling away under a drift",
+                                  ["skycrane:sky_crane: touched down"]),
+    "ground-cell-split": ([("sim/observatory/site_scene.gd", "if tx + ty <= 1.0: return h00 + tx * (h10 - h00) + ty * (h01 - h00)",
+                            "if tx <= ty: return h00 + tx * (h10 - h00) + ty * (h01 - h00)")], ["groundcheck"],
+                          "contact read across the other diagonal of a cell than the mesh draws", ["drawn_height is the mesh"]),
 }
 GROUPS = {"core": list(CORE), "galaxy": list(GALAXY) + list(KNOWN_MISSES)}
 TABLE = {**CORE, **GALAXY, **KNOWN_MISSES}

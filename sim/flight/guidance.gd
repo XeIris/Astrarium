@@ -795,7 +795,7 @@ class Autopilot extends RefCounted:
 			floor_alt: float = 0.0, site_k: float = 0.02, site_cap: float = 25.0,
 			t_go: float = 0.0) -> DVec3:
 		var env: Dictionary = v.env
-		var alt := maxf(v.altitude() - floor_alt, 0.0)
+		var alt := maxf(v.height_above_ground() - floor_alt, 0.0)
 		DQuat.nrm(Guidance._up.copy_from(v.r))
 		var g: float = env.mu / maxf(v.r.length_sq(), 1.0)
 		# Drift is over the ground, where the site is; the wind is a disturbance to it.
@@ -824,7 +824,9 @@ class Autopilot extends RefCounted:
 		# The air brakes too; leaving it out makes a booster over-brake by drag·τ and stop short.
 		var va := v.airspeed(v.r, v.v, Guidance._f).length()
 		var drag_up: float = float(v.telemetry.get("drag", 0.0)) / maxf(v.mass, 1.0) * (-v_vert / va) if va > 1.0 else 0.0
-		var a_vert := maxf(g + a_ff + (vref - v_vert) / tau - drag_up, floor_a)
+		# The held rate is held against the ground, which rises or falls under a drifting vehicle on a slope.
+		var closing := v_vert if (alt >= hold_below or v.ground == null) else v.closing_rate(Guidance._g)
+		var a_vert := maxf(g + a_ff + (vref - closing) / tau - drag_up, floor_a)
 
 		# lateral: kill the drift, and lean gently toward the site
 		Guidance._c.set_v(0.0, 0.0, 0.0)
@@ -887,14 +889,14 @@ class Autopilot extends RefCounted:
 		if site == null: return
 		Guidance._a.set_v(0.0, -v.env.rotRate, 0.0).cross_vectors(Guidance._a, site)
 		site.add_scaled_in(Guidance._a, dt)
-		DQuat.set_len(site, v.surface_r(site))
+		DQuat.set_len(site, v.ground_r(site))
 
 	func landing_guidance(dt: float, pa: float):
 		var env: Dictionary = v.env
 		var t := v.telemetry
 		spin_site(dt)
 		var prof = v.vehicle.get("descent")
-		var alt := v.altitude()
+		var alt := v.height_above_ground()
 		DQuat.nrm(Guidance._up.copy_from(v.r))
 		var v_vert := v.v.dot(Guidance._up)
 		var a_max := full_thrust(pa) / v.mass
@@ -910,7 +912,8 @@ class Autopilot extends RefCounted:
 			var ang: float = rng / env.radius
 			DQuat.nrm(Guidance._b.copy_from(v.v).add_scaled_in(Guidance._up, -v_vert))
 			site = Guidance._up.clone().scale_in(cos(ang)).add_scaled_in(Guidance._b, sin(ang))
-			DQuat.set_len(site, v.surface_r(site))
+			v.request_ground(site)
+			DQuat.set_len(site, v.ground_r(site))
 			state_name = "P63"
 			note("P63 — braking phase")
 		var st: DVec3 = site
@@ -922,7 +925,7 @@ class Autopilot extends RefCounted:
 			Guidance._b.copy_from(v.v).add_scaled_in(Guidance._up, -v.v.dot(Guidance._up))
 			if Guidance._b.length_sq() < 1.0: Guidance._b.copy_from(Guidance._up).cross_vectors(Guidance._b, Guidance._a)
 			DQuat.nrm(Guidance._b)
-			var rT := Guidance._a.clone().scale_in(v.surface_r(st) + gate.alt).add_scaled_in(Guidance._b, -gate.range)
+			var rT := Guidance._a.clone().scale_in(v.ground_r(st) + gate.alt).add_scaled_in(Guidance._b, -gate.range)
 			var vT := Guidance._b.clone().scale_in(gate.vHoriz).add_scaled_in(Guidance._a, gate.vVert)
 			# Aim just above the DPS's forbidden throttle band, so P63 flies at full thrust.
 			var tgo := track_t_go(rT, vT, a_max, dt, 0.96)
@@ -937,7 +940,7 @@ class Autopilot extends RefCounted:
 		if state_name == "P64":
 			var gate: Dictionary = prof.loGate if prof != null else { "alt": 30.0, "range": 11.0 }
 			DQuat.nrm(Guidance._a.copy_from(st))
-			var _rT := Guidance._a.clone().scale_in(v.surface_r(st) + gate.alt)
+			var _rT := Guidance._a.clone().scale_in(v.ground_r(st) + gate.alt)
 			var _vT := Guidance._a.clone().scale_in(-1.2)
 			var cmd := descent_law(a_max, 2.0, 0.60, 3.5, 0.6, 50.0)
 			v.throttle = limit_throttle(cmd.length() / maxf(a_max, 1e-6), pa, dt)
@@ -1899,7 +1902,7 @@ class Autopilot extends RefCounted:
 		var t := v.telemetry
 		spin_site(dt)
 		var plan_edl = v.vehicle.get("edl")
-		var alt := v.altitude()
+		var alt := v.height_above_ground()
 		DQuat.nrm(Guidance._up.copy_from(v.r))
 		v.airspeed(v.r, v.v, Guidance._a)
 		var speed := Guidance._a.length()
@@ -1926,6 +1929,7 @@ class Autopilot extends RefCounted:
 						sh = s; break
 				v.chute_open = sh.spec.chute if sh != null else { "area": 200.0, "Cd": 0.62 }
 				v.chute_deploy = 0.0
+				v.request_ground(_chute_landing(alt))
 				note("Parachute deploy — Mach %s, %s km" % [U.fixed(t.mach, 2), U.fixed(alt / 1000.0, 1)])
 			return Guidance.attitude_for(MODE.RETROGRADE, v)
 
@@ -1947,9 +1951,9 @@ class Autopilot extends RefCounted:
 		# terminal phase
 		var a_max := full_thrust(pa) / v.mass
 		var sk: Dictionary = plan_edl.skycrane if (plan_edl != null and plan_edl.get("skycrane") != null) else { "alt": 20.0, "vTouch": -0.75 }
-		if site == null: site = Guidance._up.clone().scale_in(v.surface_r(v.r))
+		if site == null: site = Guidance._up.clone().scale_in(v.ground_r(v.r))
 		DQuat.nrm(Guidance._a.copy_from(site))
-		var _rT := Guidance._a.clone().scale_in(v.surface_r(site) + 0.5)
+		var _rT := Guidance._a.clone().scale_in(v.ground_r(site) + 0.5)
 		var cmd := descent_law(a_max, absf(sk.vTouch), 0.35, 1.8, 0.55, 120.0, sk.alt * 1.5)
 		v.throttle = limit_throttle(cmd.length() / maxf(a_max, 1e-6), pa, dt)
 		if alt < sk.alt and not crane_out:
@@ -1959,6 +1963,20 @@ class Autopilot extends RefCounted:
 		if v.phase == Vessel.PHASE.LANDED:
 			program = null; v.throttle = 0.0; note("Touchdown")
 		return aero_limit(cmd, Guidance._b)
+
+	## Where a chute opened at height `h` over the ground comes down: drifting on at the horizontal
+	## ground speed for the time a steady deceleration to rest takes, h / |v_z| · v_h, at most a quarter of a
+	## survey's far grid. An estimate; the survey reaches 60 km either way.
+	func _chute_landing(h: float) -> DVec3:
+		var up := DQuat.nrm(v.r.clone())
+		var gv := v.ground_velocity(v.r, v.v, DVec3.new())
+		var vv := gv.dot(up)
+		gv.add_scaled_in(up, -vv)
+		var vh := gv.length()
+		var at := up.scale_in(v.r.length())
+		if vh > 1e-3:
+			at.add_scaled_in(gv, minf(vh * maxf(h, 0.0) / maxf(-vv, 1.0), SurfaceRelief.FAR_HALF * 0.25) / vh)
+		return at
 
 	# TOWER CATCH — a returning booster (docs/physics/booster-catch.md). No entry burn:
 	# boostback has already killed the downrange speed, and the air brakes the rest.

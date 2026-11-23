@@ -203,18 +203,18 @@ static func _build_list() -> Dictionary:
 		_sc("lm", "powered_descent", "Powered descent initiation, 15 km", "Landing",
 			{"kind": "orbit", "alt": 15000.0, "inc": 0.0, "program": "land"}, {}, {"alt": [14e3, 16e3], "program": "land"}),
 		_sc("lm", "approach", "P64 approach phase", "Landing", {"kind": "orbit", "alt": 15000.0, "inc": 0.0, "program": "land"},
-			{"state": "P64"}, {"alt": [1000.0, 9000.0], "program": "land", "state": "P64"}),
+			{"state": "P64"}, {"agl": [1000.0, 9000.0], "program": "land", "state": "P64"}),
 		_sc("lm", "terminal_descent", "P66 terminal descent", "Landing", {"kind": "orbit", "alt": 15000.0, "inc": 0.0, "program": "land"},
-			{"state": "P66"}, {"alt": [5.0, 400.0], "program": "land", "state": "P66"}),
+			{"state": "P66"}, {"agl": [5.0, 400.0], "program": "land", "state": "P66"}),
 	]
 	out.skycrane = [
 		_sc("skycrane", "entry", "Mars entry, 125 km", "Landing", _skycrane(), {}, {"alt": [120e3, 126e3], "program": "edl"}),
 		_sc("skycrane", "parachute", "Parachute", "Landing", _skycrane(), {"state": "chute"},
-			{"alt": [4e3, 16e3], "program": "edl", "state": "chute"}),
+			{"agl": [4e3, 16e3], "program": "edl", "state": "chute"}),
 		_sc("skycrane", "powered_descent", "Powered descent", "Landing", _skycrane(), {"state": "powered"},
-			{"alt": [300.0, 3000.0], "program": "edl", "state": "powered"}),
+			{"agl": [300.0, 3000.0], "program": "edl", "state": "powered"}),
 		_sc("skycrane", "sky_crane", "Sky crane", "Landing", _skycrane(), {"ap": ["crane_out", true]},
-			{"alt": [5.0, 60.0], "program": "edl"}),
+			{"agl": [5.0, 60.0], "program": "edl"}),
 	]
 	return out
 
@@ -398,7 +398,7 @@ static func _settle(f: Spaceflight, b: Dictionary) -> void:
 ## `past_max_q` / `past_peak_heat`: dynamic pressure / heat flux has peaked and fallen
 ## 3 %; `burnout_in`: [stage, s] burn time left at the present flow; `since_drop`:
 ## [stage, s] since it separated; `event`: a log line starting with it, since `from`;
-## `state` / `phase`: the autopilot state / vessel phase; `alt_below`; `lit`: an engine
+## `state` / `phase`: the autopilot state / vessel phase; `alt_below` (over the figure); `lit`: an engine
 ## burning; `ap`: [autopilot field, value].
 static func reached(f: Spaceflight, u: Dictionary, from := 0) -> bool:
 	var v := f.vessel

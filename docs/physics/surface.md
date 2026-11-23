@@ -1,6 +1,7 @@
 # The surface: `sim/surface/`, `sim/planet_relief.gd`, `sim/planet_pin.gd`
 
-What a world is like at one point on it. All of it runs only while someone stands there. It reads
+What a world is like at one point on it. All of it runs only while someone stands there, or while a vessel comes
+down on a dry mapped world ([the ground under a landing](#the-ground-under-a-landing)). It reads
 the world's gravity, air, water and temperature, and it writes nothing back: the global energy
 balance and the N-body physics do not know it exists (`surfacecheck` proves both). SI throughout.
 
@@ -202,6 +203,50 @@ limit of its own, so it stops at 8% of the speed of sound (an estimate).
 Not modelled: fronts as moving lines (a system is a Gaussian), convection's own weather beyond its share of spells,
 seasons, monsoons, orography's rain shadow at a site, Venus's slow rotation regime beyond its Hadley width. The
 rivers still carve with the climate's global mean rain, not the site's.
+
+## The ground under a landing
+
+`sim/surface/surface_ground.gd`. A vessel coming down on a dry mapped world, the Moon or Mars, with no launch site
+there, owns a `SurfaceGround`, and what its gear touches is what is drawn. Contact, the LM's P63–P66, the EDL program
+and the descent law read `Vessel.height_above_ground`; the air, the heating and orbit targets still read `altitude`,
+over the flight figure. A world with seas or launch sites (Earth) or without a measured grid (Io) keeps the figure as its
+ground, and its flights are unchanged.
+
+1. **Measured, until surveyed.** Height over the figure less `PlanetElevation`'s cell at the vessel's latitude and
+   longitude. The flight frame turns into the planet mesh's by `Vessel.body_angle`, the same longitude the pad uses.
+2. **Asked for.** P63 asks at its landing site, and EDL asks at chute deploy, at where a steady deceleration would
+   bring it to rest (`v_h h / |v_z|`, at most 15 km on). Otherwise the vessel asks for itself below 6 km over the
+   measured ground and under 300 m/s. The survey is `SurfaceSite.plan_relief`, the one a visit carves, at 129 cells
+   whatever the render quality, because a display setting must not move the ground.
+3. **Adopted 20 flight seconds later.** At a fixed moment of flight time, not when the worker finishes, so a
+   fast-forwarded flight and a drawn one change ground at the same step. A survey still running then is waited for,
+   which only happens undrawn: it takes 0.25–1.3 s.
+4. **Read off the drawn triangles.** `SiteScene.drawn_height` is `terrain_mesh`'s vertex rule and its cell split,
+   curvature drop included. The site's datum is the flight figure under the pin, so its frame is planet-fixed and
+   Spaceflight places the same site in the local pass. Past the far grid the measured cell takes over again.
+
+In the held-rate part of a descent, the rate is held against the ground (`Vessel.closing_rate`, the change in
+height along the ground velocity), as a radar altimeter measures it. Held inertially, a Sky Crane drifting at
+0.6 m/s down a 23° slope of the carved site closes at 0.48 of its 0.74 m/s, and burns out 5 m up.
+
+What tests it (`groundcheck`):
+
+| Test | Result |
+| --- | --- |
+| The flight frame to the mesh and back | 1e-9 m |
+| `drawn_height` against the built mesh's own triangles, found in its index buffer | 2.4e-4 m worst over 3000 points |
+| The LM (`lm:terminal_descent`) and the Sky Crane (`skycrane:sky_crane`) on the placed site, from the nodes | physics and the drawn mesh agree to 1 mm |
+| Adoption after the request | 20.00 s of flight time |
+| The Sky Crane flown drawn and undrawn | same step, same place to 0.1 mm |
+| Earth | no ground model, nothing of the surface runs |
+
+Not modelled, or estimated:
+- **The datum.** On Mars, MOLA measures height above the areoid, and the flight figure is an ellipsoid. Their
+  difference is not modelled.
+- **Legs on a slope.** A vehicle stands along the radius, and contact is at its footprint's centre.
+- **Roughness on a mapped world.** The carved roughness is drawn on top of the measured cell, so it counts relief
+  the cell already holds. The landing sites tested stand 0.8 km (Mars) and 1.2 km (the Moon) above their measured
+  cells.
 
 ## What it costs
 

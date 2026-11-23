@@ -6,7 +6,7 @@ extends RefCounted
 # crust and climate the planet is drawn with, so the pin says what you can see. It does not hunt
 # for land: a pin in the sea says so. docs/physics/surface.md#the-pin.
 
-## Radians. `n` is its number in the sequence, from 1.
+## Radians. `n` is its number in the sequence, from 1; negative for a pin put at a place (`at`).
 var lat := 0.0
 var lon := 0.0
 var n := 1
@@ -22,6 +22,17 @@ static func drop(b: Body, n: int, run_seed: int) -> PlanetPin:
 	var at := draw(str(U.nz(b.spec.get("seed"), b.name)), run_seed, n)
 	pin.lat = at.x
 	pin.lon = at.y
+	pin.p = direction(pin.lat, pin.lon)
+	pin.ground = read_ground(b, pin.p, pin.lat, pin.lon)
+	return pin
+
+## A pin put at a chosen place (rad) rather than drawn: a landing's. Its number is negative, from the
+## place, so two landings get different roughness and the same place the same.
+static func at(b: Body, lat_r: float, lon_r: float) -> PlanetPin:
+	var pin := PlanetPin.new()
+	pin.n = -1 - (hash([snappedf(lat_r, 1e-5), snappedf(wrapf(lon_r, -PI, PI), 1e-5)]) & 0x3fffffff)
+	pin.lat = lat_r
+	pin.lon = wrapf(lon_r, -PI, PI)
 	pin.p = direction(pin.lat, pin.lon)
 	pin.ground = read_ground(b, pin.p, pin.lat, pin.lon)
 	return pin

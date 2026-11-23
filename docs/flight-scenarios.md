@@ -41,6 +41,10 @@ stages and their falls, the launch site's rotation and arms, the planet's turn.
 The world is the solar preset at J2000.0 (`main.scenario_world`), so a scenario's
 sky, Moon and pad lighting repeat.
 
+A scenario's `expect` reads `alt` over the flight figure and `agl` over the ground. The LM's and the Sky Crane's
+landing windows are `agl`, since on the Moon and Mars the ground is the surveyed site
+([the ground under a landing](physics/surface.md#the-ground-under-a-landing)).
+
 ## Agreement with a played flight
 
 `tools/scenariocheck.tscn -- replay=1` flies every scenario that has a condition again

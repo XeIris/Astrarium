@@ -247,6 +247,15 @@ var chute_deploy: float = 0.0       # 0..1 inflation
 var bank = null                     # lift bank angle, rad; null = π/3
 var auto_stage: bool = false
 var catch_tower = null              # CatchTower this vessel can be caught by, or null
+## The ground under the vessel on a dry mapped world it has no launch site on (SurfaceGround), else null
+## and the figure is the ground. Contact and landing guidance read height_above_ground; the air reads
+## altitude, which is over the figure.
+var ground: SurfaceGround = null
+## The run's seed=, which a landing survey's roughness is drawn from.
+var ground_seed := 0
+var _ground_for: Body = null
+var _launch_parent: Body = null
+var _cr := DVec3.new()
 var rolling: Rollout = null         # the rollout, from main-gear touchdown on; kept after the stop
 var pending_stage: bool = false
 var _prop := Propulsion.new()
@@ -310,6 +319,9 @@ func place_on_pad(lat_deg: float = 28.5, lon_deg: float = 0.0) -> Vessel:
 	phase = PHASE.PRELAUNCH
 	held_down = false
 	launch_site = { "lat": lat, "lon": lon, "r": r.clone(), "v": v.clone(), "r0": r.clone(), "coord0": coord }
+	release_ground()
+	_ground_for = parent
+	_launch_parent = parent
 	return self
 
 ## Where the launch site is at coordinate time `t` (s), turned with the body from where
@@ -552,6 +564,42 @@ func altitude(rr: DVec3 = null) -> float:
 func surface_r(rr: DVec3) -> float:
 	return Rocketry.surface_radius(env, rr)
 
+## Height above the ground under `rr` along the local vertical, m: `altitude` unless a SurfaceGround
+## stands on the figure.
+func height_above_ground(rr: DVec3 = null) -> float:
+	if rr == null: rr = r
+	_sync_ground()
+	return altitude(rr) if ground == null else ground.agl(self, rr)
+
+## Centre to the ground under `rr`, m: `surface_r` unless a SurfaceGround stands on the figure.
+func ground_r(rr: DVec3) -> float:
+	_sync_ground()
+	return surface_r(rr) if ground == null else rr.length() - ground.agl(self, rr)
+
+## How fast height_above_ground changes, m/s, along the velocity over the turning ground `gv`: with a
+## SurfaceGround, a slope under a drifting vehicle counts, as it does for a radar altimeter.
+func closing_rate(gv: DVec3) -> float:
+	var dt := 0.05
+	_cr.copy_from(r).add_scaled_in(gv, dt)
+	return (height_above_ground(_cr) - height_above_ground()) / dt
+
+## Survey the ground around `rr` (parent frame, m) for a landing there, where there is a ground to survey.
+func request_ground(rr: DVec3) -> void:
+	_sync_ground()
+	if ground != null: ground.request(self, rr)
+
+func release_ground() -> void:
+	if ground != null: ground.dispose()
+	ground = null
+
+# The ground belongs to the parent: a rebase drops it, and a launch site keeps the figure.
+func _sync_ground() -> void:
+	if _ground_for == parent: return
+	release_ground()
+	_ground_for = parent
+	if parent != null and env != null and (launch_site == null or parent != _launch_parent):
+		ground = SurfaceGround.for_world(parent, env, ground_seed)
+
 ## Velocity relative to the moving air (the turning planet plus the wind), for drag,
 ## Mach, heating and the aerodynamic attitude.
 func airspeed(rr: DVec3, vv: DVec3, out: DVec3) -> DVec3:
@@ -767,7 +815,7 @@ static func winged_alpha(cl: float, mach: float, hw: float = INF) -> float:
 ## altitude for anything without a `gear.point` (stage frame, m; the orbiter's main
 ## wheels), which sits off the vessel's reference point once the stack has staged.
 func contact_altitude() -> float:
-	var alt := altitude()
+	var alt := height_above_ground()
 	var st = _first_attached()
 	if st == null or st.spec.get("gear") == null or st.spec.gear.get("point") == null: return alt
 	return alt + _stage_offset(st, st.spec.gear.point, _gp).dot(DQuat.nrm(_gu.copy_from(r)))
@@ -791,7 +839,8 @@ func _wheels(rr: DVec3, vv: DVec3, out: DVec3, m: float, sample: Sample) -> void
 	var up := DQuat.nrm(_w1.copy_from(rr))
 	var R := rr.length()
 	var st = _first_attached()
-	if R - surface_r(rr) + _stage_offset(st, st.spec.gear.point, _w2).dot(up) > 0.02: return
+	var above := R - surface_r(rr) if ground == null else ground.agl(self, rr)
+	if above + _stage_offset(st, st.spec.gear.point, _w2).dot(up) > 0.02: return
 	var vr := vv.dot(up)
 	var a_n := -out.dot(up) - (vv.length_sq() - vr * vr) / R
 	if a_n <= 0.0: return
@@ -1256,6 +1305,8 @@ func potential(rr: DVec3) -> float:
 func step(dt: float, opts: Dictionary = {}) -> float:
 	var was_guarded := step_guard_hit
 	step_guard_hit = false
+	_sync_ground()
+	if ground != null and phase != PHASE.DESTROYED: ground.tick(self)
 	if phase == PHASE.DESTROYED:
 		dt = _advance_world(dt, opts)
 		coord += dt
@@ -1698,7 +1749,7 @@ func contact(dt: float) -> void:
 	if phase == PHASE.ROLLOUT:
 		_roll(dt)
 		return
-	var alt := altitude()
+	var alt := height_above_ground()
 	# Off the stack, a geared stage touches down on its wheels (contact_altitude).
 	var gear_off := 0.0
 	if phase != PHASE.PRELAUNCH:
@@ -1707,7 +1758,7 @@ func contact(dt: float) -> void:
 	# Held down on the mount: before the airborne branch, since the integrator moves
 	# the vehicle a few cm before contact() runs.
 	if phase == PHASE.PRELAUNCH and held_down:
-		DQuat.set_len(r, surface_r(r))
+		DQuat.set_len(r, ground_r(r))
 		_c.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_c, r)
 		v.copy_from(_c)
 		return
@@ -1737,7 +1788,7 @@ func contact(dt: float) -> void:
 	var v_vert := v.dot(up)
 	if phase == PHASE.PRELAUNCH:
 		# held down on the pad until thrust exceeds weight
-		DQuat.set_len(r, surface_r(r))
+		DQuat.set_len(r, ground_r(r))
 		var w: float = mass * env.gSurf
 		var s := Sample.new()
 		accel(r, v, _b, s)
@@ -1764,7 +1815,7 @@ func contact(dt: float) -> void:
 	if geared != null and geared.spec.get("rollout") != null and phase != PHASE.LANDED and v_horiz > 1.0:
 		_touchdown_roll(geared, up, v_vert, v_horiz)
 		return
-	DQuat.set_len(r, surface_r(r) - gear_off)
+	DQuat.set_len(r, ground_r(r) - gear_off)
 	_c.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_c, r)
 	v.copy_from(_c)
 	omega.set_v(0.0, 0.0, 0.0)

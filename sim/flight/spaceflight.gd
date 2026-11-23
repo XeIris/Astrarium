@@ -111,6 +111,15 @@ var pad_offset := Vector3.ZERO
 var pad_aimed := false
 var craft_pos := DVec3.new()      # the vehicle in the local frame: (0, alt, 0) unless following a Fall
 var ground_pos := DVec3.new()     # the ground patch's own offset (0, −gradeDrop, 0)
+## The landing survey the vessel stands on (vessel.ground), drawn once it is the ground.
+var ground_site: SurfaceSite = null
+var _drawn_ground: SurfaceGround = null
+## Where the drawn site stands in the local frame this frame: origin and basis.
+var _site_at := DVec3.new()
+var _site_basis := Basis()
+## How far over the drawn site the camera's eye is kept, m.
+const CAMERA_CLEAR := 1.5
+var _render_quality := "medium"
 var site_local := DVec3.new()     # the complex in the local frame
 var origin_pos := DVec3.new()     # (0, 0, 0): the sky dome and the smoke
 var frame_basis := Basis()        # local → world (columns east, up, north)
@@ -281,6 +290,7 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 
 	vessel = Vessel.new({"vehicle": veh, "parent": home, "bodies": bodies(),
 		"payload": float(veh.carries.mass) if veh.get("carries") != null else 0.0})
+	if main != null and "_cmd" in main: vessel.ground_seed = int(main._cmd.get("seed", 0))
 	if returning:
 		# The booster comes home to the tower it left (CatchTower.begin_return).
 		var pad_ll = EARTH_PADS.get(vehicle_key, EARTH_PADS.default) if home.name == "Earth" else {"lat": 28.5, "lon": 0.0}
@@ -683,6 +693,7 @@ func _plume_trail(fx: Plume.PlumeFx, exit = null, gain := 1.0, widen := 0.0) -> 
 ## The rendering preset's share of the flight scene: clouds and sky (LocalView),
 ## plume march density and the smoke's form.
 func set_render_quality(q: String) -> void:
+	_render_quality = q
 	local.set_render_quality(q)
 	Plume.detail = {"low": 0.6, "medium": 0.8, "high": 1.0, "ultra": 1.8}.get(q, 1.0)
 	Plume.smoke_steps = [9, 1] if q == "ultra" else [5, 0]
@@ -713,6 +724,8 @@ func teardown() -> void:
 		site_pos = null
 	map_site = null
 	pad_fire = null
+	_drop_ground_site()
+	if vessel != null: vessel.release_ground()
 	ground_pos.y = 0.0
 	plumes = []; sep_plumes = []; entry = null; cryo = null; vapour = null
 	for f: Fall in falls: _drop_fall(f)
@@ -1502,6 +1515,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 			pad_offset = Vector3(cos(sun_az) * r, pad_offset.y, sin(sun_az) * r)
 		# The pad camera stands ON the pad, so it moves with it.
 		fly_cam.state.padPos = site_local.clone().add_in(DVec3.from_v3(pad_offset))
+	_place_ground(east, up, north, R_loc, fr)
 	local.place(local.ground, ground_pos)
 
 	# moving parts
@@ -1684,6 +1698,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		fly_cam.look_at(craft_pos.clone().add_in(DVec3.from_v3(basis_ * aim)), basis_ * Vector3.BACK)
 		fly_cam.near = .05
 	if camera_override.is_valid(): camera_override.call(fly_cam, craft_pos, site_local, dt)
+	_camera_over_ground(subject.pos if subject != null else craft_pos)
 	local.cam_pos.copy_from(fly_cam.pos)
 	# The cockpit needs centimetre depth; distant bodies remain in the orrery pass.
 	local.camera.far = 1.0e5 if fly_cam.state.mode == "interior" else 4.0e6
@@ -1715,6 +1730,54 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		# Near stated explicitly: main.gd ties far to it, and a close-up's 1e-6 would cull
 		# every planet past 10 scene units.
 		main.cam_near = 0.01
+
+## The ground under the vessel as drawn: the adopted survey in the local frame, with the planet's patch
+## dropped under its grids; over the measured grid alone, the patch at the height under the subject, so
+## the gear and the drawn ground meet either way.
+func _place_ground(east: DVec3, up: DVec3, north: DVec3, R_loc: float, fr: Dictionary) -> void:
+	var g: SurfaceGround = vessel.ground
+	if g != _drawn_ground:
+		_drop_ground_site()
+		_drawn_ground = g
+	if g == null: return
+	if not g.adopted:
+		var sub := _subject_r()
+		ground_pos.y = vessel.altitude(sub) - vessel.height_above_ground(sub)
+		return
+	if ground_site == null:
+		# Built when drawn: an undrawn flight needs only the physics' grids.
+		if fr.is_empty(): return
+		ground_site = SurfaceSite.new(local, vessel.parent, g.pin, _render_quality, g.run_seed, g.relief)
+		ground_site.poll()
+	var ax := g.site_axes(vessel)
+	var rel := (ax[0] as DVec3).clone().add_scaled_in(up, -R_loc)
+	var at := DVec3.new(rel.dot(east), rel.dot(up), rel.dot(north))
+	var axis := func(d: DVec3) -> Vector3: return Vector3(d.dot(east), d.dot(up), d.dot(north))
+	var basis := Basis(axis.call(ax[1]), axis.call(ax[2]), axis.call(ax[3])).orthonormalized()
+	ground_site.group.basis = basis
+	local.place(ground_site.group, at)
+	_site_at.copy_from(at)
+	_site_basis = basis
+	ground_pos.y = at.y + ground_site.patch_y
+	if not fr.is_empty():
+		var to_site := basis.inverse()
+		ground_site.light_terrain(to_site * (fr.sun_local as Vector3), (to_site * craft_pos.sub(at).to_v3()).y, 0.0)
+
+# Real ground can rise between a chase camera and its subject: keep the eye over the drawn site and
+# still looking at the subject.
+func _camera_over_ground(target: DVec3) -> void:
+	if ground_site == null or not ground_site.built or fly_cam.state.mode == "interior": return
+	var rel := _site_basis.inverse() * fly_cam.pos.sub(_site_at).to_v3()
+	var g := SiteScene.drawn_height(ground_site.relief.grids, -rel.x, rel.z, ground_site.patch_y, ground_site.relief.radius_m, false)
+	if is_nan(g) or rel.y >= g + CAMERA_CLEAR: return
+	fly_cam.pos.add_in(DVec3.from_v3(_site_basis * Vector3(0.0, g + CAMERA_CLEAR - rel.y, 0.0)))
+	fly_cam.look_at(target, Vector3.UP)
+
+func _drop_ground_site() -> void:
+	if ground_site != null:
+		ground_site.dispose()
+		ground_site = null
+	_drawn_ground = null
 
 ## Hand the pad camera over to chase once the vehicle climbs out of frame.
 func _pad_view_lost(alt: float) -> void:

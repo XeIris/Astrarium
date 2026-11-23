@@ -87,7 +87,7 @@ CHANGED_RULES = (
     # What runs on the ground, and the proof it runs nowhere else.
     (("sim/surface/*", "shaders/surface/*", "shaders/observatory/site_terrain.gdshader", "sim/showcase.gd", "sim/planet_pin.gd", "sim/climate_look.gd",
       "sim/planet_elevation.gd", "assets/planet-relief/*", "sim/flight/localview.gd", "sim/observatory/site_scene.gd"),
-     ("surfacecheck", "surfacepixelcheck*", "_soak_check-showcase", "_soak_check-surface")),
+     ("surfacecheck", "surfacepixelcheck*", "_soak_check-showcase", "_soak_check-surface", "groundcheck")),
     # The CPU's crust is held to the shader's; the pin and the showcase read it.
     (("sim/planet_relief.gd", "sim/planet_pin.gd", "sim/showcase.gd", "shaders/bodies/terrain.gdshaderinc",
       "shaders/bodies/terrain_noise.gdshaderinc", "shaders/bodies/rocky_surface.gdshader", "shaders/bodies/pin_marker.gdshader",
@@ -117,7 +117,8 @@ CHANGED_RULES = (
       "sim/flight/craftmodel.gd", "sim/flight/ionisation.gd", "sim/flight/lunar_gravity.gd",
       "tools/fixtures/flight_fixture.json"),
      ("flighttimecheck", "flightphysicscheck", "spinframecheck", "sharedflightcheck-*", "flight-descent-*",
-      "missioncheck-*", "scenariocheck")),
+      "missioncheck-*", "scenariocheck", "groundcheck")),
+    (("tools/groundcheck.*",), ("groundcheck",)),
     (("sim/flight/scenarios.gd", "tools/scenariocheck.gd"), ("scenariocheck",)),
     # cloudcheck also tests the climatology: Terrain's CPU copy and the shader copy it must match.
     (("sim/flight/cloudfield.gd", "sim/flight/localview.gd", "shaders/flight/clouds*", "render/flight_cloud_pass.gd", "sim/terrain.gd",
@@ -383,6 +384,8 @@ def checks(suite, godot, output, repeat, export_preset):
         for case in MISSIONS:
             yield mission(case)
         yield mission_parity("shuttle_fates", PARITY_FRAMES)._replace(cost=60)
+        # A landing on the Moon and on Mars stands on the ground that is drawn; Earth keeps its figure.
+        yield headless_scene("groundcheck", r"^GROUNDCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)._replace(cost=40)
         # Every developer scenario, jumped to and checked against its declared state.
         yield Check("scenariocheck", base + ["--headless", "res://tools/scenariocheck.tscn"],
                     r"^SCENARIOCHECK DONE scenarios=[1-9]\d* failures=0$", 900, cost=120)

@@ -176,13 +176,7 @@ static func terrain_mesh(grids: Array, gi: int, patch_y: float, R: float, mat: M
 			var de := -half + i * step
 			var y: float = h[j * n + i]
 			var idx := j * n + i
-			var drawn := y
-			# The sea belongs to the planet's patch, and the far grid tucks under the near.
-			if sea and y <= 0.5: drawn = -40.0
-			elif far and absf(de) < near_half and absf(dn) < near_half: drawn = y - 6.0
-			# The far grid's rim drops to the patch rather than ending in a step.
-			if far and (i == 0 or j == 0 or i == n - 1 or j == n - 1): drawn = minf(drawn, patch_y - 30.0)
-			verts[idx] = Vector3(-de, drawn - (de * de + dn * dn) / (2.0 * R), dn)
+			verts[idx] = Vector3(-de, _drawn_vertex(grids, gi, i, j, patch_y, R, sea), dn)
 			uv[idx] = Vector2(de, dn)
 			uv2[idx] = Vector2(y, channel[idx] if not channel.is_empty() else 0.0)
 			var ix0 := maxi(i - 1, 0); var ix1 := mini(i + 1, n - 1)
@@ -223,6 +217,50 @@ static func terrain_mesh(grids: Array, gi: int, patch_y: float, R: float, mat: M
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.custom_aabb = AABB(Vector3(-1e5, -1e4, -1e5), Vector3(2e5, 2e4, 2e5))
 	return mi
+
+## Height of the surface terrain_mesh draws at metres east `e` and north `n`, curvature drop included:
+## the same vertex heights and the same triangles, so a contact read here is the ground on screen.
+## NAN outside the far grid.
+static func drawn_height(grids: Array, e: float, n: float, patch_y: float, R: float, sea := true) -> float:
+	for gi in grids.size():
+		var g: Dictionary = grids[gi]
+		var half: float = g.half
+		if absf(e) >= half or absf(n) >= half: continue
+		var cells: int = int(g.n) - 1
+		var step := 2.0 * half / float(cells)
+		var fx := (e + half) / step
+		var fy := (n + half) / step
+		var i := mini(int(fx), cells - 1)
+		var j := mini(int(fy), cells - 1)
+		var tx := fx - i
+		var ty := fy - j
+		var h00 := _drawn_vertex(grids, gi, i, j, patch_y, R, sea)
+		var h10 := _drawn_vertex(grids, gi, i + 1, j, patch_y, R, sea)
+		var h01 := _drawn_vertex(grids, gi, i, j + 1, patch_y, R, sea)
+		# terrain_mesh splits each cell along (i, j+1)–(i+1, j).
+		if tx + ty <= 1.0: return h00 + tx * (h10 - h00) + ty * (h01 - h00)
+		var h11 := _drawn_vertex(grids, gi, i + 1, j + 1, patch_y, R, sea)
+		return h11 + (1.0 - tx) * (h01 - h11) + (1.0 - ty) * (h10 - h11)
+	return NAN
+
+# One vertex's height as terrain_mesh lays it.
+static func _drawn_vertex(grids: Array, gi: int, i: int, j: int, patch_y: float, R: float, sea: bool) -> float:
+	var g: Dictionary = grids[gi]
+	var n: int = g.n
+	var half: float = g.half
+	var step := 2.0 * half / float(n - 1)
+	var de := -half + i * step
+	var dn := -half + j * step
+	var y: float = (g.h as PackedFloat32Array)[j * n + i]
+	var drawn := y
+	var far := gi > 0
+	var near_half: float = grids[0].half
+	# The sea belongs to the planet's patch, and the far grid tucks under the near. The far grid's rim
+	# drops to the patch rather than ending in a step.
+	if sea and y <= 0.5: drawn = -40.0
+	elif far and absf(de) < near_half and absf(dn) < near_half: drawn = y - 6.0
+	if far and (i == 0 or j == 0 or i == n - 1 or j == n - 1): drawn = minf(drawn, patch_y - 30.0)
+	return drawn - (de * de + dn * dn) / (2.0 * R)
 
 ## A structure from the library, or its fallback blocks.
 func _instance(stage: String) -> Node3D:

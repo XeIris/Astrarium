@@ -78,6 +78,13 @@ to the procedural builds too.
 
 ## Vessel (`vessel.gd`)
 
+- The ground is `height_above_ground` / `ground_r`; the air is `altitude`, over the
+  figure. On a dry mapped world without its launch site the vessel owns a
+  `SurfaceGround`, and contact, the landing programs and the descent law read the
+  drawn site through it; without one both read the figure and nothing changes.
+  A survey is adopted a fixed flight time after it is asked for, never when the
+  worker happens to finish, or drawn and undrawn flights diverge
+  ([the ground under a landing](../../docs/physics/surface.md#the-ground-under-a-landing)).
 - During flight, the vessel requests coordinate seconds from the world's
   integrator before advancing. Both clocks use the accepted duration; all calls
   share the frame's world step budget. Cruise integrates proper time and requests

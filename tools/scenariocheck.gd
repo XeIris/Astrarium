@@ -72,7 +72,7 @@ func _expect(f: Spaceflight, e: Dictionary) -> String:
 	var v := f.vessel
 	var t: Dictionary = v.telemetry
 	var air := v.airspeed(v.r, v.v, DVec3.new()).length()
-	var vals := {"alt": v.altitude(), "speed": v.v.length(), "airspeed": air, "q": float(t.get("q", 0.0)),
+	var vals := {"alt": v.altitude(), "agl": v.height_above_ground(), "speed": v.v.length(), "airspeed": air, "q": float(t.get("q", 0.0)),
 		"count": float(f.count.t) if f.count != null else -1.0,
 		"kerrRadius":float(t.get("kerr",{}).get("radiusM",NAN)),"kerrDilation":float(t.get("kerr",{}).get("dilation",NAN))}
 	var capture: Dictionary=f.docking.capture if f.docking!=null else {}
@@ -83,7 +83,7 @@ func _expect(f: Spaceflight, e: Dictionary) -> String:
 		match k:
 			"docked":
 				if f.docking==null or f.docking.latched!=bool(want):return "docking capture did not occur"
-			"alt", "speed", "airspeed", "q", "count", "kerrRadius", "kerrDilation", "dockGap", "dockCross", "dockSpeed", "dockAngle", "dockRate", "dockRcs", "dockRpm":
+			"alt", "agl", "speed", "airspeed", "q", "count", "kerrRadius", "kerrDilation", "dockGap", "dockCross", "dockSpeed", "dockAngle", "dockRate", "dockRcs", "dockRpm":
 				if not is_finite(float(vals[k])) or float(vals[k]) < float(want[0]) or float(vals[k]) > float(want[1]):
 					return "%s %s outside [%s, %s]" % [k, U.fixed(float(vals[k]), 1), want[0], want[1]]
 			"phase":

@@ -1,0 +1,147 @@
+class_name SurfaceGround
+extends RefCounted
+
+# The ground under a vessel coming down on a dry, mapped world (the Moon, Mars): the measured grid
+# (PlanetElevation) until a landing site has been surveyed, then that site's carved terrain read off the
+# triangles SiteScene draws, so what the gear touches is what is on screen. Physics only, owned by the
+# Vessel; Spaceflight draws the adopted site. It reads the world and writes nothing back.
+# docs/physics/surface.md#the-ground-under-a-landing. SI.
+
+## Cells a side on each of a landing's grids, at every render quality, since the ground a vehicle lands
+## on must not follow a display setting. SurfaceSite.CELLS' "high".
+const CELLS := 129
+## Flight seconds from asking for a survey to standing on it. Drawn or fast-forwarded, the ground changes
+## at the same moment; a survey still running then is waited for. It takes 0.25–1.3 s of wall time.
+const ADOPT_S := 20.0
+## With no program asking first, a survey is asked for below this height over the measured ground, m,
+const AUTO_AGL := 6000.0
+## when slower over the ground than this, m/s.
+const AUTO_VH := 300.0
+
+var body: Body
+var elevation: PlanetElevation
+var run_seed := 0
+## The surveyed site, once asked for.
+var pin: PlanetPin = null
+var relief: SurfaceRelief = null
+## Coordinate time, s, at which the survey becomes the ground.
+var adopt_at := INF
+var adopted := false
+## SurfaceSite.patch_level of the adopted grids, m: what the mesh's rim drops to.
+var patch_y := 0.0
+## The site's frame on the body, double: its datum point's radius (the flight figure under the pin), m,
+## and unit up, east and north in the planet mesh's frame (+Y north, PlanetPin.direction).
+var datum_r := 0.0
+var c := DVec3.new()
+var east := DVec3.new()
+var north := DVec3.new()
+var _task := -1
+var _m := DVec3.new()
+
+## The ground for a vessel whose parent is `b`, or null where the figure stays the ground: a world with
+## seas, launch sites or no measured grid waits for a later phase of the surface.
+static func for_world(b: Body, env: Dictionary, seed_: int) -> SurfaceGround:
+	if b == null or b.climate == null or b.viz == null or bool(env.get("oceans", false)): return null
+	var viz = PlanetPin._viz(b)
+	if viz == null or not ("surf_mat" in viz) or viz.surf_mat == null: return null
+	if PlanetRelief.of_body(b).map_kind != 2: return null
+	var dem := PlanetElevation.of(b.name)
+	if dem == null: return null
+	var g := SurfaceGround.new()
+	g.body = b
+	g.elevation = dem
+	g.run_seed = seed_
+	SurfaceStats.count("ground_init")
+	return g
+
+## A flight-frame point (pole on −Y, Vessel.body_angle `theta` turning the prime meridian) in the planet
+## mesh's frame, into `out`.
+static func to_mesh(rr: DVec3, theta: float, out: DVec3) -> DVec3:
+	var ct := cos(theta)
+	var st := sin(theta)
+	return out.set_v(rr.x * ct + rr.z * st, -rr.y, rr.x * st - rr.z * ct)
+
+## The inverse of to_mesh.
+static func from_mesh(m: DVec3, theta: float, out: DVec3) -> DVec3:
+	var ct := cos(theta)
+	var st := sin(theta)
+	var x := m.x
+	var z := -m.z
+	return out.set_v(x * ct - z * st, -m.y, x * st + z * ct)
+
+## [latitude, east longitude], rad, of a mesh-frame vector; double, since a float32 radian is 0.2 m on Mars.
+static func lat_lon(m: DVec3) -> PackedFloat64Array:
+	return PackedFloat64Array([asin(clampf(m.y / maxf(m.length(), 1e-9), -1.0, 1.0)), atan2(-m.z, m.x)])
+
+## Height above the ground under `rr` (flight frame, m) along the local vertical, m: the vessel's
+## altitude over the figure less the measured height, or, over an adopted survey, the drawn terrain.
+func agl(v: Vessel, rr: DVec3) -> float:
+	to_mesh(rr, v.body_angle(v.coord), _m)
+	if adopted:
+		var e := _m.dot(east)
+		var n := _m.dot(north)
+		var g := SiteScene.drawn_height(relief.grids, e, n, patch_y, relief.radius_m, false)
+		if not is_nan(g): return _m.dot(c) - datum_r - g
+	var ll := lat_lon(_m)
+	return v.altitude(rr) - elevation.at(ll[0], ll[1])
+
+## Survey the ground around the flight-frame point `rr`, once. The first request stands.
+func request(v: Vessel, rr: DVec3) -> void:
+	if pin != null: return
+	var theta := v.body_angle(v.coord)
+	var ll := lat_lon(to_mesh(rr, theta, DVec3.new()))
+	pin = PlanetPin.at(body, ll[0], ll[1])
+	c.set_v(cos(ll[1]) * cos(ll[0]), sin(ll[0]), -sin(ll[1]) * cos(ll[0]))
+	east.set_v(-sin(ll[1]), 0.0, -cos(ll[1]))
+	north.cross_vectors(c, east)
+	DQuat.nrm(north)
+	# The figure depends on latitude alone, so the radius under the pin is the radius under rr's direction.
+	datum_r = v.surface_r(rr)
+	var crust := PlanetRelief.of_body(body)
+	relief = SurfaceSite.plan_relief(body, pin, crust, CELLS, SurfaceSite.site_seed(body, pin, run_seed))
+	_task = WorkerThreadPool.add_task(relief.build, false, "landing survey")
+	adopt_at = v.coord + ADOPT_S
+	v.log_event("Surveying the ground at %s° %s°" % [U.fixed(rad_to_deg(ll[0]), 3), U.fixed(rad_to_deg(ll[1]), 3)])
+
+## Once per integration step: ask for a survey if nothing has and the vessel is low and slow, and stand
+## on it when its time comes.
+func tick(v: Vessel) -> void:
+	if pin == null:
+		var h := agl(v, v.r)
+		if h > AUTO_AGL: return
+		var up := DQuat.nrm(v.r.clone())
+		var gv := v.ground_velocity(v.r, v.v, DVec3.new())
+		var vv := gv.dot(up)
+		gv.add_scaled_in(up, -vv)
+		var vh := gv.length()
+		if vh > AUTO_VH or vv >= 0.0: return
+		# Where a steady deceleration to rest on the ground would put it: v_h · h / |v_z|.
+		var lead := minf(vh * maxf(h, 0.0) / maxf(-vv, 1.0), SurfaceRelief.FAR_HALF * 0.5)
+		var at := up.clone().scale_in(v.r.length())
+		if vh > 1e-3: at.add_scaled_in(gv, lead / vh)
+		request(v, at)
+		return
+	if adopted or v.coord < adopt_at: return
+	if _task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_task)
+		_task = -1
+	if relief.grids.is_empty(): return
+	patch_y = SurfaceSite.patch_level(relief.grids, false)
+	adopted = true
+	v.log_event("Standing on the surveyed ground")
+
+## The site's origin and axes in the flight frame at the vessel's coordinate time: [origin, west, up, north].
+func site_axes(v: Vessel) -> Array:
+	var theta := v.body_angle(v.coord)
+	var o := from_mesh(c.clone().scale_in(datum_r), theta, DVec3.new())
+	var w := from_mesh(east.clone().negate_in(), theta, DVec3.new())
+	var u := from_mesh(c, theta, DVec3.new())
+	var nn := from_mesh(north, theta, DVec3.new())
+	return [o, w, u, nn]
+
+func dispose() -> void:
+	if _task >= 0:
+		relief.cancelled = true
+		WorkerThreadPool.wait_for_task_completion(_task)
+		_task = -1
+	SurfaceStats.count("ground_dispose")

@@ -133,9 +133,10 @@ uses an integer hash for this reason (`TERRAIN_EXACT`); cloud decks, giants and 
 
 ## The surface
 
-`sim/surface/` runs only while someone stands on a world (`Showcase.stand`). Nothing of it is created, and it
-computes nothing, in the orrery, flight or the Observatory: `surfacecheck` holds `SurfaceStats` at zero through them
-and the object counts flat after a visit. It reads the world's gravity, air, water and temperature, and writes
+`sim/surface/` runs only while someone stands on a world (`Showcase.stand`) or a vessel comes down on a dry
+mapped one (`SurfaceGround`: the Moon, Mars). Nothing of it is created, and it computes nothing, in the orrery,
+an Earth flight or the Observatory: `surfacecheck` holds `SurfaceStats` at zero through them and the object counts
+flat after a visit, and `groundcheck` holds a landing's to its flight. It reads the world's gravity, air, water and temperature, and writes
 nothing back: not to `Climate`, not to any body. Its scales come from the world, never from Earth's constants.
 On Earth, Mars and the Moon the height at a pin and under its far grid is measured (`PlanetElevation`,
 built by `tools/build_planet_relief.py`); the map's coast still decides land or sea.
@@ -259,6 +260,8 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
   `pixels=1 [quality=low|high]` the frames
 - the showcase, a pin, or the crust on either side of the GPU: `tools/pincheck.tscn`, and with `gpu=1` the
   shader's height against the CPU's
+- what a landing stands on (`SurfaceGround`, contact, landing guidance, the drawn site in flight):
+  `tools/groundcheck.tscn`
 - how a world's look follows its climate: `tools/lookcheck.tscn`, and with `pixels=1` the frames
 - tidal disruption, natal kicks, the disc model, the climate or its draw: `tools/realismcheck.tscn`
 - the Observatory's sky, dates or sites: `tools/observatorycheck.gd`; how the mode meets the
