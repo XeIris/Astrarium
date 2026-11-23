@@ -327,6 +327,16 @@ func _set_ambient(bounce: float) -> void:
 		l.light_color = hc
 		l.light_energy = hm * bounce / PI * (1.0 - from_sky)
 
+## The Sun's shadow maps, for a vehicle on drawn ground (Spaceflight's surveyed site): on only then,
+## since in the air nothing stands near enough to take a shadow. Four splits out to a few hundred metres;
+## the ground's own shadows over longer reach are its shader's march.
+const GROUND_SHADOW_REACH := 600.0
+func set_ground_shadows(on: bool) -> void:
+	sun.shadow_enabled = on
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+	sun.directional_shadow_max_distance = GROUND_SHADOW_REACH
+	sun.shadow_blur = 1.0
+
 func set_render_quality(q: String) -> void:
 	render_quality = q
 	if q != "low" and cloud_shape == null:

@@ -93,6 +93,11 @@ func _fly(c: Dictionary, turn: float, film: bool, dir: String) -> Dictionary:
 	if v.phase != Vessel.PHASE.LANDED:
 		printerr("GROUNDSHOTS FAIL %s did not land: %s" % [c.base, v.failure])
 		return {}
+	if args.get("events", "0") == "1":
+		for e in v.events: print("GROUNDSHOTS EVENT %s %s" % [U.fixed(float(e.t), 1), e.msg])
+		for cs in f.craft.stages: print("GROUNDSHOTS STAGE %s visible=%s pos=%s" % [cs.key if "key" in cs else "?", cs.group.visible, cs.group.global_position - f.craft.group.global_position])
+		print("GROUNDSHOTS FALLS %d" % f.falls.size())
+		for fl in f.falls: print("GROUNDSHOTS FALL %s phase=%s" % [fl.get("key") if fl is Dictionary else str(fl), fl.get("phase") if fl is Dictionary else ""])
 	var sun := f.sun_direction(DVec3.new())
 	var ll := SurfaceGround.lat_lon(SurfaceGround.to_mesh(v.r, v.body_angle(v.coord), DVec3.new()))
 	return {"sun_lon": atan2(sun.z, sun.x), "land_lon": atan2(v.r.z, v.r.x),
@@ -114,7 +119,8 @@ func _frame(dt: float) -> void:
 
 func _save(path: String, jpg: bool) -> void:
 	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
-	await RenderingServer.frame_post_draw
+	# Drawn now, not whenever the window manager next lets an unfocused window draw.
+	RenderingServer.force_draw(true, 1.0 / 60.0)
 	var img := get_viewport().get_texture().get_image()
 	if jpg: img.save_jpg(path, 0.88)
 	else: img.save_png(path)

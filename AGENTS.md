@@ -261,7 +261,8 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - the showcase, a pin, or the crust on either side of the GPU: `tools/pincheck.tscn`, and with `gpu=1` the
   shader's height against the CPU's
 - what a landing stands on (`SurfaceGround`, contact, landing guidance, the drawn site in flight):
-  `tools/groundcheck.tscn`
+  `tools/groundcheck.tscn`; how the site's ground draws (`shaders/surface/ground.gdshader`, `SurfaceShadow`):
+  `tools/groundlookcheck.tscn`
 - how a world's look follows its climate: `tools/lookcheck.tscn`, and with `pixels=1` the frames
 - tidal disruption, natal kicks, the disc model, the climate or its draw: `tools/realismcheck.tscn`
 - the Observatory's sky, dates or sites: `tools/observatorycheck.gd`; how the mode meets the

@@ -87,7 +87,8 @@ CHANGED_RULES = (
     # What runs on the ground, and the proof it runs nowhere else.
     (("sim/surface/*", "shaders/surface/*", "shaders/observatory/site_terrain.gdshader", "sim/showcase.gd", "sim/planet_pin.gd", "sim/climate_look.gd",
       "sim/planet_elevation.gd", "assets/planet-relief/*", "sim/flight/localview.gd", "sim/observatory/site_scene.gd"),
-     ("surfacecheck", "surfacepixelcheck*", "_soak_check-showcase", "_soak_check-surface", "groundcheck")),
+     ("surfacecheck", "surfacepixelcheck*", "_soak_check-showcase", "_soak_check-surface", "groundcheck", "groundlookcheck")),
+    (("shaders/surface/*", "tools/groundlookcheck.*", "sim/surface/surface_shadow.gd"), ("groundlookcheck",)),
     # The CPU's crust is held to the shader's; the pin and the showcase read it.
     (("sim/planet_relief.gd", "sim/planet_pin.gd", "sim/showcase.gd", "shaders/bodies/terrain.gdshaderinc",
       "shaders/bodies/terrain_noise.gdshaderinc", "shaders/bodies/rocky_surface.gdshader", "shaders/bodies/pin_marker.gdshader",
@@ -417,6 +418,8 @@ def checks(suite, godot, output, repeat, export_preset):
         yield scene("dockingflightshots", r"^DOCKINGFLIGHTSHOTS DONE checks=[1-9]\d* failures=0$")
         yield scene("kerrflightcheck", r"^KERRFLIGHTCHECK DONE checks=[1-9]\d* failures=0$", "render=1")._replace(name="kerrflightshots")
         yield scene("coursecheck", r"^COURSE 40L 125S 0E$")
+        # The drawn ground at a landing against its CPU half: the Sun's march and the LM's shadow, in the frame.
+        yield scene("groundlookcheck", r"^GROUNDLOOKCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         pin_gpu = scene("pincheck", r"^PINCHECK DONE checks=[1-9]\d* failures=0$", "gpu=1")
         yield ("pincheck-gpu", *pin_gpu[1:])
         for quality in ("medium", "low", "high"):

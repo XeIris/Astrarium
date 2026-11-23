@@ -1515,7 +1515,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 			pad_offset = Vector3(cos(sun_az) * r, pad_offset.y, sin(sun_az) * r)
 		# The pad camera stands ON the pad, so it moves with it.
 		fly_cam.state.padPos = site_local.clone().add_in(DVec3.from_v3(pad_offset))
-	_place_ground(east, up, north, R_loc, fr)
+	_place_ground(east, up, north, R_loc, fr, float(key.ang_r) if key != null else 0.00465)
 	local.place(local.ground, ground_pos)
 
 	# moving parts
@@ -1734,7 +1734,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 ## The ground under the vessel as drawn: the adopted survey in the local frame, with the planet's patch
 ## dropped under its grids; over the measured grid alone, the patch at the height under the subject, so
 ## the gear and the drawn ground meet either way.
-func _place_ground(east: DVec3, up: DVec3, north: DVec3, R_loc: float, fr: Dictionary) -> void:
+func _place_ground(east: DVec3, up: DVec3, north: DVec3, R_loc: float, fr: Dictionary, sun_ang: float) -> void:
 	var g: SurfaceGround = vessel.ground
 	if g != _drawn_ground:
 		_drop_ground_site()
@@ -1749,6 +1749,7 @@ func _place_ground(east: DVec3, up: DVec3, north: DVec3, R_loc: float, fr: Dicti
 		if fr.is_empty(): return
 		ground_site = SurfaceSite.new(local, vessel.parent, g.pin, _render_quality, g.run_seed, g.relief)
 		ground_site.poll()
+		local.set_ground_shadows(true)
 	var ax := g.site_axes(vessel)
 	var rel := (ax[0] as DVec3).clone().add_scaled_in(up, -R_loc)
 	var at := DVec3.new(rel.dot(east), rel.dot(up), rel.dot(north))
@@ -1761,7 +1762,7 @@ func _place_ground(east: DVec3, up: DVec3, north: DVec3, R_loc: float, fr: Dicti
 	ground_pos.y = at.y + ground_site.patch_y
 	if not fr.is_empty():
 		var to_site := basis.inverse()
-		ground_site.light_terrain(to_site * (fr.sun_local as Vector3), (to_site * craft_pos.sub(at).to_v3()).y, 0.0)
+		ground_site.light_terrain(to_site * (fr.sun_local as Vector3), (to_site * craft_pos.sub(at).to_v3()).y, 0.0, sun_ang)
 
 # Real ground can rise between a chase camera and its subject: keep the eye over the drawn site and
 # still looking at the subject.
@@ -1777,6 +1778,7 @@ func _drop_ground_site() -> void:
 	if ground_site != null:
 		ground_site.dispose()
 		ground_site = null
+		local.set_ground_shadows(false)
 	_drawn_ground = null
 
 ## Hand the pad camera over to chase once the vehicle climbs out of frame.

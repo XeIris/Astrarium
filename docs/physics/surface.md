@@ -260,6 +260,38 @@ Not modelled, or estimated:
   difference is not modelled.
 - **Legs on a slope.** A vehicle stands along the radius, and contact is at its footprint's centre.
 
+## The ground close up
+
+`shaders/surface/ground.gdshader`, a visit's and a landing's site (the Observatory keeps its own). Three things
+the grid alone cannot show.
+
+- **The relief below the grid, in the shading.** Octaves from half a cell down, each κ ν(λ) high, where
+  ν(ℓ) = ν_cell (ℓ/L_cell)^H. κ = √(1 − 2^−2(1−H)) / 1.22 makes the summed field's RMS slope at its finest drawn octave
+  ν(λ)/λ: the octaves' slopes add to 1/√(1 − 2^−2(1−H)) of the finest's, and the noise's RMS gradient is 1.22 per unit
+  height (Monte Carlo). That is the same law the survey carves with, so a 50 m slope and a
+  50 cm one come from one measurement. An octave narrower than about two pixels is faded out rather than aliased.
+  The noise is an integer hash (PCG2D). This relief tilts the normal only: contact is the grid's triangles, and the
+  gear does not meet anything under the grid's 50 m.
+- **A regolith's BRDF.** On an airless world, Lommel–Seeliger (2/(μ₀ + μ) over Lambert) with Hapke's shadow-hiding
+  surge, B₀ 1.8 and h 0.071, a lunar fit quoted by the CU/NASA Ames lunar photometry work. Under air, Oren–Nayar at
+  σ = 0.35 rad. Each is normalised to Lambert at normal incidence (the surge at 30° phase), so the palette's physical
+  albedos keep their meaning.
+- **Shadows.** The Sun is occluded by the grids' own heights: a ray marched from each fragment over the near grid's
+  triangles, then the far grid's, in 28 steps from 0.5 m growing by 1.5, softened over the Sun's disc. `SurfaceShadow`
+  is the same march on the CPU. A vehicle's shadow is the Sun's shadow map, on only while a site is drawn
+  (`LocalView.set_ground_shadows`: four splits to 600 m).
+
+What tests it (`groundlookcheck`, windowed): the LM lands under a 10° Sun, and 5760 pixels have their ground point
+found by marching their view rays over the site's triangles. Away from a shadow's edge, where the CPU's march hides
+the Sun, the frame is darker than the lit ground beside it: a median of 0.05 of its brightness, and under half at
+31 of 33 points. A global threshold would not do, since a 10° Sun lights distant plains at grazing incidence almost
+as dimly as shadow. The LM's shadow falls, dark, on sunlit ground where the Sun's ray from the LM meets the ground.
+Without the amplitude's normalisation the shading octaves together were twice as steep as the measured roughness,
+and under that Sun black facets covered much of the lit ground.
+
+Not modelled: rocks, the relief below the grid in contact or silhouette, light scattered from sunlit ground into
+shadow (on the Moon, the hemisphere fill stands in for it).
+
 ## What it costs
 
 Nothing outside a visit: `surfacecheck` holds `SurfaceStats` at zero through the orrery, a free camera, a showcase with its

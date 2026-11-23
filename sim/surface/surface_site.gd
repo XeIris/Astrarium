@@ -8,7 +8,12 @@ extends RefCounted
 
 const OCEAN_SHADER := preload("res://shaders/surface/ocean.gdshader")
 const RAIN_SHADER := preload("res://shaders/surface/rain.gdshader")
-const TERRAIN_SHADER := preload("res://shaders/observatory/site_terrain.gdshader")
+const TERRAIN_SHADER := preload("res://shaders/surface/ground.gdshader")
+# Below the grid on a world without a measured cell (SurfaceRelief.HURST): ν at 1 km and H, scaled by
+# strength over ρg as the grid's own roughness is. Estimates, for a ground that is neither flat nor a
+# measured world's.
+const ROUGH_1KM := 30.0
+const HURST_DEFAULT := 0.8
 # Grid sizes by render quality; the near grid and the far are the same size.
 const CELLS := {"low": 65, "medium": 97, "high": 129, "ultra": 161}
 # A sea's fetch, m, where the wind has room, and where it only has the view: JONSWAP needs one, and
@@ -234,7 +239,7 @@ func _build_scene() -> void:
 	# Vegetation stops where it is too cold: 10 °C-ish above the frost line, in the world's own lapse.
 	var tree_top := (temp_here - 263.0) / maxf(lapse, 1e-5) + ground_y if float(pal.biota) > 0.1 else -1.0
 	_mat.set_shader_parameter("uGreenTop", tree_top)
-	_mat.set_shader_parameter("uFields", 0.0)
+	_set_ground_uniforms()
 	var frost := crust.frost_k
 	var snow_line: float = (temp_here - frost) / maxf(lapse, 1e-5) + ground_y if frost > 0.0 else 1.0e9
 	_mat.set_shader_parameter("uSnowLine", snow_line)
@@ -248,6 +253,33 @@ func _build_scene() -> void:
 	frozen_sea = has_sea and crust.temperature(sin(pin.lat), 0.0) < Climate.freezing_point(climate.salinity) - 4.0
 	if has_sea: _build_ocean(at_sea)
 	_build_rain()
+
+# What the ground shader reads beyond the palette: the grids' heights for the Sun's march, the
+# world's roughness below the grid, and whether a regolith lies under no air.
+func _set_ground_uniforms() -> void:
+	var grids: Array = relief.grids
+	_mat.set_shader_parameter("uNearH", _height_texture(grids[0]))
+	_mat.set_shader_parameter("uFarH", _height_texture(grids[1]))
+	_mat.set_shader_parameter("uNearHalf", float(grids[0].half))
+	_mat.set_shader_parameter("uFarHalf", float(grids[1].half))
+	_mat.set_shader_parameter("uRadius", relief.radius_m)
+	var top := -INF
+	for v in (grids[1].h as PackedFloat32Array): top = maxf(top, v)
+	_mat.set_shader_parameter("uTop", top + 50.0)
+	if relief.hurst > 0.0 and relief.stats.has("cell_roughness_m"):
+		_mat.set_shader_parameter("uRoughCell", float(relief.stats.cell_roughness_m))
+		_mat.set_shader_parameter("uCellM", float(relief.stats.cell_m))
+		_mat.set_shader_parameter("uHurst", relief.hurst)
+	else:
+		_mat.set_shader_parameter("uRoughCell", ROUGH_1KM * minf(SurfaceRelief.G_EARTH / maxf(relief.g, 0.01), SurfaceRelief.MAX_ROUGH))
+		_mat.set_shader_parameter("uCellM", 1000.0)
+		_mat.set_shader_parameter("uHurst", HURST_DEFAULT)
+	_mat.set_shader_parameter("uAirless", 1.0 if climate.flight_atmosphere() == null else 0.0)
+
+static func _height_texture(g: Dictionary) -> ImageTexture:
+	var n: int = g.n
+	var img := Image.create_from_data(n, n, false, Image.FORMAT_RF, (g.h as PackedFloat32Array).to_byte_array())
+	return ImageTexture.create_from_image(img)
 
 func _build_ocean(at_sea: bool) -> void:
 	_ocean_mat = ShaderMaterial.new()
@@ -380,9 +412,10 @@ func update(dt: float, sim_seconds: float, up: Vector3, bodies: Array, cam_y: fl
 
 ## The ground's light and air for this frame: `sun_l` in the site's frame, `eye_y` the eye's height in it.
 ## The flight pass's ground material supplies the air, as it does for the planet's patch.
-func light_terrain(sun_l: Vector3, eye_y: float, cover: float) -> void:
+func light_terrain(sun_l: Vector3, eye_y: float, cover: float, sun_ang := 0.00465) -> void:
 	if _mat == null: return
 	_mat.set_shader_parameter("uSunDir", sun_l)
+	_mat.set_shader_parameter("uSunAng", maxf(sun_ang, 1e-4))
 	_mat.set_shader_parameter("uEye", maxf(eye_y - patch_y, 1.0))
 	var gm := local.ground_mat
 	for p in ["uHaze", "uDensity", "uScaleH", "uHasAir"]:
