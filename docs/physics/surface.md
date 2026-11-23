@@ -112,6 +112,21 @@ What tests it. These do not come out of any constant here:
 | Bifurcation ratio | 4.0 (163 : 41 : 10 streams) | [3–5 in British rivers](https://en.wikipedia.org/wiki/Strahler_number) |
 | Relief on Mars's gravity / Earth's | 2.65 | 2.5 (Olympus Mons / Everest) |
 
+**On a measured dry world** (the Moon, Mars; `SurfaceRelief.HURST`), steps 2 and 6 change: the relief a measured
+cell already holds is not drawn again. The cell's own roughness at its scale is read off the grid: the RMS height
+difference between neighbouring cells over a 7 × 7 patch about the pin. It is carried below the cell by fBm whose
+octaves fall by 2^−H, and calibrated on each grid at two cells' lag to ν(ℓ) = ν_cell (ℓ/L_cell)^H, counting what the
+grid already holds. Craters are capped at half a cell. H is 0.85 for the Moon, between Rosenburg et al. 2011's LOLA
+medians of 0.76 (maria) and 0.95 (highlands). For Mars it is 0.80, an estimate inside Orosei et al. 2003's H > 0.5.
+Earth keeps the gravity-scaled roughness, which its rivers carve.
+
+| Test (`groundcheck`) | This model | Reference |
+| --- | --- | --- |
+| Median slope at 50 m, Mare Tranquillitatis | 0.96° | 2.0° at 17 m (LOLA), about 1.5° at 50 m by H = 0.76 |
+| Median slope at 50 m, farside highlands | 5.9° | 7.5° at 17 m, about 7.1° at 50 m by H = 0.95 |
+| Highlands over maria | 6.1 | 3.8 at 17 m |
+| A site's height at its pin against its measured cell | −1 to 112 m, inside 3 ν_cell | before: 0.8–1.2 km |
+
 Not modelled: lakes as water (a filled pit drains through its spill), glaciers, sediment deposition, lithology,
 tectonic uplift during the run (the crust's relief stands in for what it built).
 
@@ -244,9 +259,6 @@ Not modelled, or estimated:
 - **The datum.** On Mars, MOLA measures height above the areoid, and the flight figure is an ellipsoid. Their
   difference is not modelled.
 - **Legs on a slope.** A vehicle stands along the radius, and contact is at its footprint's centre.
-- **Roughness on a mapped world.** The carved roughness is drawn on top of the measured cell, so it counts relief
-  the cell already holds. The landing sites tested stand 0.8 km (Mars) and 1.2 km (the Moon) above their measured
-  cells.
 
 ## What it costs
 

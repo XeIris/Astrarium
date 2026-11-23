@@ -110,6 +110,7 @@ static func plan_relief(b: Body, where: PlanetPin, r: PlanetRelief, cells: int, 
 	if r.map_kind == 1: relief.map_land = 0 if str(where.ground.kind) in ["sea", "sea ice"] else 1
 	elif r.map_kind == 2: relief.map_land = 1
 	if r.map_kind > 0: relief.elevation = PlanetElevation.of(b.name)
+	if relief.elevation != null and not relief.flowing: relief.hurst = float(SurfaceRelief.HURST.get(b.name, 0.0))
 	if r.map_kind == 1 and relief.elevation != null:
 		relief.map_coastal = PlanetPin.coastal(b.name, where.lat, where.lon, relief.elevation.cell_rad())
 	return relief

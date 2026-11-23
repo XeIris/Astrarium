@@ -33,6 +33,14 @@ const ROUGH_M := 900.0
 const MAX_ROUGH := 4.0
 # How far to the map's side of a coast the pin is put when a measured cell says otherwise, m.
 const COAST_M := 5.0
+# A measured world with nothing flowing: the Hurst exponent H of its height increments, ν(L) ∝ L^H,
+# carries the measured cell's own roughness down below the cell, instead of an Earth-scaled field drawn
+# on top of relief the cell already holds. The Moon: Rosenburg et al. 2011 (LOLA, 17 m–2.7 km baselines)
+# give medians of 0.76 in the maria and 0.95 in the highlands; 0.85 is between. Mars: Orosei et al. 2003
+# (MOLA) find H > 0.5 over most of the surface; 0.8 is an estimate within that.
+const HURST := {"Moon": 0.85, "Mars": 0.80}
+# The lag the added field is calibrated at, in its grid's cells.
+const CAL_LAG := 2
 
 # Inputs.
 var relief: PlanetRelief
@@ -53,6 +61,8 @@ var elevation: PlanetElevation = null
 ## Whether the map's coast is within a measured cell of the pin; only there does the grid bend to it.
 var map_coastal := false
 var rain_index := -1.0              # the pin's precipitation(), 0..1, or < 0 for none
+## HURST's for a measured dry world, else 0 and the gravity-scaled roughness.
+var hurst := 0.0
 var seed := 0
 var cells := 129
 # Outputs.
@@ -88,16 +98,27 @@ func build() -> void:
 	if rain_index >= 0.0 and relief != null: rain_index_mean = relief.mean_precipitation(elevation)
 	var far := _grid_from_crust(far_half)
 	if cancelled: return
-	if cancelled: return
 	progress = 0.1
-	# Strength over ρg, up to where a small world's own size has more to say than its gravity.
-	var strength := minf(G_EARTH / g, MAX_ROUGH)
-	_add_roughness(far, far_half, far_half / 6.0, ROUGH_M * strength, seed)
-	if crater > 0.02: _stamp_craters(far, far_half, seed + 1)
+	var measured := hurst > 0.0 and elevation != null
+	var cell := elevation.cell_rad() * radius_m if measured else 0.0
+	if measured:
+		stats.cell_m = cell
+		stats.cell_roughness_m = cell_roughness()
+		_add_fractal(far, far_half, cell, seed)
+		# Craters wider than a cell are in the measured grid already.
+		if crater > 0.02: _stamp_craters(far, far_half, seed + 1, cell * 0.5)
+	else:
+		# Strength over ρg, up to where a small world's own size has more to say than its gravity.
+		var strength := minf(G_EARTH / g, MAX_ROUGH)
+		_add_roughness(far, far_half, far_half / 6.0, ROUGH_M * strength, seed)
+		if crater > 0.02: _stamp_craters(far, far_half, seed + 1)
 	channel_far = _carve(far, far_half, 0.1, 0.55, true)
 	if cancelled: return
 	var near := _grid_inside(far, far_half, near_half)
-	_add_roughness(near, near_half, near_half / 4.0, 0.1 * ROUGH_M * strength, seed + 7)
+	if measured:
+		_add_fractal(near, near_half, 2.0 * far_half / (cells - 1), seed + 7)
+	else:
+		_add_roughness(near, near_half, near_half / 4.0, 0.1 * ROUGH_M * minf(G_EARTH / g, MAX_ROUGH), seed + 7)
 	if crater > 0.02: _stamp_craters(near, near_half, seed + 11)
 	channel_near = _carve(near, near_half, 0.55, 1.0, false)
 	if cancelled: return
@@ -196,13 +217,72 @@ func _add_roughness(h: PackedFloat32Array, half: float, wavelength: float, amp: 
 			if land > 0.0:
 				h[k] = base + noise.get_noise_2d(x, y) * 0.5 * amp * land
 
+## RMS height difference between neighbouring measured cells about the pin, m: the measured relief's
+## own roughness at the cell's scale, over a 7 × 7 patch of them.
+func cell_roughness() -> float:
+	var L := elevation.cell_rad() * radius_m
+	var sum := 0.0
+	var n := 0
+	for j in range(-3, 4):
+		for i in range(-3, 4):
+			var here := _measured(i * L, j * L)
+			for d in [Vector2(1, 0), Vector2(0, 1)]:
+				var dh := _measured((i + d.x) * L, (j + d.y) * L) - here
+				sum += dh * dh
+				n += 1
+	return sqrt(sum / n)
+
+func _measured(e: float, n: float) -> float:
+	var ll := PlanetPin.lat_lon(_dir(e, n))
+	return elevation.at(ll.x, ll.y)
+
+# Relief below `top` m: fBm whose octaves each fall by 2^−H as their wavelength halves, scaled so the
+# grid's height increments at CAL_LAG cells reach the measured cell's extended there,
+# ν(ℓ) = ν_cell (ℓ / L_cell)^H. What the grid already holds at that lag counts toward it.
+func _add_fractal(h: PackedFloat32Array, half: float, top: float, s: int) -> void:
+	var step := 2.0 * half / (cells - 1)
+	var lag := CAL_LAG * step
+	var want := float(stats.cell_roughness_m) * pow(lag / float(stats.cell_m), hurst)
+	var have := _increments(h, CAL_LAG)
+	var need := sqrt(maxf(want * want - have * have, 0.0))
+	if need <= 0.0 or top <= lag: return
+	var noise := FastNoiseLite.new()
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	noise.fractal_octaves = clampi(int(ceil(log(top / step) / log(2.0))) + 1, 1, 9)
+	noise.fractal_lacunarity = 2.0
+	noise.fractal_gain = pow(2.0, -hurst)
+	noise.seed = s
+	noise.frequency = 1.0 / top
+	var f := PackedFloat32Array()
+	f.resize(cells * cells)
+	for j in cells:
+		for i in cells:
+			f[j * cells + i] = noise.get_noise_2d(-half + i * step, -half + j * step)
+	var scale := need / maxf(_increments(f, CAL_LAG), 1e-9)
+	for k in h.size(): h[k] += f[k] * scale
+
+# RMS of height differences `lag` cells apart along both axes.
+func _increments(h: PackedFloat32Array, lag: int) -> float:
+	var sum := 0.0
+	var n := 0
+	for j in range(0, cells - lag):
+		for i in range(0, cells - lag):
+			var a := h[j * cells + i]
+			var dx := h[j * cells + i + lag] - a
+			var dy := h[(j + lag) * cells + i] - a
+			sum += dx * dx + dy * dy
+			n += 2
+	return sqrt(sum / maxf(n, 1.0))
+
 # Saturated cratering: bowls and rims, with counts falling as D⁻² (the power law crater counts
-# show). Density and depth/diameter of 0.2 are typical fresh values (estimates).
-func _stamp_craters(h: PackedFloat32Array, half: float, s: int) -> void:
+# show). Density and depth/diameter of 0.2 are typical fresh values (estimates). `largest` caps the
+# radius, m.
+func _stamp_craters(h: PackedFloat32Array, half: float, s: int, largest := INF) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = s
 	var step := 2.0 * half / (cells - 1)
-	var r_max := half * 0.35
+	var r_max := minf(half * 0.35, largest)
 	var r_min := step * 2.0
 	var count := int(60.0 * crater)
 	for c in count:

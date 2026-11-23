@@ -32,6 +32,7 @@ func _ready() -> void:
 	await _land("lm:terminal_descent", "Moon")
 	await _land("skycrane:sky_crane", "Mars")
 	await _parity("skycrane:sky_crane")
+	_measured_relief()
 	await _earth()
 	main.flight.teardown()
 	var c := SurfaceStats.calls
@@ -187,6 +188,48 @@ func _parity(spec: String) -> void:
 	check("%s: drawn and undrawn touch down together (%s s, %s m apart, %s m in radius)" % [spec,
 		U.fixed(absf(out[0].met - out[1].met), 3), U.fixed(d_m, 4), U.fixed(absf(out[0].r - out[1].r), 4)],
 		absf(out[0].met - out[1].met) < 1e-6 and d_m < 1e-4 and absf(out[0].r - out[1].r) < 1e-4)
+
+# On a measured dry world the survey keeps the measured ground: the sub-cell relief carries the cell's own
+# roughness down by the world's Hurst exponent. LOLA's median slopes (Rosenburg et al. 2011, 17 m
+# baseline: maria 2.0°, highlands 7.5°) are read at the near grid's 50 m, where the same Hursts give
+# about 1.5° and 7.1°; neither number is an input.
+func _measured_relief() -> void:
+	var f: Spaceflight = main.flight
+	var cases := [["Moon", "Mare Tranquillitatis", 0.674, 23.473, [0.5, 4.0]], ["Moon", "farside highlands", -5.0, 160.0, [3.0, 14.0]],
+		["Mars", "Jezero", 18.38, 77.58, [0.0, 14.0]], ["Mars", "Tharsis plains", 5.0, -110.0, [0.0, 14.0]]]
+	var slopes := {}
+	for c in cases:
+		var b: Body = f.body_named(str(c[0]))
+		var pin := PlanetPin.at(b, deg_to_rad(float(c[2])), deg_to_rad(float(c[3])))
+		var relief := SurfaceSite.plan_relief(b, pin, PlanetRelief.of_body(b), SurfaceGround.CELLS, SurfaceSite.site_seed(b, pin, 0))
+		relief.build()
+		var near: Dictionary = relief.grids[0]
+		var med := _median_slope(near)
+		slopes[c[1]] = med
+		var nu := float(relief.stats.cell_roughness_m)
+		var off := SiteScene.sample(relief.grids, 0.0, 0.0) - relief.elevation.at(pin.lat, pin.lon)
+		var win: Array = c[4]
+		check("%s, %s: median slope %s° at %s m (window %s–%s°); the cell's roughness %s m over %s km" % [c[0], c[1], U.fixed(med, 2),
+			U.fixed(2.0 * float(near.half) / (int(near.n) - 1), 0), win[0], win[1], U.fixed(nu, 1), U.fixed(float(relief.stats.cell_m) / 1000.0, 1)],
+			med >= float(win[0]) and med <= float(win[1]))
+		check("%s, %s: the site stands %s m off its measured cell, inside 3 of its cell-scale roughness" % [c[0], c[1], U.fixed(off, 1)],
+			absf(off) <= 3.0 * maxf(nu, 1.0))
+	check("the highlands are rougher than the mare (%s° against %s°; LOLA's ratio at 17 m is 3.8)" % [
+		U.fixed(slopes["farside highlands"], 2), U.fixed(slopes["Mare Tranquillitatis"], 2)],
+		slopes["farside highlands"] > 2.0 * slopes["Mare Tranquillitatis"])
+
+# Median of |Δh| / spacing between neighbouring cells, as an angle, °.
+func _median_slope(g: Dictionary) -> float:
+	var n: int = g.n
+	var h: PackedFloat32Array = g.h
+	var step := 2.0 * float(g.half) / (n - 1)
+	var all := PackedFloat32Array()
+	for j in n - 1:
+		for i in n - 1:
+			all.append(absf(h[j * n + i + 1] - h[j * n + i]) / step)
+			all.append(absf(h[(j + 1) * n + i] - h[j * n + i]) / step)
+	all.sort()
+	return rad_to_deg(atan(all[all.size() / 2]))
 
 # A world with seas and launch sites keeps its figure: no ground, and nothing of the surface runs.
 func _earth() -> void:
