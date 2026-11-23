@@ -51,6 +51,7 @@ func _case(key: String, c: Dictionary) -> bool:
 	if run.is_empty(): return false
 	print("GROUNDSHOTS %s landed at hour %s°, %s" % [key, U.fixed(rad_to_deg(wrapf(float(run.land_lon) - float(run.sun_lon), -PI, PI)), 1), run.where])
 	var f: Spaceflight = main.flight
+	if key == "lm" and args.get("rover", "1") != "0": await _drive(f, dir)
 	f.fly_cam.state.userAimed = true
 	for i in VIEWS.size():
 		var vw: Array = VIEWS[i]
@@ -60,6 +61,39 @@ func _case(key: String, c: Dictionary) -> bool:
 		for k in 20: await _frame(1.0 / 60.0)
 		await _save(dir.path_join("still_%d.png" % i), false)
 	return true
+
+# The LRV off the LM, driven a loop past it, filmed; stills of it parked after, and of its tracks.
+func _drive(f: Spaceflight, dir: String) -> void:
+	if not f.deploy_rover():
+		printerr("GROUNDSHOTS FAIL the LRV could not be deployed")
+		return
+	var r: Rover = f.rover
+	f.rover_keys = false
+	f.fly_cam.state.userAimed = true
+	f.fly_cam.state.yaw = 2.6
+	f.fly_cam.state.pitch = 0.18
+	f.fly_cam.state.dist = 2.4
+	# Away from the LM (it is west of the rover), round a turn, and back past it at speed.
+	var plan := [[7.0, 1.0, 0.0], [6.0, 1.0, -0.6], [9.0, 1.0, 0.0], [7.0, 1.0, -0.7], [5.0, 1.0, 0.0], [4.0, 0.0, 0.0]]
+	var shot := 0
+	var film: bool = args.get("video", "1") != "0"
+	for leg: Array in plan:
+		r.throttle = float(leg[1])
+		r.steer = float(leg[2])
+		for k in int(float(leg[0]) * 60.0):
+			await _frame(1.0 / 60.0)
+			if film and k % 2 == 0:
+				await _save(dir.path_join("drive/%05d.jpg" % shot), true)
+				shot += 1
+	var views := [[1.0, 0.12, 2.0], [3.6, 0.3, 3.2], [0.2, 0.9, 6.0]]
+	for i in views.size():
+		f.fly_cam.state.yaw = float(views[i][0])
+		f.fly_cam.state.pitch = float(views[i][1])
+		f.fly_cam.state.dist = float(views[i][2])
+		for k in 20: await _frame(1.0 / 60.0)
+		await _save(dir.path_join("lrv_%d.png" % i), false)
+	print("GROUNDSHOTS lrv: %d frames filmed: %s" % [shot, f.rover_readout()])
+	f.driving = false
 
 # Fly the case's descent from its base, turned `turn` rad about the pole, to touchdown and 3 s past.
 func _fly(c: Dictionary, turn: float, film: bool, dir: String) -> Dictionary:

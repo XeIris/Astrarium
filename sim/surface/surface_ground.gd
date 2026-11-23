@@ -130,6 +130,11 @@ func tick(v: Vessel) -> void:
 	adopted = true
 	v.log_event("Standing on the surveyed ground")
 
+## A flight-frame point in the adopted site's frame: (west, up, north), m, as the site's group is laid out.
+func site_point(v: Vessel, rr: DVec3) -> Vector3:
+	to_mesh(rr, v.body_angle(v.coord), _m)
+	return Vector3(-_m.dot(east), _m.dot(c) - datum_r, _m.dot(north))
+
 ## The site's origin and axes in the flight frame at the vessel's coordinate time: [origin, west, up, north].
 func site_axes(v: Vessel) -> Array:
 	var theta := v.body_angle(v.coord)

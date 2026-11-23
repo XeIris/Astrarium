@@ -512,7 +512,9 @@ static func _build_vehicles() -> Dictionary:
 	"lm": {
 		"id": "lm", "name": "Apollo Lunar Module", "role": "lander", "launchFrom": "Moon",
 		"era": "1969–1972", "airless": true,
-		"blurb": "Two stages: a throttleable descent stage that lands, and an ascent stage that uses it as a launch pad. Descent follows the real P63 / P64 / P66 program sequence and its published gate conditions.",
+		"blurb": "Two stages: a throttleable descent stage that lands, and an ascent stage that uses it as a launch pad. Descent follows the real P63 / P64 / P66 program sequence and its published gate conditions. Landed, U deploys the Lunar Roving Vehicle the J missions carried; W A S D drive it.",
+		# Apollo 15–17 carried the LRV folded in the descent stage's quadrant 1 (sim/surface/rover.gd).
+		"rover": "lrv",
 		"limits": { "maxQ": 1e9, "maxG": 6.0, "qAlpha": 1e9, "heatLoad": 0.0 },
 		"stages": [
 			stage({ "key": "des", "name": "Descent stage", "dry": 2134.0, "prop": 8248.0,

@@ -119,6 +119,15 @@ var _site_at := DVec3.new()
 var _site_basis := Basis()
 ## How far over the drawn site the camera's eye is kept, m.
 const CAMERA_CLEAR := 1.5
+## A surface vehicle off a landed one (vehicle.rover): its physics on the adopted ground, stepped on the
+## flight clock drawn or not, and what draws it. `driving` gives it the keys and the camera.
+var rover: Rover = null
+var rover_model: RoverModel = null
+var rover_dust: RoverDust = null
+var rover_tracks: RoverTracks = null
+var driving := false
+## Whether the keys drive it; a script that sets the rover's throttle and steering itself turns this off.
+var rover_keys := true
 var _render_quality := "medium"
 var site_local := DVec3.new()     # the complex in the local frame
 var origin_pos := DVec3.new()     # (0, 0, 0): the sky dome and the smoke
@@ -725,6 +734,7 @@ func teardown() -> void:
 	map_site = null
 	pad_fire = null
 	_drop_ground_site()
+	_drop_rover()
 	if vessel != null: vessel.release_ground()
 	ground_pos.y = 0.0
 	plumes = []; sep_plumes = []; entry = null; cryo = null; vapour = null
@@ -1332,8 +1342,56 @@ func update(dt: float, _frame = null, advance_world: Callable = Callable()) -> f
 		if pending_cruise != null:
 			begin_cruise(pending_cruise.body, pending_cruise.accel, pending_cruise.mission)
 
+	if rover != null: _step_rover(sim_seconds)
 	if not advance_world.is_valid(): finish_frame(dt, sim_seconds)
 	return sim_seconds
+
+## Can the vehicle put its rover down here: landed, on a surveyed ground, carrying one.
+func can_deploy_rover() -> bool:
+	return vessel != null and vessel.phase == Vessel.PHASE.LANDED and vessel.ground != null \
+		and vessel.ground.adopted and vessel.vehicle.get("rover") != null
+
+## Put the rover down beside the vehicle (7 m east of its centre, clear of an LM's 9.4 m leg span, facing
+## north) and take the wheel. The vehicle stands in its way as a cylinder of its own diameter.
+func deploy_rover() -> bool:
+	if rover != null or not can_deploy_rover(): return false
+	var g: SurfaceGround = vessel.ground
+	var at := g.site_point(vessel, vessel.r)
+	rover = Rover.new(Rover.SiteGround.new(g.relief.grids, g.patch_y, g.relief.radius_m), float(vessel.env.gSurf))
+	rover.obstacles = [[Vector2(at.x, at.z), maxf(float(vessel.diameter) * 0.6, 1.0)]]
+	rover.place(-at.x + 7.0, at.z, 0.0)
+	rover_tracks = RoverTracks.new()
+	rover_dust = RoverDust.new(rover.g, 0.0 if vessel.env.atm == null else 4.0, vessel.id)
+	driving = true
+	vessel.log_event("LRV deployed — 7 m east of the LM")
+	return true
+
+func _step_rover(sim_seconds: float) -> void:
+	if driving and rover_keys and main != null and "keys" in main and drawn:
+		var c = main.controls
+		rover.throttle = (1.0 if c.held("drive_forward", main.keys) else 0.0) - (1.0 if c.held("drive_back", main.keys) else 0.0)
+		rover.steer = (1.0 if c.held("steer_left", main.keys) else 0.0) - (1.0 if c.held("steer_right", main.keys) else 0.0)
+	# At most a few seconds of driving in one frame: warped time on the ground is the rover's too.
+	rover.advance(minf(sim_seconds, 4.0))
+	rover_tracks.step(rover)
+	if history and rover_dust != null: rover_dust.step(rover, minf(sim_seconds, 0.25))
+
+func _drop_rover_views() -> void:
+	if rover_model != null and is_instance_valid(rover_model.group): rover_model.group.queue_free()
+	rover_model = null
+	if rover_dust != null: rover_dust.dispose()
+	if rover_tracks != null: rover_tracks.dispose()
+
+func _drop_rover() -> void:
+	_drop_rover_views()
+	rover = null
+	rover_dust = null
+	rover_tracks = null
+	driving = false
+
+## The rover in the local frame, where the camera and placement work: its centre of mass.
+func rover_local() -> DVec3:
+	return _site_at.clone().add_in(DVec3.from_v3(_site_basis * rover.pos.to_v3()))
 
 func _hold_lab(dt: float) -> void:
 	var env: Dictionary = vessel.env
@@ -1682,6 +1740,10 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		if fly_cam.pos.y < 2.0:
 			fly_cam.pos.y = 2.0
 			fly_cam.look_at(subject.pos, Vector3.UP)
+	elif driving and rover != null and ground_site != null:
+		interior.set_enabled(false, craft, vessel.vehicle)
+		fly_cam.update({"craftPos": rover_local(), "craftBasis": _site_basis * Basis(rover.q.to_quaternion()),
+			"length": 3.1, "up": Vector3(0, 1, 0), "dt": dt, "sunLocal": sun_l, "interior": {}})
 	else:
 		interior.set_enabled(fly_cam.state.mode == "interior", craft, vessel.vehicle)
 		fly_cam.update({"craftPos": craft_pos, "craftBasis": craft_basis,
@@ -1698,7 +1760,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		fly_cam.look_at(craft_pos.clone().add_in(DVec3.from_v3(basis_ * aim)), basis_ * Vector3.BACK)
 		fly_cam.near = .05
 	if camera_override.is_valid(): camera_override.call(fly_cam, craft_pos, site_local, dt)
-	_camera_over_ground(subject.pos if subject != null else craft_pos)
+	_camera_over_ground(subject.pos if subject != null else (rover_local() if driving and rover != null and ground_site != null else craft_pos))
 	local.cam_pos.copy_from(fly_cam.pos)
 	# The cockpit needs centimetre depth; distant bodies remain in the orrery pass.
 	local.camera.far = 1.0e5 if fly_cam.state.mode == "interior" else 4.0e6
@@ -1760,9 +1822,20 @@ func _place_ground(east: DVec3, up: DVec3, north: DVec3, R_loc: float, fr: Dicti
 	_site_at.copy_from(at)
 	_site_basis = basis
 	ground_pos.y = at.y + ground_site.patch_y
+	if rover != null: _draw_rover()
 	if not fr.is_empty():
 		var to_site := basis.inverse()
 		ground_site.light_terrain(to_site * (fr.sun_local as Vector3), (to_site * craft_pos.sub(at).to_v3()).y, 0.0, sun_ang)
+
+func _draw_rover() -> void:
+	if rover_model == null:
+		rover_model = RoverModel.build()
+		ground_site.group.add_child(rover_model.group)
+	rover_model.group.transform = RoverModel.site_transform(rover)
+	rover_model.update(rover)
+	rover_tracks.draw(ground_site.group)
+	var tint := (ground_site._mat.get_shader_parameter("uSoil") as Vector3)
+	rover_dust.draw(ground_site.group, Color(tint.x, tint.y, tint.z).linear_to_srgb())
 
 # Real ground can rise between a chase camera and its subject: keep the eye over the drawn site and
 # still looking at the subject.
@@ -1776,6 +1849,7 @@ func _camera_over_ground(target: DVec3) -> void:
 
 func _drop_ground_site() -> void:
 	if ground_site != null:
+		_drop_rover_views()
 		ground_site.dispose()
 		ground_site = null
 		local.set_ground_shadows(false)
@@ -1967,6 +2041,8 @@ func update_hud() -> void:
 	if not kerr_demo.is_empty():
 		var orbit: Dictionary=kerr_demo.orbit
 		status="r = %s GM/c² · dt/dτ = %s× · reference at infinity"%[U.fixed(orbit.radiusM,2),U.fixed(orbit.dilation,3)]
+	if rover != null and driving:
+		status = rover_readout()
 	if docking!=null:
 		var d: Dictionary=docking.capture if docking.latched else docking.readout
 		status=("%s · %s m · %s m/s · %s rpm"%[docking.status,U.fixed(d.gap,2),U.fixed(d.speed,2),U.fixed(d.rpm,1)]) if docking.failure=="" else docking.failure
@@ -1988,6 +2064,18 @@ func update_hud() -> void:
 		"dockKey":main.hud.binding_label(main.controls.bindings.dock_command) if docking != null and main != null else "",
 		"skip": skip != null,
 	})
+
+## The rover's line on the flight HUD: speed, heading, slip, the tracks it leaves and how far it is from the LM.
+func rover_readout() -> String:
+	var slip := 0.0
+	var sink := 0.0
+	for wh: Rover.Wheel in rover.wheels:
+		slip = maxf(slip, absf(wh.slip))
+		sink = maxf(sink, wh.sinkage)
+	var home := vessel.ground.site_point(vessel, vessel.r) if vessel.ground != null else Vector3.ZERO
+	var away := Vector2(rover.pos.x - home.x, rover.pos.z - home.z).length()
+	return "LRV · %s km/h · heading %s° · slip %s%% · tracks %s cm · %s m from the LM" % [U.fixed(absf(rover.speed()) * 3.6, 1),
+		U.fixed(fposmod(rad_to_deg(rover.heading()), 360.0), 0), U.fixed(slip * 100.0, 0), U.fixed(sink * 100.0, 1), U.fixed(away, 0)]
 
 ## Distance (m) and speed (m/s) of the vessel relative to the navigation point, which
 ## moves with its pair's rotating frame: {name, dist, speed, closing}, or null.
@@ -2051,6 +2139,16 @@ func key_action(action: String) -> bool:
 			return true
 		"flight_follow":
 			follow_next(); return true
+		"rover":
+			if rover == null:
+				if not deploy_rover():
+					_toast("No rover to deploy here" if vessel.vehicle.get("rover") == null else "Land on surveyed ground first")
+				return true
+			driving = not driving
+			rover.throttle = 0.0
+			rover.steer = 0.0
+			_toast("Driving the LRV" if driving else "Back at the LM")
+			return true
 		"flight_camera":
 			var modes := camera_modes()
 			var i := modes.find(fly_cam.state.mode)

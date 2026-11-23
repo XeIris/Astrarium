@@ -120,6 +120,7 @@ CHANGED_RULES = (
      ("flighttimecheck", "flightphysicscheck", "spinframecheck", "sharedflightcheck-*", "flight-descent-*",
       "missioncheck-*", "scenariocheck", "groundcheck")),
     (("tools/groundcheck.*",), ("groundcheck",)),
+    (("sim/surface/rover*.gd", "shaders/surface/track.gdshader", "tools/rovercheck.gd"), ("rovercheck", "groundcheck")),
     (("sim/flight/scenarios.gd", "tools/scenariocheck.gd"), ("scenariocheck",)),
     # cloudcheck also tests the climatology: Terrain's CPU copy and the shader copy it must match.
     (("sim/flight/cloudfield.gd", "sim/flight/localview.gd", "shaders/flight/clouds*", "render/flight_cloud_pass.gd", "sim/terrain.gd",
@@ -319,6 +320,8 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("savecheck", r"^SAVECHECK ([1-9]\d*)/\1 checks passed \(platform=(?:macOS|Linux|Windows); native \+ forced backup publication\)\.$")
         yield script("secularcheck", r"^SECULARCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("flighttimecheck", r"^FLIGHT TIME PASS \(0 failures\)$")
+        # The LRV's physics against the Apollo record: sinkage, speed, slip, turning, breakout, dust.
+        yield script("rovercheck", r"^ROVERCHECK DONE checks=[1-9]\d* failures=0$", timeout=300)
         yield script("orbitcheck", r"^ORBITCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("soicheck", r"^SOICHECK DONE checks=[1-9]\d* failures=0$")
         yield script("missionguidancecheck", r"^MISSIONGUIDANCECHECK DONE checks=[1-9]\d* failures=0$")

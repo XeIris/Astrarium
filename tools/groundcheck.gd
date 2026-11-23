@@ -30,6 +30,7 @@ func _ready() -> void:
 	_frames()
 	SurfaceStats.reset()
 	await _land("lm:terminal_descent", "Moon")
+	await _drive_lrv()
 	await _land("skycrane:sky_crane", "Mars")
 	await _parity("skycrane:sky_crane")
 	_measured_relief()
@@ -108,6 +109,43 @@ func _land(spec: String, world: String) -> void:
 	check("%s: over the drawn mesh by what physics says (%s m drawn, %s m physics)" % [spec, U.fixed(gap, 3), U.fixed(v.height_above_ground(), 3)],
 		absf(gap - v.height_above_ground()) < 0.05)
 	_sampler(spec, site, meshes)
+
+# The LRV off the LM that just landed, driven across the surveyed site: every wheel on the drawn triangles,
+# sunk by the soil, the model drawn where the physics is, and nothing left after the flight.
+func _drive_lrv() -> void:
+	var f: Spaceflight = main.flight
+	check("the landed LM can put its rover down", f.can_deploy_rover())
+	check("and does", f.deploy_rover())
+	if f.rover == null: return
+	var r: Rover = f.rover
+	var start := r.pos.clone()
+	r.throttle = 1.0
+	r.steer = 0.25
+	main.set_drawn(false)
+	for i in 30 * 20: main.step_flight(0.05)
+	main.set_drawn(true)
+	var moved := r.pos.sub(start).length()
+	check("it drives off across the site (%s m in 30 s, %s km/h)" % [U.fixed(moved, 1), U.fixed(r.speed() * 3.6, 1)], moved > 20.0)
+	var site: SurfaceSite = f.ground_site
+	var worst := 0.0
+	var touching := 0
+	for wh: Rover.Wheel in r.wheels:
+		if not wh.contact: continue
+		touching += 1
+		var cp: DVec3 = wh.contact_point
+		var drawn := SiteScene.drawn_height(site.relief.grids, -cp.x, cp.z, site.patch_y, site.relief.radius_m, false)
+		worst = maxf(worst, absf(cp.y + wh.sinkage - drawn))
+	check("%d wheels on the ground, each on the drawn triangles less its sinkage (worst %s m)" % [touching, U.expo(worst, 1)], touching >= 3 and worst < 1e-6)
+	for i in 3: main.animate(1.0 / 60.0)
+	check("the LRV is drawn where the physics has it", f.rover_model != null and f.rover_model.group.is_inside_tree()
+		and f.rover_model.group.position.distance_to(r.pos.to_v3()) < 0.5)
+	var tracks := 0
+	for p: Array in f.rover_tracks.paths: tracks += p.size()
+	check("and it leaves tracks (%d points)" % tracks, tracks > 100)
+	var model := f.rover_model.group
+	f.teardown()
+	await get_tree().process_frame
+	check("nothing of it is left after the flight", f.rover == null and not is_instance_valid(model))
 
 # The contact sampler against the triangles as built, over both grids.
 func _sampler(spec: String, site: SurfaceSite, meshes: Array) -> void:
