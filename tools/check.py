@@ -127,6 +127,7 @@ CHANGED_RULES = (
       "missioncheck-*", "scenariocheck", "groundcheck", "seacheck")),
     (("tools/groundcheck.*",), ("groundcheck",)),
     (("sim/surface/rover*.gd", "shaders/surface/track.gdshader", "tools/rovercheck.gd"), ("rovercheck", "groundcheck")),
+    (("sim/surface/rotorcraft*.gd", "tools/rotorcheck.gd"), ("rotorcheck", "groundcheck")),
     (("sim/flight/scenarios.gd", "tools/scenariocheck.gd"), ("scenariocheck",)),
     # cloudcheck also tests the climatology: Terrain's CPU copy and the shader copy it must match.
     (("sim/flight/cloudfield.gd", "sim/flight/localview.gd", "shaders/flight/clouds*", "render/flight_cloud_pass.gd", "sim/terrain.gd",
@@ -329,6 +330,8 @@ def checks(suite, godot, output, repeat, export_preset):
         # The LRV's physics against the Apollo record: sinkage, speed, slip, turning, breakout, dust.
         # Timeouts sized for CI's runners, about three times a desktop's wall time beside other checks.
         yield script("rovercheck", r"^ROVERCHECK DONE checks=[1-9]\d* failures=0$", timeout=900)
+        # Rotors against momentum theory and the flown record; Ingenuity and Dragonfly flown over planes.
+        yield script("rotorcheck", r"^ROTORCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
         # The FFT sea against its spectrum and a direct sum; hulls against Archimedes and the Apollo record.
         yield script("oceancheck", r"^OCEANCHECK DONE checks=[1-9]\d* failures=0$", timeout=900)
         yield script("orbitcheck", r"^ORBITCHECK DONE checks=[1-9]\d* failures=0$")

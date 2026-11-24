@@ -132,6 +132,11 @@ var rover_arm: RoverArm = null
 var driving := false
 ## Whether the keys drive it; a script that sets the rover's throttle and steering itself turns this off.
 var rover_keys := true
+## A helicopter off the rover (Ingenuity off Perseverance): its physics on the same ground and clock, what
+## draws it, and whether it has the keys and the camera.
+var heli: Rotorcraft = null
+var heli_model: RotorcraftModel = null
+var flying := false
 var _render_quality := "medium"
 var site_local := DVec3.new()     # the complex in the local frame
 var origin_pos := DVec3.new()     # (0, 0, 0): the sky dome and the smoke
@@ -1349,6 +1354,7 @@ func update(dt: float, _frame = null, advance_world: Callable = Callable()) -> f
 			begin_cruise(pending_cruise.body, pending_cruise.accel, pending_cruise.mission)
 
 	if rover != null: _step_rover(sim_seconds)
+	if heli != null: _step_heli(sim_seconds)
 	if not advance_world.is_valid(): finish_frame(dt, sim_seconds)
 	return sim_seconds
 
@@ -1379,6 +1385,59 @@ func deploy_rover() -> bool:
 	vessel.log_event("%s deployed%s" % [str(spec.name), (" — %s m east of the lander" % U.fixed(offset, 0)) if offset > 0.0 else ""])
 	return true
 
+## Can Ingenuity come off the rover here: Perseverance down and deployed, the helicopter not yet out.
+func can_deploy_heli() -> bool:
+	return heli == null and rover != null and str(rover.spec.name) == "Perseverance" and vessel.ground != null and vessel.ground.adopted
+
+## Set Ingenuity down 4 m ahead and to the left of the rover, as Perseverance dropped it and drove off, in the
+## air the site has, and take its controls.
+func deploy_heli() -> bool:
+	if not can_deploy_heli(): return false
+	var g: SurfaceGround = vessel.ground
+	var ground := Rover.SiteGround.new(g.relief.grids, g.patch_y, g.relief.radius_m)
+	var y := rover.pos.y
+	var atm = vessel.env.atm
+	heli = Rotorcraft.new(ground, float(vessel.env.gSurf), Rocketry.density(atm, y), Rocketry.speed_of_sound(atm, y), Rotorcraft.INGENUITY)
+	var fwd := DQuat.rotate(DVec3.new(0.0, 0.0, 1.0), rover.q)
+	var left := DQuat.rotate(DVec3.new(1.0, 0.0, 0.0), rover.q)
+	var at := rover.pos.clone().add_scaled_in(fwd, 4.0).add_scaled_in(left, 2.5)
+	heli.place(-at.x, at.z, rover.heading())
+	heli.t = rover_t()
+	heli.armed = true
+	flying = true
+	driving = false
+	rover.throttle = 0.0
+	rover.steer = 0.0
+	vessel.log_event("Ingenuity deployed — air %s kg/m³, %s%% of Earth's" % [U.fixed(heli.rho, 4), U.fixed(heli.rho / 1.225 * 100.0, 2)])
+	return true
+
+func rover_t() -> float:
+	return vessel.coord
+
+func _step_heli(sim_seconds: float) -> void:
+	if flying and rover_keys and main != null and "keys" in main and drawn:
+		var c = main.controls
+		heli.cmd_fwd = (1.0 if c.held("drive_forward", main.keys) else 0.0) - (1.0 if c.held("drive_back", main.keys) else 0.0)
+		heli.cmd_yaw = (1.0 if c.held("steer_right", main.keys) else 0.0) - (1.0 if c.held("steer_left", main.keys) else 0.0)
+		heli.cmd_climb = (1.0 if c.held("climb", main.keys) else 0.0) - (1.0 if c.held("descend", main.keys) else 0.0)
+	# At most a few seconds of flight in one frame, as for the rover.
+	heli.advance(heli.t + minf(sim_seconds, 4.0))
+
+## Ingenuity in the local frame: its centre of mass.
+func heli_local() -> DVec3:
+	return _site_at.clone().add_in(DVec3.from_v3(_site_basis * heli.pos.to_v3()))
+
+## The helicopter's line on the flight HUD.
+func heli_readout() -> String:
+	var r := heli.rotors[0]
+	var line := "%s · %s m up · %s m/s · heading %s° · %s rpm, collective %s° · %s W · battery %s%%" % [str(heli.spec.name),
+		U.fixed(heli.height_above_ground(), 1), U.fixed(heli.vel.length(), 1), U.fixed(fposmod(rad_to_deg(heli.heading()), 360.0), 0),
+		U.fixed(r.omega * 60.0 / TAU, 0), U.fixed(rad_to_deg(r.theta), 1), U.fixed(heli.power_w, 0),
+		U.fixed(100.0 * heli.energy_wh / float(heli.spec.battery_wh), 0)]
+	if heli.crashed: line += " · crashed"
+	elif heli.energy_wh <= 0.0: line += " · battery flat"
+	return line
+
 func _step_rover(sim_seconds: float) -> void:
 	if driving and rover_keys and main != null and "keys" in main and drawn:
 		var c = main.controls
@@ -1393,11 +1452,15 @@ func _step_rover(sim_seconds: float) -> void:
 func _drop_rover_views() -> void:
 	if rover_model != null and is_instance_valid(rover_model.group): rover_model.group.queue_free()
 	rover_model = null
+	if heli_model != null and is_instance_valid(heli_model.group): heli_model.group.queue_free()
+	heli_model = null
 	if rover_dust != null: rover_dust.dispose()
 	if rover_tracks != null: rover_tracks.dispose()
 
 func _drop_rover() -> void:
 	_drop_rover_views()
+	heli = null
+	flying = false
 	rover = null
 	rover_dust = null
 	rover_tracks = null
@@ -1774,6 +1837,11 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		if fly_cam.pos.y < 2.0:
 			fly_cam.pos.y = 2.0
 			fly_cam.look_at(subject.pos, Vector3.UP)
+	elif flying and heli != null and ground_site != null:
+		interior.set_enabled(false, craft, vessel.vehicle)
+		var hb := _site_basis * Basis(heli.q.to_quaternion())
+		fly_cam.update({"craftPos": heli_local(), "craftBasis": hb,
+			"length": 1.2, "up": Vector3(0, 1, 0), "dt": dt, "sunLocal": sun_l, "interior": {}})
 	elif driving and rover != null and ground_site != null:
 		interior.set_enabled(false, craft, vessel.vehicle)
 		var rb := _site_basis * Basis(rover.q.to_quaternion())
@@ -1809,7 +1877,8 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		fly_cam.look_at(craft_pos.clone().add_in(DVec3.from_v3(basis_ * aim)), basis_ * Vector3.BACK)
 		fly_cam.near = .05
 	if camera_override.is_valid(): camera_override.call(fly_cam, craft_pos, site_local, dt)
-	_camera_over_ground(subject.pos if subject != null else (rover_local() if driving and rover != null and ground_site != null else craft_pos))
+	_camera_over_ground(subject.pos if subject != null else (heli_local() if flying and heli != null and ground_site != null
+		else (rover_local() if driving and rover != null and ground_site != null else craft_pos)))
 	local.cam_pos.copy_from(fly_cam.pos)
 	# The cockpit needs centimetre depth; distant bodies remain in the orrery pass.
 	local.camera.far = 1.0e5 if fly_cam.state.mode == "interior" else 4.0e6
@@ -1872,6 +1941,11 @@ func _place_ground(east: DVec3, up: DVec3, north: DVec3, R_loc: float, fr: Dicti
 	_site_basis = basis
 	ground_pos.y = at.y + ground_site.patch_y
 	if rover != null: _draw_rover()
+	if heli != null:
+		if heli_model == null:
+			heli_model = RotorcraftModel.build(heli.spec)
+			ground_site.group.add_child(heli_model.group)
+		heli_model.update(heli)
 	if not fr.is_empty():
 		var to_site := basis.inverse()
 		ground_site.light_terrain(to_site * (fr.sun_local as Vector3), (to_site * craft_pos.sub(at).to_v3()).y, 0.0, sun_ang)
@@ -2168,7 +2242,9 @@ func update_hud() -> void:
 	if not kerr_demo.is_empty():
 		var orbit: Dictionary=kerr_demo.orbit
 		status="r = %s GM/c² · dt/dτ = %s× · reference at infinity"%[U.fixed(orbit.radiusM,2),U.fixed(orbit.dilation,3)]
-	if rover != null and driving:
+	if heli != null and flying:
+		status = heli_readout()
+	elif rover != null and driving:
 		status = rover_readout()
 	elif vessel.afloat():
 		status = sea_readout()
@@ -2283,12 +2359,23 @@ func key_action(action: String) -> bool:
 					st.gear_out = not st.gear_out
 					break
 			return true
+		"helicopter":
+			if heli == null:
+				if not deploy_heli():
+					_toast("Ingenuity rides under Perseverance: land the Sky Crane and deploy the rover first")
+				return true
+			flying = not flying
+			driving = not flying
+			heli.cmd_fwd = 0.0; heli.cmd_yaw = 0.0; heli.cmd_climb = 0.0
+			_toast("Flying Ingenuity" if flying else "Back at Perseverance")
+			return true
 		"rover":
 			if rover == null:
 				if not deploy_rover():
 					_toast("No rover to deploy here" if vessel.vehicle.get("rover") == null else "Land on surveyed ground first")
 				return true
 			driving = not driving
+			if driving: flying = false
 			rover.throttle = 0.0
 			rover.steer = 0.0
 			_toast("Driving the LRV" if driving else "Back at the LM")

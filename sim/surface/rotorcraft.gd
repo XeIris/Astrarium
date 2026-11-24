@@ -262,7 +262,9 @@ func _step() -> void:
 		for p in pairs:
 			# Yaw from the difference between a pair's upper and lower rotor torques: more on the rotor that
 			# turns against the wanted yaw, whose reaction then turns the body with it.
-			_split[p] = clampf(_split[p] - _upper_spin(p) * tau.y * DT * 4.0 / maxf(thrust_total * float(spec.radius), 1e-3), -0.4, 0.4)
+			# Held at zero while the rotors are not carrying the craft, so a creep on the ground does not wind it up.
+			if thrust_total < 0.3 * mass * g: _split[p] = 0.0
+			else: _split[p] = clampf(_split[p] - _upper_spin(p) * tau.y * DT * 4.0 / maxf(thrust_total * float(spec.radius), 1e-3), -0.4, 0.4)
 			_pair_state(p, per[p], _split[p], v_axial, v_disc)
 		var tilt: Vector2 = ctl.cyclic
 		for r in rotors:

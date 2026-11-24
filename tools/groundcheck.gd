@@ -183,7 +183,47 @@ func _drive_perseverance() -> void:
 	for i in 3: main.animate(1.0 / 60.0)
 	check("drawn as Perseverance, the stage that lowered it gone", f.rover_model != null and f.rover_model.group.name == "Perseverance"
 		and not f.craft.group.visible)
+	_fly_ingenuity(f)
 	f.teardown()
+
+# Ingenuity off Perseverance: set down, up 8 m on the site's own air, ahead for ten seconds, and down again on
+# the drawn ground, its feet on the triangles.
+func _fly_ingenuity(f: Spaceflight) -> void:
+	check("Ingenuity comes off Perseverance", f.can_deploy_heli() and f.deploy_heli())
+	if f.heli == null: return
+	var h: Rotorcraft = f.heli
+	f.rover_keys = false
+	var feet := func() -> float:
+		var worst := 0.0
+		for leg: Vector3 in h.spec.legs:
+			var p := DQuat.rotate(DVec3.from_v3(leg), h.q).add_in(h.pos)
+			worst = maxf(worst, absf(p.y - h.ground.height(-p.x, p.z)))
+		return worst
+	var run := func(s: float) -> void:
+		for i in int(s / 0.05): main.step_flight(0.05)
+	main.set_drawn(false)
+	run.call(2.0)
+	check("it stands on the drawn ground (feet within %s m of the triangles)" % U.fixed(feet.call(), 4), h.on_ground and feet.call() < 0.01)
+	h.cmd_climb = 1.0
+	run.call(4.0)
+	h.cmd_climb = 0.0
+	run.call(4.0)
+	var up := h.height_above_ground()
+	h.cmd_fwd = 1.0
+	run.call(10.0)
+	var v := Vector2(h.vel.x, h.vel.z).length()
+	h.cmd_fwd = 0.0
+	run.call(6.0)
+	h.cmd_climb = -1.0
+	run.call(12.0)
+	h.cmd_climb = 0.0
+	run.call(3.0)
+	main.set_drawn(true)
+	check("it flew: %s m up, %s m/s ahead, %s W at the battery (air %s kg/m³)" % [U.fixed(up, 1), U.fixed(v, 1), U.fixed(h.power_w, 0), U.fixed(h.rho, 4)],
+		up > 4.0 and v > 6.0 and not h.crashed)
+	check("it came down on the drawn ground (feet within %s m)" % U.fixed(feet.call(), 4), h.on_ground and not h.crashed and feet.call() < 0.01)
+	for i in 3: main.animate(1.0 / 60.0)
+	check("drawn as Ingenuity", f.heli_model != null and f.heli_model.group.name == "Ingenuity")
 
 # The contact sampler against the triangles as built, over both grids.
 func _sampler(spec: String, site: SurfaceSite, meshes: Array) -> void:
