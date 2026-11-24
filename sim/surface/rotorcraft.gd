@@ -88,6 +88,11 @@ var cmd_side := 0.0
 var cmd_climb := 0.0
 var cmd_yaw := 0.0
 var armed := false
+## The height over the ground held while the climb stick is centred, m; −1 while climbing or on the ground.
+var hold_agl := -1.0
+## Down and told to stay down: once on the ground without a climb command it idles there, bounce or not,
+## until a climb lifts it off.
+var landed := true
 ## Leg compression, for drawing and checks.
 var leg_load := PackedFloat64Array()
 var _split := PackedFloat64Array()
@@ -148,6 +153,14 @@ func height_above_ground() -> float:
 		var p := DQuat.rotate(DVec3.from_v3(leg), q).add_in(pos)
 		low = minf(low, p.y - float(ground.height(-p.x, p.z)))
 	return low
+
+## The ground's steepest slope under the craft across `span` m, rad: what a hazard lidar sees.
+func ground_slope(span: float) -> float:
+	var e := -pos.x
+	var n := pos.z
+	var gx := (float(ground.height(e + span, n)) - float(ground.height(e - span, n))) / (2.0 * span)
+	var gz := (float(ground.height(e, n + span)) - float(ground.height(e, n - span))) / (2.0 * span)
+	return atan(sqrt(gx * gx + gz * gz))
 
 ## ROTORS
 
@@ -326,10 +339,24 @@ func _control(up_b: DVec3, mass: float, inertia: Vector3) -> Dictionary:
 	var left := Vector3(cos(hd), 0.0, sin(hd))
 	var v_want := fwd * clampf(cmd_fwd, -1.0, 1.0) * float(spec.v_max) - left * clampf(cmd_side, -1.0, 1.0) * float(spec.v_max) * 0.5
 	v_want.y = clampf(cmd_climb, -1.0, 1.0) * float(spec.climb_max)
+	# A laser altimeter, as both craft fly with: with the stick centred, hold the height over the ground
+	# below the centre of mass, so rising ground lifts the craft rather than meets it.
+	if on_ground and cmd_climb <= 0.0: landed = true
+	if cmd_climb > 0.0: landed = false
+	if cmd_climb != 0.0 or landed:
+		hold_agl = -1.0
+	else:
+		var below := pos.y - float(ground.height(-pos.x, pos.z))
+		if hold_agl < 0.0: hold_agl = below
+		v_want.y = clampf((hold_agl - below) * 0.8, -float(spec.climb_max), float(spec.climb_max))
+		# Where the ground rises faster than it can climb, it slows across it.
+		var keep := clampf(below / maxf(hold_agl, 1.0) * 2.0 - 1.0, 0.1, 1.0)
+		v_want.x *= keep
+		v_want.z *= keep
 	var v := vel.to_v3()
 	# On the ground a craft asked to stay down sits there; a climb command lifts it off.
 	var a := (v_want - v) * Vector3(1.2, 2.5, 1.2)
-	if on_ground and cmd_climb <= 0.0: a = Vector3(0.0, -1.0, 0.0)
+	if landed: a = Vector3(0.0, -1.0, 0.0)
 	var want := a + Vector3(0.0, g, 0.0)
 	var tilt_max := float(spec.tilt_max)
 	var horiz := Vector2(want.x, want.z)
@@ -338,7 +365,7 @@ func _control(up_b: DVec3, mass: float, inertia: Vector3) -> Dictionary:
 		want = Vector3(horiz.x, want.y, horiz.y)
 	var up_d := want.normalized() if want.y > 0.0 else Vector3.UP
 	var thrust := mass * maxf(want.y, 0.0) / maxf(up_b.y, 0.3)
-	if on_ground and cmd_climb <= 0.0: thrust = 0.0
+	if landed: thrust = 0.0
 	# The attitude: turn body up onto up_d, and yaw at the commanded rate.
 	var u := up_b.to_v3()
 	var err_s := u.cross(up_d)

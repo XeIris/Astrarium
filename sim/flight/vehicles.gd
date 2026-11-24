@@ -613,6 +613,40 @@ static func _build_vehicles() -> Dictionary:
 		},
 	},
 
+	# DRAGONFLY — Titan's rotorcraft lander: Huygens' kind of entry, a parachute through 1.5 bar of
+	# nitrogen, then out of the backshell to fly itself down (sim/surface/rotorcraft.gd).
+	"dragonfly": {
+		"id": "dragonfly", "name": "Dragonfly — Titan rotorcraft", "role": "lander", "launchFrom": "Titan",
+		"era": "2034",
+		"blurb": "NASA's octocopter for Titan: entry behind a heat shield, a parachute down through the haze, then out of its backshell 1.2 km up to fly itself to the dunes. Down, W S and A D fly it, E climbs and Q descends; in Titan's thick air and low gravity eight 1.35 m rotors lift 875 kg.",
+		# No authored model: the flyer is drawn by RotorcraftModel once it is out of the shell.
+		"procedural": true,
+		"flyer": "dragonfly",
+		"limits": { "maxQ": 30e3, "maxG": 25.0, "qAlpha": 10e3, "heatLoad": 200e6 },
+		"stages": [
+			# The entry system's mass and shield are estimates: a 3.75 m aeroshell, like the Mars ones.
+			stage({ "key": "shell", "name": "Entry capsule", "dry": 1200.0, "prop": 0.0,
+				"engine": null, "count": 0, "L": 2.2, "D": 3.75, "sep": "jettison",
+				"blunt": true, "heatShield": { "area": 11.0, "ablator": true, "mass": 250.0, "noseR": 1.0,
+					"thickness": 0.03, "rho": 265.0, "qstar": 5.0e7 },
+				"chute": { "area": 120.0, "Cd": 0.6 },
+				"look": { "skin": "ablator", "aeroshell": true } }),
+			stage({ "key": "dragonfly", "name": "Dragonfly", "dry": 875.0, "prop": 0.0,
+				"engine": null, "count": 0, "L": 1.75, "D": 3.85, "sep": "none",
+				"look": { "dragonfly": true } }),
+		],
+		"edl": {
+			# Huygens met Titan's air at 6.0 km/s, 65° down, at 1270 km (Lebreton et al. 2005). The flight's Titan
+			# air is one 21 km scale height, steeper than the real extended upper air that held Huygens near
+			# 12 g, so this enters at Huygens' speed but 30° down (an estimate: Dragonfly's angle is unpublished).
+			"entry": { "alt": 600000.0, "v": 6000.0, "fpa": -30.0 },
+			# Huygens' pilot chute opened at Mach 1.5 (Lebreton et al. 2005).
+			"chute": { "mach": 1.5, "machOnly": true },
+			# Out of the backshell at a height that is an estimate.
+			"release": { "alt": 1200.0 },
+		},
+	},
+
 	# ION CRUISER — the interplanetary workhorse. 237 mN and months of burn: it
 	# is the vehicle that makes the warp ladder necessary.
 	"ioncruiser": {
@@ -719,7 +753,7 @@ static func booster_return(key: String):
 	return veh
 
 const VEHICLE_ORDER := [
-	"saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "apollocm",
+	"saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "apollocm", "dragonfly",
 	"ioncruiser", "solarsail", "hailmary", "beetle", "evapod", "ranger", "discovery", "endurance", "lander",
 ]
 

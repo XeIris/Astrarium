@@ -251,6 +251,10 @@ var catch_tower = null              # CatchTower this vessel can be caught by, o
 ## and the figure is the ground. Contact and landing guidance read height_above_ground; the air reads
 ## altitude, which is over the figure.
 var ground: SurfaceGround = null
+## Set by guidance when a flyer leaves its shell; Spaceflight then flies it (Rotorcraft) and the vessel is
+## held where it was let go, on the ground under it.
+var release_flyer := false
+var flown := false
 ## The sea under a vehicle built to float, coming down on a world with oceans (SurfaceSea), else null.
 var sea: SurfaceSea = null
 ## The run's seed=, which a landing survey's roughness is drawn from.
@@ -1796,8 +1800,8 @@ func contact(dt: float) -> void:
 		phase = PHASE.LANDED
 		throttle = 0.0
 		landed_at = { "met": met, "vVert": v.dot(DQuat.nrm(_a.copy_from(r))), "vHoriz": 0.0, "afloat": true }
-	if afloat():
-		DQuat.set_len(r, surface_r(r))
+	if afloat() or flown:
+		DQuat.set_len(r, ground_r(r) if flown else surface_r(r))
 		_c.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_c, r)
 		v.copy_from(_c)
 		omega.set_v(0.0, 0.0, 0.0)

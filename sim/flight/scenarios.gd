@@ -21,9 +21,9 @@ extends RefCounted
 const DT := 0.05
 const MAX_FRAMES := 400000
 
-const ORDER := ["saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "apollocm", "evapod", "ranger", "discovery", "endurance", "lander"]
+const ORDER := ["saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "apollocm", "dragonfly", "evapod", "ranger", "discovery", "endurance", "lander"]
 const NAMES := {"saturnv": "Saturn V", "falcon9": "Falcon 9", "shuttle": "Shuttle", "starship": "Starship",
-	"lm": "Lunar Module", "skycrane": "Sky crane", "apollocm": "Command module", "ranger": "Survey Shuttle", "discovery":"Jupiter Explorer",
+	"lm": "Lunar Module", "skycrane": "Sky crane", "apollocm": "Command module", "dragonfly": "Dragonfly", "ranger": "Survey Shuttle", "discovery":"Jupiter Explorer",
 	"lander":"Cargo Lander","endurance":"Expedition Ring","evapod":"EVA Pod"}
 
 static var _list := {}
@@ -91,6 +91,7 @@ static func _build_list() -> Dictionary:
 			{"body":"Jupiter","alt":[99.99e6,100.01e6],"phase":"orbit"}),
 	]
 	var survey := {"kind":"orbit","alt":250e3,"inc":28.5,"phase":0.0,"program":"glide"}
+	var titan := {"kind":"orbit","preset":"titan_voyage","body":"Titan","alt":800e3,"inc":0.0,"phase":0.0,"program":"glide"}
 	out.ranger = [
 		_sc("ranger","spin_match","Match the Expedition Ring and dock","Orbit",
 			{"kind":"dock","carrier":"endurance","slot":"dock_ranger_0","gap":16.0},{"docked":true},
@@ -103,6 +104,11 @@ static func _build_list() -> Dictionary:
 			{"alt":[120e3,123e3],"airspeed":[7200.0,7900.0],"program":"glide","state":"entry"}),
 		_sc("ranger","flare","Survey Shuttle preflare","Landing",survey,{"state":"flare"},
 			{"alt":[500.0,650.0],"program":"glide","state":"flare"}),
+		# To Titan: above its 600 km of air, then the same deorbit and glide, through 1.5 bar.
+		_sc("ranger","titan_orbit","Survey Shuttle over Titan","Orbit",titan,{},
+			{"alt":[799e3,801e3],"phase":"orbit","attached":["ranger"]}),
+		_sc("ranger","titan_landing","Survey Shuttle down on Titan","Landing",titan,{"event":"Wheel stop"},
+			{"agl":[-5.0,5.0]}),
 	]
 	out.saturnv = [
 		_sc("saturnv", "pad", "Pad, T−10 s", "Ascent", _pad(), {}, {"phase": "prelaunch", "count": [9.0, 10.0]}),
@@ -224,6 +230,13 @@ static func _build_list() -> Dictionary:
 			{"alt": [2.5e3, 3.3e3], "program": "edl", "state": "chute"}),
 		_sc("apollocm", "splashdown", "Splashdown", "Return", _apollo(), {"event": "Splashdown"}, {"alt": [-1.0, 16.0]}),
 	]
+	out.dragonfly = [
+		_sc("dragonfly", "entry", "Titan entry, 600 km", "Landing", _dragonfly(), {}, {"alt": [590e3, 601e3], "program": "edl"}),
+		_sc("dragonfly", "parachute", "Parachute, Mach 1.5", "Landing", _dragonfly(), {"state": "chute"},
+			{"program": "edl", "state": "chute"}),
+		_sc("dragonfly", "released", "Out of the backshell", "Landing", _dragonfly(), {"event": "Released"}, {"agl": [0.0, 1300.0]}),
+		_sc("dragonfly", "landed", "Down on Titan", "Landing", _dragonfly(), {"event": "Dragonfly down"}, {"agl": [-5.0, 5.0]}),
+	]
 	return out
 
 ## The orbiter alone in a 300 km, 51.6° orbit with its OMS propellant, as
@@ -278,6 +291,10 @@ static func _f9_booster() -> Dictionary:
 	return {"kind": "descent", "stages": [0], "prop": {"f9s1": 61650.0}, "alt": 70e3, "v_vert": -1000.0, "v_horiz": 200.0,
 		"program": "hoverslam"}
 
+## Dragonfly at the top of Titan's air at Huygens' speed, 30° down, in the Titan expedition.
+static func _dragonfly() -> Dictionary:
+	return {"kind": "descent", "preset": "titan_voyage", "body": "Titan", "alt": 600e3, "v_inertial": 6000.0, "fpa": -30.0, "program": "edl"}
+
 ## Apollo 11 at entry interface: 400,000 ft, 36,194 ft/s inertial, 6.48° down (NASA SP-4029), on a track
 ## that comes down in the open Pacific.
 static func _apollo() -> Dictionary:
@@ -312,8 +329,10 @@ static func build(main, sc: Dictionary) -> String:
 			v = f.begin(key, {"mode": "orbit", "alt": float(b.alt), "inc": float(b.get("inc", 0.0)),
 				"phase": float(b.get("phase", 0.0)), "body":b.get("body",Vehicles.get_vehicle(key).get("launchFrom","Earth"))})
 		"descent":
-			v = f.begin(key, {"mode": "orbit", "alt": float(b.alt), "inc": float(b.get("inc", 0.0)), "phase": float(b.get("phase", 0.0)),
-				"vehicle": _subset(key, b)})
+			var opts := {"mode": "orbit", "alt": float(b.alt), "inc": float(b.get("inc", 0.0)), "phase": float(b.get("phase", 0.0)),
+				"vehicle": _subset(key, b)}
+			if b.has("body"): opts.body = b.body
+			v = f.begin(key, opts)
 			if v != null: _descent_state(v, b)
 		"air":
 			v = f.begin(key, {"mode": "orbit", "alt": float(b.alt), "inc": float(b.get("inc", 0.0)), "phase": 0.0})

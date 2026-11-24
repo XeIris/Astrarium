@@ -256,7 +256,7 @@ static func elements_state(mu: float, row: Array, t_cy: float) -> Dictionary:
 # THE TABLE
 static var PRESETS: Dictionary = _make_presets()
 
-static var PRESET_ORDER: Array = EduPresets.EDU_ORDER + ["blank", "stellar_zoo", "sirius", "vega", "achernar", "betelgeuse", "alphacen", "etacar", "hr_ladder", "trisolaris", "trisolaris_wander", "trisolaris_compact", "trisolaris_wide", "trisolaris_alpha", "trisolaris_chaos", "sandbox", "solar", "jovian_voyage", "threebody", "binarystar", "bhmerger", "nsmerger", "feeding", "gargantua_demo"]
+static var PRESET_ORDER: Array = EduPresets.EDU_ORDER + ["blank", "stellar_zoo", "sirius", "vega", "achernar", "betelgeuse", "alphacen", "etacar", "hr_ladder", "trisolaris", "trisolaris_wander", "trisolaris_compact", "trisolaris_wide", "trisolaris_alpha", "trisolaris_chaos", "sandbox", "solar", "jovian_voyage", "titan_voyage", "threebody", "binarystar", "bhmerger", "nsmerger", "feeding", "gargantua_demo"]
 
 static func _make_presets() -> Dictionary:
 	var P := {}
@@ -304,6 +304,20 @@ static func _make_presets() -> Dictionary:
 				if bodies[i].name=="Jupiter":
 					var system:=JovianMoons.system(bodies[i])
 					bodies[i]=system[0];bodies.append_array(system.slice(1));break
+			return bodies,
+	})
+
+	P.titan_voyage = U.merged(P.solar,{
+		"name":"Titan expedition",
+		"blurb":"The Solar System with Titan on an approximate circular orbit in Saturn's equatorial plane: 1.5 bar of nitrogen and methane at 94 K under an orange haze. Fly Dragonfly down to its dunes, or bring the Survey Shuttle in from orbit. The moon's phase is illustrative, not a dated ephemeris.",
+		# Roughly 400 Yoshida steps per 16-day orbit of Titan.
+		"maxStep":1.1e-4,"timeScale":.001,
+		"build":func() -> Array:
+			var bodies:=_build_solar()
+			for i in bodies.size():
+				if bodies[i].name=="Saturn":
+					var system:=TitanMoon.system(bodies[i])
+					bodies[i]=system[0];bodies.append(system[1]);break
 			return bodies,
 	})
 

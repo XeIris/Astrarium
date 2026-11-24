@@ -124,10 +124,11 @@ CHANGED_RULES = (
       "sim/flight/craftmodel.gd", "sim/flight/ionisation.gd", "sim/flight/lunar_gravity.gd",
       "tools/fixtures/flight_fixture.json"),
      ("flighttimecheck", "flightphysicscheck", "spinframecheck", "sharedflightcheck-*", "flight-descent-*",
-      "missioncheck-*", "scenariocheck", "groundcheck", "seacheck")),
+      "missioncheck-*", "scenariocheck", "groundcheck", "seacheck", "titancheck")),
     (("tools/groundcheck.*",), ("groundcheck",)),
     (("sim/surface/rover*.gd", "shaders/surface/track.gdshader", "tools/rovercheck.gd"), ("rovercheck", "groundcheck")),
-    (("sim/surface/rotorcraft*.gd", "tools/rotorcheck.gd"), ("rotorcheck", "groundcheck")),
+    (("sim/surface/rotorcraft*.gd", "tools/rotorcheck.gd"), ("rotorcheck", "groundcheck", "titancheck")),
+    (("sim/titan_moon.gd", "tools/titancheck.*"), ("titancheck", "presetcheck")),
     (("sim/flight/scenarios.gd", "tools/scenariocheck.gd"), ("scenariocheck",)),
     # cloudcheck also tests the climatology: Terrain's CPU copy and the shader copy it must match.
     (("sim/flight/cloudfield.gd", "sim/flight/localview.gd", "shaders/flight/clouds*", "render/flight_cloud_pass.gd", "sim/terrain.gd",
@@ -402,6 +403,8 @@ def checks(suite, godot, output, repeat, export_preset):
         yield mission_parity("shuttle_fates", PARITY_FRAMES)._replace(cost=60)
         # A landing on the Moon and on Mars stands on the ground that is drawn; Earth keeps its figure.
         yield headless_scene("groundcheck", r"^GROUNDCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)._replace(cost=40)
+        # Titan in its expedition: Dragonfly down through the haze and flown, the Survey Shuttle in from orbit.
+        yield headless_scene("titancheck", r"^TITANCHECK DONE checks=[1-9]\d* failures=0$", timeout=1800)._replace(cost=120)
         # Apollo's command module comes down on the sea it draws, floats on it and is righted.
         yield headless_scene("seacheck", r"^SEACHECK DONE checks=[1-9]\d* failures=0$", timeout=900)._replace(cost=60)
         # Every developer scenario, jumped to and checked against its declared state.

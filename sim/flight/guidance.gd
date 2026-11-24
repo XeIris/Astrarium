@@ -1572,8 +1572,16 @@ class Autopilot extends RefCounted:
 			if node == null:
 				var el: Dictionary = v.telemetry.el
 				var R: float = el.r
-				# A shallower perigee than a capsule's: a lifting entry needs less of a dive.
-				var a_new: float = (R + Re + float(v.env.atm.top) * 0.5) / 2.0
+				# A shallower perigee than a capsule's: a lifting entry needs less of a dive. Where the air
+				# reaches 1e-4 kg/m³ (Earth's near 75 km, where entries start to brake), and never above half
+				# the air's top: an extended air like Titan's is near vacuum at half its top.
+				var top := float(v.env.atm.top)
+				var lo := 0.0; var hi := top * 0.5
+				for i in 40:
+					var mid := 0.5 * (lo + hi)
+					if Rocketry.density(v.env.atm, mid) > 1e-4: lo = mid
+					else: hi = mid
+				var a_new: float = (R + Re + 0.5 * (lo + hi)) / 2.0
 				var dv: float = sqrt(maxf(v.env.mu * (2.0 / R - 1.0 / a_new), 0.0)) - float(el.v)
 				node = { "dv": DQuat.nrm(Guidance._a.copy_from(v.v)).scale_in(dv).clone(), "t": 0.0, "label": "Deorbit burn" }
 			# The node counts down in frame seconds, which time warp outruns; hold it to the
@@ -1922,9 +1930,10 @@ class Autopilot extends RefCounted:
 			var ch: Dictionary = plan_edl.chute if (plan_edl != null and plan_edl.get("chute") != null) else { "mach": 1.7, "deployQ": 750.0 }
 			var dq: float = ch.get("deployQ", 750.0)
 			# The q lower bound keeps it from firing in vacuum at the entry interface. A baroswitch
-			# (`alt`) fires on the way down through its height instead.
+			# (`alt`) fires on the way down through its height instead; `machOnly` on the Mach number alone,
+			# for an air whose q at that Mach is nothing like Mars's.
 			var fire: bool = (alt < float(ch.alt) and v_vert < 0.0) if ch.has("alt") \
-				else (t.mach < ch.mach and t.mach > 0.05 and t.q > dq * 0.25 and t.q < dq * 1.6)
+				else (t.mach < ch.mach and t.mach > 0.05 and (ch.get("machOnly", false) or (t.q > dq * 0.25 and t.q < dq * 1.6)))
 			if fire:
 				state_name = "chute"
 				var sh = null
@@ -1954,6 +1963,16 @@ class Autopilot extends RefCounted:
 				if v.phase == Vessel.PHASE.LANDED:
 					program = null
 					if not v.afloat(): note("Touchdown")
+				return Guidance.attitude_for(MODE.RETROGRADE, v)
+			# A flyer leaves its shell at its height and flies itself the rest of the way (Spaceflight).
+			var release = plan_edl.get("release") if plan_edl != null else null
+			if release != null:
+				if alt < float(release.alt) and not v.release_flyer:
+					v.stage()
+					v.chute_open = null
+					v.release_flyer = true
+					program = null
+					note("Released from the backshell — %s m, %s m/s" % [U.fixed(alt, 0), U.fixed(speed, 1)])
 				return Guidance.attitude_for(MODE.RETROGRADE, v)
 			# Release the backshell low and slow (~1.8 km, 100 m/s): the chute does the braking.
 			var bs: Dictionary = plan_edl.backshell if (plan_edl != null and plan_edl.get("backshell") != null) else { "alt": 1800.0, "v": 100.0 }

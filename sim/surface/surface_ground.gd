@@ -1,8 +1,9 @@
 class_name SurfaceGround
 extends RefCounted
 
-# The ground under a vessel coming down on a dry, mapped world (the Moon, Mars): the measured grid
-# (PlanetElevation) until a landing site has been surveyed, then that site's carved terrain read off the
+# The ground under a vessel coming down on a dry world: the measured grid (PlanetElevation: the Moon, Mars),
+# or on a world without one (Titan) the crust its visual draws (PlanetRelief), until a landing site has been
+# surveyed, then that site's carved terrain read off the
 # triangles SiteScene draws, so what the gear touches is what is on screen. Physics only, owned by the
 # Vessel; Spaceflight draws the adopted site. It reads the world and writes nothing back.
 # docs/physics/surface.md#the-ground-under-a-landing. SI.
@@ -19,7 +20,9 @@ const AUTO_AGL := 6000.0
 const AUTO_VH := 300.0
 
 var body: Body
+## The measured grid, or null where the crust stands in for it.
 var elevation: PlanetElevation
+var crust: PlanetRelief
 var run_seed := 0
 ## The surveyed site, once asked for.
 var pin: PlanetPin = null
@@ -38,18 +41,21 @@ var north := DVec3.new()
 var _task := -1
 var _m := DVec3.new()
 
-## The ground for a vessel whose parent is `b`, or null where the figure stays the ground: a world with
-## seas, launch sites or no measured grid waits for a later phase of the surface.
+## The ground for a vessel whose parent is `b`, or null where the figure stays the ground: a world with seas
+## or launch sites keeps it.
 static func for_world(b: Body, env: Dictionary, seed_: int) -> SurfaceGround:
 	if b == null or b.climate == null or b.viz == null or bool(env.get("oceans", false)): return null
 	var viz = PlanetPin._viz(b)
 	if viz == null or not ("surf_mat" in viz) or viz.surf_mat == null: return null
-	if PlanetRelief.of_body(b).map_kind != 2: return null
-	var dem := PlanetElevation.of(b.name)
-	if dem == null: return null
+	var crust := PlanetRelief.of_body(b)
+	# A map with coasts is Earth's; a dry map needs its measured grid; no map, the crust.
+	if crust.map_kind == 1: return null
+	var dem := PlanetElevation.of(b.name) if crust.map_kind == 2 else null
+	if crust.map_kind == 2 and dem == null: return null
 	var g := SurfaceGround.new()
 	g.body = b
 	g.elevation = dem
+	g.crust = crust
 	g.run_seed = seed_
 	SurfaceStats.count("ground_init")
 	return g
@@ -83,7 +89,14 @@ func agl(v: Vessel, rr: DVec3) -> float:
 		var g := SiteScene.drawn_height(relief.grids, e, n, patch_y, relief.radius_m, false)
 		if not is_nan(g): return _m.dot(c) - datum_r - g
 	var ll := lat_lon(_m)
-	return v.altitude(rr) - elevation.at(ll[0], ll[1])
+	return v.altitude(rr) - coarse_m(ll[0], ll[1])
+
+## The ground's height over the figure at a latitude and longitude before a survey, m: measured, or the crust's
+## as a pin reads it (PlanetPin.read_ground).
+func coarse_m(lat: float, lon: float) -> float:
+	if elevation != null: return elevation.at(lat, lon)
+	var h := crust.height(PlanetPin.direction(lat, lon)).x
+	return (h - crust.sea_km if crust.sea_km > -30.0 else h) * 1000.0
 
 ## Survey the ground around the flight-frame point `rr`, once. The first request stands.
 func request(v: Vessel, rr: DVec3) -> void:
