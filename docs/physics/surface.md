@@ -311,6 +311,22 @@ the grid alone cannot show.
 - **Dunes** (Titan's) are carved on the near grid and shaded past it, on the same profile and meander
   (`SurfaceRelief.dune_ridge` is the shader's gradient noise and hash in GDScript), darker sand on the crests as
   Cassini saw it; from far off a pixel holds many dunes and sees their mean.
+- **Colour that follows the ground.** The ground against its surroundings 1.2 km about it, on both grids' own
+  triangles: under air the lows collect the darker fines and sand (to 22% darker 70 m down) and the highs are
+  weathered rock (7% lighter); on an airless world steep slopes are fresher, brighter material (to 25%), as mass
+  wasting keeps exposing it.
+- **Fresh craters,** on an airless world: of the twelve largest the survey stamped, about one in three, drawn from
+  the site's seed, has a bright blanket of immature regolith to 2.5 radii (55% brighter) and broken rays to about
+  12 radii, fading as they go (estimates: Tycho's run to some 35 of its radii). Under air rays are erased fast and
+  are not drawn.
+- **Rocks** (`SiteRocks`), on a lifeless dry world, after Golombek & Rapp's (1997) model of the Viking sites and
+  their terrestrial analogues: the area covered by rocks of diameter D or more is F(D) = k e^(−qD), q = 1.79 + 0.152/k,
+  so the number per square metre is the integral of −dF/dD over a rock's πD²/4. k is Mars's modal 8%, and estimates
+  of 3% for the Moon (Shoemaker & Morris 1970 found the Surveyor sites' fragments alike) and 5% for Titan, where
+  Huygens landed among rounded cobbles. They are laid out about the eye on a 25 m lattice, each cell's rocks from
+  its own seed, so a rock is where it was when the field is laid out again; the smallest drawn grows from 15 cm at
+  the eye to 60 cm at 220 m, and the field thins to nothing over its outer third. One angular mesh in many
+  rotations and proportions, part-buried, in the site's rock colour. They are drawn only: contact is the grid's.
 - **Where the site meets the planet's patch.** The survey eases the far grid's outer 15% down to its lowest point,
   where the patch lies, so it meets the patch as a slope (`SurfaceRelief._ramp_rim`; contact reads the eased grid).
   There the site dissolves into the patch by an ordered dither, which then shows in its own light; and the whole
@@ -327,7 +343,7 @@ as dimly as shadow. The LM's shadow falls, dark, on sunlit ground where the Sun'
 Without the amplitude's normalisation the shading octaves together were twice as steep as the measured roughness,
 and under that Sun black facets covered much of the lit ground.
 
-Not modelled: rocks, the relief below the grid in contact or silhouette, light scattered from sunlit ground into
+Not modelled: rocks in contact, the relief below the grid in contact or silhouette, light scattered from sunlit ground into
 shadow (on the Moon, the hemisphere fill stands in for it).
 
 ## What it costs

@@ -89,6 +89,8 @@ summer. Its orbital phase is chosen so that Ligeia Mare sees the Sun at noon whe
   has no plates, but it has ridges and mountain chains thought compressional (Mitri et al. 2010): the crust's belts
   stand for them at the stated relief's scale. A survey's roughness scales with it, its equatorial dunes are carved
   about a landing, and the flight's far ground and the site past its near grid shade them ([terrain](surface.md#terrain)).
+  The globe seen from orbit draws none: Titan's haze hides its surface there in visible light, and Cassini saw the
+  dune belt only through near-infrared windows and by radar.
 - **Seas:** its three maria are stated where Cassini mapped them ([Titan's seas](ocean.md#titans-seas)), and the
   Titan Mare Explorer comes down on Ligeia.
 - **Sky:** the haze hides the Sun and the stars, and the ground is lit by its diffuse light
