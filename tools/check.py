@@ -327,9 +327,10 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("secularcheck", r"^SECULARCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("flighttimecheck", r"^FLIGHT TIME PASS \(0 failures\)$")
         # The LRV's physics against the Apollo record: sinkage, speed, slip, turning, breakout, dust.
-        yield script("rovercheck", r"^ROVERCHECK DONE checks=[1-9]\d* failures=0$", timeout=300)
+        # Timeouts sized for CI's runners, about three times a desktop's wall time beside other checks.
+        yield script("rovercheck", r"^ROVERCHECK DONE checks=[1-9]\d* failures=0$", timeout=900)
         # The FFT sea against its spectrum and a direct sum; hulls against Archimedes and the Apollo record.
-        yield script("oceancheck", r"^OCEANCHECK DONE checks=[1-9]\d* failures=0$", timeout=400)
+        yield script("oceancheck", r"^OCEANCHECK DONE checks=[1-9]\d* failures=0$", timeout=900)
         yield script("orbitcheck", r"^ORBITCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("soicheck", r"^SOICHECK DONE checks=[1-9]\d* failures=0$")
         yield script("missionguidancecheck", r"^MISSIONGUIDANCECHECK DONE checks=[1-9]\d* failures=0$")

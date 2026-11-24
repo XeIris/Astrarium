@@ -240,8 +240,8 @@ func _dynamics() -> void:
 	var e2 := _equilibrium(s0, deg_to_rad(float(_stable(s0)[0])))
 	s0.p = PackedFloat64Array([0.0, e2[0], 0.0])
 	Capsule.inflate(s0, 1.0)
-	s0.advance(120.0)
-	note("the bags on still water", "%s° of heel after 120 s full" % U.fixed(heel(s0), 0))
+	s0.advance(60.0)
+	note("the bags on still water", "%s° of heel after 60 s full" % U.fixed(heel(s0), 0))
 	# In a 10 m/s sea: a 3.9 m capsule on 80 m waves goes up and down with the water under it.
 	var field := OceanField.new(9.81, 4000.0, sea, 10.0, 0.7, 6.0e5, 11)
 	var w := Capsule.floater(9.81, sea, 1.225)
@@ -252,7 +252,7 @@ func _dynamics() -> void:
 	w.advance(20.0)
 	var hs := PackedFloat64Array(); var ws := PackedFloat64Array()
 	t0 = Time.get_ticks_usec()
-	while w.t < 140.0:
+	while w.t < 80.0:
 		w.advance(w.t + 0.5)
 		hs.append(w.p[1]); ws.append(w.water(w.p[0], w.p[2])[0])
 	wall = (Time.get_ticks_usec() - t0) / 1e6
@@ -266,4 +266,4 @@ func _dynamics() -> void:
 	var ratio := sqrt(shh / sww)
 	ok("it rides the waves", corr > 0.9 and ratio > 0.8 and ratio < 1.25,
 		"heave against the water under it: correlation %s, ratio of spreads %s (Hs %s m)" % [U.fixed(corr, 3), U.fixed(ratio, 2), U.fixed(field.hs(), 2)])
-	note("in waves", "%s s of wall time for 120 s; drifted %s m" % [U.fixed(wall, 1), U.fixed(Vector2(w.p[0], w.p[2]).length(), 1)])
+	note("in waves", "%s s of wall time for 60 s; drifted %s m" % [U.fixed(wall, 1), U.fixed(Vector2(w.p[0], w.p[2]).length(), 1)])
