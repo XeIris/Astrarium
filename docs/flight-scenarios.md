@@ -136,6 +136,8 @@ here), which the later booster scenarios avoid.
 | `skycrane:parachute` | 6.12 km, 387 m/s air, edl/chute | 3.1 s | alt -9.5 m, speed -0.3 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |
 | `skycrane:powered_descent` | 1.14 km, 105 m/s air, edl/powered | 3.8 s | alt -7.8 m, speed +0.1 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |
 | `skycrane:sky_crane` | -0.62 km, 1 m/s air, edl/powered | 4.9 s | alt +3.9 m, speed +0.0 m/s, fpa -0.9°, mass -0.3 kg, t +0.2 s |
+| `skycrane:dust_devils` | -0.80 km, 0 m/s air, landed | 5.0 s | alt -56.3 m, speed +0.0 m/s, fpa +0.0°, mass -0.1 kg, t +0.7 s |
+| `skycrane:dust_storm` | -3.04 km, 0 m/s air, landed | 5.3 s | alt +23.1 m, speed +0.0 m/s, fpa +0.0°, mass -0.3 kg, t +0.0 s |
 | `apollocm:entry` | 121.92 km, 10561 m/s air, edl | 0.7 s | built directly |
 | `apollocm:drogues` | 7.31 km, 65 m/s air, edl/chute | 12.5 s | alt -2.2 m, speed +0.0 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |
 | `apollocm:mains` | 3.25 km, 78 m/s air, edl/chute | 13.4 s | alt -5.9 m, speed +0.1 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |

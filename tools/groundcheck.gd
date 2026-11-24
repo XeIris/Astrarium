@@ -152,6 +152,24 @@ func _drive_lrv() -> void:
 # turret put on the drawn ground ahead.
 func _drive_perseverance() -> void:
 	var f: Spaceflight = main.flight
+	# What the rig draws once she is down: her wheels at the vessel's reference, where the physics put the
+	# ground, and the descent stage gone off on its flyaway (or still climbing clear of her).
+	var rig: SkyCraneRig = f.crane_rig
+	check("the Sky Crane is drawn by its rig", rig != null)
+	if rig != null:
+		for i in 3: main.animate(1.0 / 60.0)
+		var since := f.vessel.met - float(f.vessel.landed_at.met)
+		check("her wheels drawn at the vessel's reference once the shell has gone (%s m); the bridles cut %s s after touchdown (%s s)"
+			% [U.fixed(rig.rover.group.position.y, 3), U.fixed(SkyCraneRig.CUT_S, 0), U.fixed(since, 2)],
+			absf(rig.rover.group.position.y) < 1e-6 and rig.bridles[0].visible == (since < SkyCraneRig.CUT_S))
+		check("the descent stage has flown off from over her", not rig.desc.group.visible or rig.desc.group.position.y > 7.5)
+	# A jet raises dust from about where it was seen to: the LM's 24 kN hover near 30 m and not from twice that, the
+	# descent stage's 8.5 kN in Mars' air from 25 m.
+	var onset := PlumeDust.ONSET_PA
+	check("a landing jet raises dust where Apollo's crews and PIA24428 saw it start (LM %.1f Pa at 30 m, %.1f at 60; MSL %.0f at 25)"
+		% [PlumeDust.ground_pressure(24e3, 30.0, false), PlumeDust.ground_pressure(24e3, 60.0, false), PlumeDust.ground_pressure(8.5e3, 25.0, true)],
+		PlumeDust.ground_pressure(24e3, 30.0, false) > onset and PlumeDust.ground_pressure(24e3, 60.0, false) < onset
+		and PlumeDust.ground_pressure(8.5e3, 25.0, true) > onset)
 	check("the Sky Crane's rover can drive off", f.can_deploy_rover() and f.deploy_rover())
 	if f.rover == null: return
 	var r: Rover = f.rover

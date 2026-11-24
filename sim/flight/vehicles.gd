@@ -81,7 +81,7 @@ static func _build_engines() -> Dictionary:
 			# Eight fixed MLEs steered by differential throttle, modelled as an equivalent
 			# gimbal deflection.
 			"thrustVac": 3060.0, "ispSL": 200.0, "ispVac": 210.0, "throttleMin": 0.20, "gimbal": 5.0,
-			"exitD": 0.20, "plume": "hypergolic",
+			"exitD": 0.20, "plume": "monoprop",
 		},
 		"NEXT_ION": {
 			"name": "NEXT gridded ion", "prop": "Xenon",
@@ -544,6 +544,9 @@ static func _build_vehicles() -> Dictionary:
 		"blurb": "Entry at 5.8 km/s behind a heat shield, a supersonic chute at Mach 1.7, then a descent stage that lowers the rover on cables and flies away to crash somewhere else. Down, U takes Perseverance's wheel: W A S D drive, G puts the arm's turret on the ground ahead, C cycles to the mast camera. Then I sets Ingenuity down and flies it: W S and A D, E to climb and Q to descend.",
 		# The rover is the stage that touched down: it drives off from where it stands (sim/surface/rover.gd).
 		"rover": "perseverance", "roverOffset": 0.0,
+		# No authored model: the rover drawn is the one that drives (RoverModel), the descent stage and the
+		# bridles CraftModel's and SkyCraneRig's.
+		"procedural": true,
 		# A Mars entry really does peak near 15 g — Curiosity's did — so the
 		# structural limit has to be above the nominal entry, not at it.
 		"limits": { "maxQ": 22e3, "maxG": 20.0, "qAlpha": 8e3, "heatLoad": 120e6 },
@@ -562,13 +565,16 @@ static func _build_vehicles() -> Dictionary:
 			stage({ "key": "desc", "name": "Descent stage", "dry": 829.0, "prop": 390.0,
 				"engine": E.MLE, "count": 8, "L": 2.0, "D": 3.2, "sep": "skycrane",
 				"rcs": { "thrust": 60.0, "isp": 220.0, "prop": 25.0, "count": 8 },
-				"look": { "skin": "metal", "skycrane": true, "enginesPerPivot": 2 } }),
+				# Drawn in the aeroshell's stack above the rover (SkyCraneRig): the bridle plane on her deck.
+				"look": { "skin": "metal", "skycrane": true, "enginesPerPivot": 2, "mount": { "y": 2.35 } } }),
 			stage({ "key": "rover", "name": "Rover", "dry": 1025.0, "prop": 0.0,
 				"engine": null, "count": 0, "L": 2.2, "D": 2.7, "sep": "none",
 				# The six wheels ARE the landing gear — the rover is lowered onto them
 				# on cables and they take the touchdown load. It has no other legs.
 				"legs": 6, "gear": { "vVert": 3.0, "vHoriz": 1.0 },
-				"look": { "skin": "metal", "rover": true, "fixedLegs": true, "rtg": true } }),
+				# Drawn under the descent stage inside the aeroshell, her wheels clear of the heat shield; once the
+				# shell has gone the stack is drawn from her wheels (SkyCraneRig's datum).
+				"look": { "skin": "metal", "rover": true, "fixedLegs": true, "rtg": true, "mount": { "y": 1.05 }, "datum": true } }),
 		],
 		"edl": {
 			"entry":      { "alt": 125000.0, "v": 5800.0, "fpa": -15.5 },

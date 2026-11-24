@@ -89,10 +89,19 @@ drag rate stands in for a 50 µm grain's (an estimate). Drawing only.
 
 ## Tracks
 
-`rover_tracks.gd`. A strip the tread's width along each wheel's contact points, multiplied into the ground's shading
-(`shaders/surface/track.gdshader`): the chevrons, and a darker floor the deeper Bekker's sinkage made it. A wheel that
-left the ground starts a new strip. Drawing only. The soil does not yet remember being driven over (repetitive
-loading compacts it).
+`rover_tracks.gd`. A strip along each wheel's contact points, the tread's width plus a margin either side, multiplied
+into the ground's shading (`shaders/surface/track.gdshader`), so the rut keeps the ground's own colour. The shader
+relights it as relief from a height field:
+
+- a trough as deep as Bekker's sinkage, its floor rounding up into the walls over the tread's outer eighth;
+- berms of the displaced soil just outside the walls, a third as high as the rut is deep (an estimate);
+- the grousers' imprints along it, 2πr over the wheel's own count (`grousers`: the LRV's 24 chevrons, Perseverance's
+  48 gently curved treads).
+
+It is seen with parallax (a 12-step march down the eye ray) and shaded by its slope's light over the flat ground's,
+with a short march toward the Sun for the walls' shadow on the floor and less sky in the rut. Multiplying cannot
+lift the ground, so the berms only shade: the strip's own geometry stays on the surface. A wheel that left the ground
+starts a new strip. Drawing only. The soil does not yet remember being driven over (repetitive loading compacts it).
 
 ## Perseverance
 
@@ -101,7 +110,8 @@ From [NASA's rover pages](https://science.nasa.gov/mission/mars-2020-perseveranc
 1025 kg, 3 × 2.7 × 2.2 m, six 52.5 cm wheels each with its own motor, the corner four steering, a rocker-bogie,
 152 m/h on flat hard ground, a 45° tilt without tipping, and a five-jointed 2 m arm with a 45 kg turret.
 
-These are estimates: the axles' places and the track inside the 3 × 2.7 m, the tread (narrower than Curiosity's), the
+These are estimates: the axles' places and the track inside the 3 × 2.7 m, the tread (narrower than Curiosity's 40 cm, NASA
+says, without a figure; the drawn wheel is the tread the physics uses), the
 centre of mass, the drive's torque limit, the steering's least radius (2 m) and rate. The rocker-bogie is a passive
 linkage, stood in for here by stiff springs with its travel, so the loads it shares are not the linkage's. The drive
 is speed-controlled: each wheel is commanded for its own arc about the turn's centre and held there as far as its
@@ -136,4 +146,20 @@ Martian winds run two to three times high. The mast camera (C) looks from the ma
 little down. Mastcam-Z's zoom is not modelled.
 
 Not modelled: rocks, the regolith's density with depth, a tyre's flex, the batteries' charge or the MMRTG's power,
-a crew standing up, what the instruments would read off the rocks (no composition), dust devils.
+a crew standing up, what the instruments would read off the rocks (no composition). Dust devils are drawn
+([the surface's dust](surface.md#dust-devils)), not felt.
+
+## The model
+
+`RoverModel` draws her from NASA's photographs (PIA24428 from the descent stage, PIA24424 and PIA24429 under her, PIA24426
+from the mast):
+
+- the white deck dense with boxes, the coring-bit carousel at the front, the Hazcams;
+- the MMRTG canted at the back between its heat-rejection panels, open above;
+- the hexagonal high-gain antenna, the mast with SuperCam over Mastcam-Z;
+- the titanium rocker-bogie with the corner wheels' steering actuators;
+- six wheels: 48 curved treads, curved spokes on the outboard face, a hub motor inboard.
+
+The metals are dusty and nearly matte: in the photographs the wheels and links are light, and the flight scene has no
+reflection probe, so a metallic surface would draw mirror-dark. As the Sky Crane lowers her, the mast lies along the
+deck and the arm folds across her front.

@@ -113,6 +113,10 @@ var craft_pos := DVec3.new()      # the vehicle in the local frame: (0, alt, 0) 
 var ground_pos := DVec3.new()     # the ground patch's own offset (0, −gradeDrop, 0)
 ## The landing survey the vessel stands on (vessel.ground), drawn once it is the ground.
 var ground_site: SurfaceSite = null
+var plume_dust: PlumeDust = null    # what a landing's jet raises from the drawn site
+var dust_devils: DustDevils = null  # a dry world's afternoon vortices about the drawn site
+## A showcase's stated weather at the site (SurfaceWeather.stated): {storm, devils}. Empty: the world's own.
+var weather_stated := {}
 ## The recovery area as drawn, once the vessel's SurfaceSea is stood on.
 var sea_site: SurfaceSite = null
 var _sea_level_y := 0.0
@@ -135,6 +139,8 @@ var rover_keys := true
 ## A helicopter off the rover (Ingenuity off Perseverance): its physics on the same ground and clock, what
 ## draws it, and whether it has the keys and the camera.
 var heli: Rotorcraft = null
+var crane_rig: SkyCraneRig = null  # the Sky Crane's bridles, heat shield and flyaway, drawn only
+var _crane_marks := {}             # met of the heat shield's drop, the bridles' start and touchdown
 var heli_model: RotorcraftModel = null
 var flying := false
 ## A flyer let go from its shell (Dragonfly) flies itself down before it is given the keys: under this height
@@ -362,6 +368,8 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 
 	craft = CraftModel.build_craft(veh)
 	local.craft_root.add_child(craft.group)
+	crane_rig = SkyCraneRig.attach(craft)
+	_crane_marks = {}
 	local.place(local.craft_root, craft_pos)
 	# Frame the stack by its height: d = (H/2)/tan(fov·0.34), camera a third of the
 	# way up.
@@ -729,12 +737,16 @@ func set_render_quality(q: String) -> void:
 	Plume.set_smoke_volume(smoke, q == "high" or q == "ultra", local.cloud_shape)
 
 func teardown() -> void:
+	weather_stated = {}
 	interior.dispose()
 	arms_out = false
 	if docking!=null:
 		local.unplace(docking.craft.group)
 		docking.craft.group.queue_free()
 		docking=null
+	if crane_rig != null:
+		crane_rig.dispose()
+		crane_rig = null
 	if craft != null:
 		if is_instance_valid(craft.group):
 			craft.group.get_parent().remove_child(craft.group)
@@ -1364,6 +1376,28 @@ func update(dt: float, _frame = null, advance_world: Callable = Callable()) -> f
 	if not advance_world.is_valid(): finish_frame(dt, sim_seconds)
 	return sim_seconds
 
+# The Sky Crane's moments, from the flight: the heat shield goes at the edl's `shieldJett` height under the
+# chute, the bridles pay out from guidance's sky-crane call, and the flyaway counts from touchdown.
+func _draw_crane(alt: float) -> void:
+	var met := vessel.met
+	var shell_on := false
+	for st in vessel.stages:
+		if crane_rig.shell != null and str(st.spec.key) == crane_rig.shell.key: shell_on = st.attached
+	var jett = vessel.vehicle.get("edl", {}).get("shieldJett")
+	if jett != null and shell_on and vessel.chute_open != null and alt < float(jett.alt) and not _crane_marks.has("shield"):
+		_crane_marks.shield = met
+	# Touchdown from the vessel's own record, so a landing flown undrawn still times the flyaway from it, the
+	# bridles by then all out.
+	if vessel.phase == Vessel.PHASE.LANDED and vessel.landed_at != null and not _crane_marks.has("down"):
+		_crane_marks.down = float(vessel.landed_at.met)
+		if not _crane_marks.has("crane"): _crane_marks.crane = -INF
+	if autopilot != null and autopilot.crane_out and not _crane_marks.has("crane"): _crane_marks.crane = met
+	var cable := float(vessel.vehicle.get("edl", {}).get("skycrane", {}).get("cable", 7.5))
+	crane_rig.update({"shell": shell_on,
+		"shieldT": met - float(_crane_marks.shield) if _crane_marks.has("shield") else -1.0,
+		"crane": minf((met - float(_crane_marks.crane)) * SkyCraneRig.PAYOUT_RATE, cable) if _crane_marks.has("crane") else 0.0,
+		"flyaway": met - float(_crane_marks.down) if _crane_marks.has("down") else -1.0})
+
 ## Can the vehicle put its rover down here: landed, on a surveyed ground, carrying one.
 func can_deploy_rover() -> bool:
 	return vessel != null and vessel.phase == Vessel.PHASE.LANDED and vessel.ground != null \
@@ -1382,6 +1416,7 @@ func deploy_rover() -> bool:
 	rover = Rover.new(Rover.SiteGround.new(g.relief.grids, g.patch_y, g.relief.radius_m), float(vessel.env.gSurf), spec, soil)
 	var offset := float(vessel.vehicle.get("roverOffset", 7.0))
 	if offset > 0.0: rover.obstacles = [[Vector2(at.x, at.z), maxf(float(vessel.diameter) * 0.6, 1.0)]]
+	elif crane_rig != null: crane_rig.deployed = true   # the stage flies off; it hides once gone
 	elif craft != null: craft.group.visible = false
 	rover.place(-at.x + offset, at.z, 0.0)
 	rover_arm = RoverArm.new() if str(spec.name) == "Perseverance" else null
@@ -1718,6 +1753,8 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		# The pad camera stands ON the pad, so it moves with it.
 		fly_cam.state.padPos = site_local.clone().add_in(DVec3.from_v3(pad_offset))
 	_place_ground(east, up, north, R_loc, fr, float(key.ang_r) if key != null else 0.00465)
+	if ground_site != null and ground_site.built and craft != null: _step_plume_dust(minf(sim_seconds, 0.25), fr)
+	if ground_site != null and ground_site.built: _step_site_weather(minf(sim_seconds, 4.0), fr)
 	_place_sea(east, up, north, R_loc, fr, dt)
 	local.place(local.ground, ground_pos)
 
@@ -1794,6 +1831,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	craft.update({"dt": dt, "simDt": sim_seconds, "properTime": vessel.met, "attached": attached, "deploy": deploy, "gear": gear,
 		"gimbal": {"x": gx, "z": 0.0}, "flap": flaps, "finTwist": twist, "accel": accel, "release": _release,
 		"chute": chute})
+	if crane_rig != null: _draw_crane(alt)
 	if docking!=null and drawn:
 		var offset:=docking.carrier.r.clone().sub_in(vessel.r)
 		docking.render_pos.copy_from(craft_pos).add_in(DVec3.new(offset.dot(east),offset.dot(up),offset.dot(north)))
@@ -1996,7 +2034,7 @@ func _place_ground(east: DVec3, up: DVec3, north: DVec3, R_loc: float, fr: Dicti
 	_site_at.copy_from(at)
 	_site_basis = basis
 	ground_pos.y = at.y + ground_site.patch_y
-	if rover != null: _draw_rover()
+	if rover != null: _draw_rover(basis.inverse() * (fr.sun_local as Vector3) if fr.has("sun_local") else Vector3.UP)
 	if heli != null:
 		if heli_model == null:
 			heli_model = RotorcraftModel.build(heli.spec)
@@ -2009,13 +2047,69 @@ func _place_ground(east: DVec3, up: DVec3, north: DVec3, R_loc: float, fr: Dicti
 		var eye := to_site * local.cam_pos.sub(at).to_v3()
 		ground_site.follow_eye(-eye.x, eye.z)
 
-func _draw_rover() -> void:
+# The jet of the lit stage over the drawn site: where its axis meets the ground, and how high its nozzles stand.
+func _step_plume_dust(dt: float, fr: Dictionary) -> void:
+	var thrust := float(vessel.telemetry.get("thrust", 0.0)) if vessel.throttle > 0.0 else 0.0
+	if plume_dust == null:
+		if thrust <= 0.0: return
+		plume_dust = PlumeDust.new(float(vessel.env.gSurf), vessel.env.atm != null, hash(vessel.id))
+	# Flown undrawn for a while: what it raised has long settled.
+	if vessel.met - plume_dust.met > 2.0: plume_dust.count = 0
+	plume_dust.met = vessel.met
+	var nozzle_c := Vector3.ZERO
+	for st in vessel.stages:
+		if st.attached and vessel.lit(st):
+			var cs = craft.stage(str(st.spec.key))
+			if cs != null: nozzle_c = cs.group.position
+			break
+	var to_site := _site_basis.inverse()
+	var nozzle: Vector3 = to_site * (craft_pos.sub(_site_at).to_v3() + craft.group.basis * nozzle_c)
+	var axis: Vector3 = (to_site * (craft.group.basis * Vector3.DOWN)).normalized()
+	var rel := ground_site.relief
+	var hit := nozzle
+	if axis.y < -0.2:
+		for i in 2:
+			var gy := SiteScene.drawn_height(rel.grids, -hit.x, hit.z, ground_site.patch_y, rel.radius_m, false)
+			if is_nan(gy): return
+			hit = nozzle + axis * ((nozzle.y - gy) / -axis.y)
+	else:
+		thrust = 0.0
+	plume_dust.step(dt, hit, nozzle.distance_to(hit), thrust)
+	var tint := (ground_site._mat.get_shader_parameter("uSoil") as Vector3)
+	# Drawn unshaded, so lit here: by the day that reaches the site, dark under a night sky.
+	var sun_y: float = (to_site * (fr.get("sun_local", Vector3.UP) as Vector3)).normalized().y
+	var day := clampf(sun_y * 3.0, 0.03, 1.0)
+	plume_dust.draw(ground_site.group, (Color(tint.x, tint.y, tint.z) * day).linear_to_srgb())
+
+# The drawn site's dust: what a storm has lifted (LocalView's fog and the Sun's extinction) and the devils.
+func _step_site_weather(dt: float, fr: Dictionary) -> void:
+	var wx := ground_site.weather
+	wx.stated = weather_stated
+	var w := wx.now()
+	var soil := (ground_site._mat.get_shader_parameter("uSoil") as Vector3)
+	local.dust_extra = maxf(float(w.dust_tau) - wx.dust_tau, 0.0)
+	local.dust_tint = Color(soil.x, soil.y, soil.z) * 1.3
+	if wx.dust_tau <= 0.0 or fr.is_empty(): return
+	if dust_devils == null: dust_devils = DustDevils.new(hash([vessel.id, "devils"]))
+	dust_devils.scale = float(weather_stated.get("devils", 1.0))
+	var to_site := _site_basis.inverse()
+	var sun_site: Vector3 = (to_site * (fr.get("sun_local", Vector3.UP) as Vector3)).normalized()
+	var wv := SurfaceSite.wind_vector(float(w.wind_dir)) * float(w.wind)
+	var eye := to_site * local.cam_pos.sub(_site_at).to_v3()
+	var rel := ground_site.relief
+	var py := ground_site.patch_y
+	dust_devils.step(dt, asin(clampf(sun_site.y, -1.0, 1.0)), Vector2(-wv.x, wv.z), Vector2(-eye.x, eye.z), TAU / maxf(wx.omega, 1e-7))
+	var day := clampf(sun_site.y * 3.0, 0.05, 1.0)
+	dust_devils.draw(ground_site.group, (Color(soil.x, soil.y, soil.z) * day).linear_to_srgb(),
+		func(e: float, n: float) -> float: return SiteScene.drawn_height(rel.grids, e, n, py, rel.radius_m, false))
+
+func _draw_rover(sun_site := Vector3.UP) -> void:
 	if rover_model == null:
 		rover_model = RoverModel.build(rover.spec)
 		ground_site.group.add_child(rover_model.group)
 	rover_model.group.transform = RoverModel.site_transform(rover)
 	rover_model.update(rover, rover_arm)
-	rover_tracks.draw(ground_site.group)
+	rover_tracks.draw(ground_site.group, sun_site)
 	var tint := (ground_site._mat.get_shader_parameter("uSoil") as Vector3)
 	rover_dust.draw(ground_site.group, Color(tint.x, tint.y, tint.z).linear_to_srgb())
 
@@ -2036,6 +2130,13 @@ func _drop_ground_site() -> void:
 		vessel.env.ground = _patch_saved.ground
 		vessel.env.rock = _patch_saved.rock
 	_patch_saved = {}
+	if plume_dust != null:
+		plume_dust.dispose()
+		plume_dust = null
+	if dust_devils != null:
+		dust_devils.dispose()
+		dust_devils = null
+	local.dust_extra = 0.0
 	if ground_site != null:
 		_drop_rover_views()
 		ground_site.dispose()

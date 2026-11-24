@@ -1,10 +1,10 @@
 class_name RoverTracks
 extends RefCounted
 
-# Where the wheels have run: a strip the tread's width along each wheel's contact points, its chevron
-# imprints drawn into the ground's shading (shaders/surface/track.gdshader multiplies the ground under
-# it). How deep each one is, Bekker's sinkage, is the physics'; the strip carries it to the shader, which
-# darkens deeper ruts more. Drawing only.
+# Where the wheels have run: a strip along each wheel's contact points, a little wider than the tread so the
+# soil heaped beside the rut shows, relit as relief in the ground's shading (shaders/surface/track.gdshader
+# multiplies the ground under it). How deep each rut is, Bekker's sinkage, is the physics'; the grousers'
+# imprint follows the wheel's own count round its rim. Drawing only.
 
 const SHADER := preload("res://shaders/surface/track.gdshader")
 ## A point every this far along a wheel's path, m, and at most this many per wheel.
@@ -16,12 +16,18 @@ var view: MeshInstance3D = null
 var _dirty := false
 ## The tread's width, m.
 var width := 0.23
+## The share of the strip's width the tread takes (track.gdshader's TREAD1 − TREAD0).
+const TREAD_SHARE := 0.74
+var _pitch := 0.107
+var _curve := false
 var _last: Array = []
 var _mat: ShaderMaterial = null
 
 ## Record the wheels' contact points as they move on.
 func step(rover: Rover) -> void:
 	width = float(rover.spec.wheel_b)
+	_pitch = TAU * float(rover.spec.wheel_r) / float(rover.spec.get("grousers", 24))
+	_curve = bool(rover.spec.get("grouser_curve", false))
 	while paths.size() < rover.wheels.size():
 		paths.append([])
 		_last.append(null)
@@ -42,12 +48,15 @@ func step(rover: Rover) -> void:
 		if path.size() > MAX_POINTS: path.pop_front()
 		_dirty = true
 
-## Build the strips' mesh under `parent` (the site's group) when anything changed.
-func draw(parent: Node3D, up_offset := 0.006) -> void:
+## Build the strips' mesh under `parent` (the site's group) when anything changed. `sun`: toward the Sun, the
+## site's frame.
+func draw(parent: Node3D, sun := Vector3.UP, up_offset := 0.006) -> void:
+	if _mat != null: _mat.set_shader_parameter("uSun", sun.normalized())
 	if not _dirty: return
 	_dirty = false
 	var verts := PackedVector3Array()
 	var uvs := PackedVector2Array()
+	var heads := PackedVector2Array()
 	var cols := PackedColorArray()
 	var idx := PackedInt32Array()
 	for path: Array in paths:
@@ -62,11 +71,13 @@ func draw(parent: Node3D, up_offset := 0.006) -> void:
 			var d := b - a
 			if d.length() < 1e-4:
 				continue
-			var side := d.cross(Vector3.UP).normalized() * (width * 0.5)
+			var side := d.cross(Vector3.UP).normalized() * (width * 0.5 / TREAD_SHARE)
+			var hd := Vector2(d.x, d.z).normalized()
 			var base := verts.size()
 			for p in [a - side, a + side, b - side, b + side]:
 				verts.append((p as Vector3) + Vector3.UP * up_offset)
 			uvs.append_array([Vector2(0, prev[2]), Vector2(1, prev[2]), Vector2(0, cur[2]), Vector2(1, cur[2])])
+			heads.append_array([hd, hd, hd, hd])
 			for z in [prev[1], prev[1], cur[1], cur[1]]: cols.append(Color(float(z) * 20.0, 0.0, 0.0))
 			idx.append_array([base, base + 1, base + 2, base + 1, base + 3, base + 2])
 			prev = cur
@@ -76,6 +87,7 @@ func draw(parent: Node3D, up_offset := 0.006) -> void:
 		_mat = ShaderMaterial.new()
 		_mat.shader = SHADER
 		view.material_override = _mat
+		_mat.set_shader_parameter("uSun", sun.normalized())
 		view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		view.custom_aabb = AABB(Vector3(-1e5, -1e4, -1e5), Vector3(2e5, 2e4, 2e5))
 		parent.add_child(view)
@@ -86,8 +98,13 @@ func draw(parent: Node3D, up_offset := 0.006) -> void:
 	arr.resize(Mesh.ARRAY_MAX)
 	arr[Mesh.ARRAY_VERTEX] = verts
 	arr[Mesh.ARRAY_TEX_UV] = uvs
+	arr[Mesh.ARRAY_TEX_UV2] = heads
 	arr[Mesh.ARRAY_COLOR] = cols
 	arr[Mesh.ARRAY_INDEX] = idx
+	_mat.set_shader_parameter("uWidth", width / TREAD_SHARE)
+	_mat.set_shader_parameter("uPitch", _pitch)
+	_mat.set_shader_parameter("uSweep", 0.7 if _curve else 1.6)
+	_mat.set_shader_parameter("uCurved", 1.0 if _curve else 0.0)
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	view.mesh = mesh

@@ -4,7 +4,7 @@ extends RefCounted
 # The rocks about a site on a lifeless dry world, drawn only: Golombek & Rapp's (1997) model of the rocks at the
 # Viking sites and their terrestrial analogues, the cumulative fractional area covered by rocks of diameter D or
 # more F(D) = k e^(−q D) with q = 1.79 + 0.152/k, k the area all of them cover. Scattered on the drawn ground's
-# triangles about the site's middle, part-buried, one irregular mesh in many rotations and proportions.
+# triangles about the site's middle, part-buried, one lumpy mesh in many rotations and proportions.
 # Contact is the grid's: a gear or a wheel does not meet them. docs/physics/surface.md#the-ground-close-up.
 
 ## k by world. Mars: the modal 8% of Golombek & Rapp (Viking 1 without its outcrops). The Moon and Titan are
@@ -76,7 +76,11 @@ static func build(b: Body, relief: SurfaceRelief, patch_y: float, colour: Vector
 	mat.albedo_color = Color(colour.x, colour.y, colour.z)
 	mat.vertex_color_use_as_albedo = true
 	mat.roughness = 0.95
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.normal_enabled = true
+	mat.normal_texture = _pit_normals()
+	mat.normal_scale = 0.6
+	mat.uv1_triplanar = true
+	mat.uv1_scale = Vector3(1.6, 1.6, 1.6)
 	r.node.material_override = mat
 	r.node.visibility_range_end = SHOWN_M
 	r.follow(0.0, 0.0)
@@ -130,22 +134,65 @@ func follow(e: float, n: float) -> void:
 		mm.set_instance_transform(i, xforms[i])
 		mm.set_instance_color(i, tints[i])
 
-# A unit rock: an icosahedron's twelve corners pushed in and out at random, flat-shaded: angular, as broken rock is.
+# A unit rock: an icosahedron split once, its 42 corners pushed in and out at random and shaded smooth, the
+# underside flattened where it sits in the ground: the rounded, irregular stones of PIA24424 and PIA24429.
 static func _rock_mesh() -> ArrayMesh:
 	var t := (1.0 + sqrt(5.0)) / 2.0
 	var v: Array[Vector3] = [Vector3(-1, t, 0), Vector3(1, t, 0), Vector3(-1, -t, 0), Vector3(1, -t, 0), Vector3(0, -1, t),
 		Vector3(0, 1, t), Vector3(0, -1, -t), Vector3(0, 1, -t), Vector3(t, 0, -1), Vector3(t, 0, 1), Vector3(-t, 0, -1), Vector3(-t, 0, 1)]
 	var f := [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
 		[3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]]
+	for i in v.size(): v[i] = v[i].normalized()
+	# Split each face in four, sharing the new mid-edge corners.
+	var mids := {}
+	var faces := []
+	for tri: Array in f:
+		var m := []
+		for k in 3:
+			var a: int = tri[k]; var b: int = tri[(k + 1) % 3]
+			var key := Vector2i(mini(a, b), maxi(a, b))
+			if not mids.has(key):
+				mids[key] = v.size()
+				v.append(((v[a] + v[b]) * 0.5).normalized())
+			m.append(mids[key])
+		faces.append_array([[tri[0], m[0], m[2]], [tri[1], m[1], m[0]], [tri[2], m[2], m[1]], [m[0], m[1], m[2]]])
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4242
+	# Two scales of lumpiness: the corners' own, and a broad squash that keeps it from being a ball.
+	var squash := Vector3(rng.randf_range(0.85, 1.15), 1.0, rng.randf_range(0.8, 1.1))
 	for i in v.size():
-		var u := v[i].normalized()
-		# A flatter base: the underside is in the ground.
-		v[i] = u * rng.randf_range(0.7, 1.25) * (Vector3(1.0, 0.75, 1.0) if u.y < 0.0 else Vector3.ONE)
+		var u := v[i]
+		var r := rng.randf_range(0.82, 1.12) * (1.0 + 0.12 * sin(u.x * 3.1 + 1.3) * cos(u.z * 2.7))
+		var p := u * r * squash
+		if p.y < -0.35: p.y = -0.35 - (p.y + 0.35) * 0.3
+		v[i] = p
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for tri: Array in f:
-		for k in 3: st.add_vertex(v[tri[k]])
+	for p in v:
+		st.set_uv(Vector2(atan2(p.z, p.x) / TAU + 0.5, p.y * 0.5 + 0.5))
+		st.add_vertex(p)
+	for tri: Array in faces:
+		# Wound to face out (Godot's front faces wind clockwise seen from the front).
+		var a: Vector3 = v[tri[0]]; var b: Vector3 = v[tri[1]]; var c: Vector3 = v[tri[2]]
+		if (b - a).cross(c - a).dot(a + b + c) < 0.0:
+			st.add_index(tri[0]); st.add_index(tri[1]); st.add_index(tri[2])
+		else:
+			st.add_index(tri[0]); st.add_index(tri[2]); st.add_index(tri[1])
 	st.generate_normals()
 	return st.commit()
+
+# Pits and grain on the faces: cellular noise as a normal map, mapped triplanar so a stretched rock is not smeared.
+static var _pits: NoiseTexture2D = null
+static func _pit_normals() -> NoiseTexture2D:
+	if _pits != null: return _pits
+	var fn := FastNoiseLite.new()
+	fn.noise_type = FastNoiseLite.TYPE_CELLULAR
+	fn.cellular_return_type = FastNoiseLite.RETURN_DISTANCE
+	fn.frequency = 0.06
+	_pits = NoiseTexture2D.new()
+	_pits.noise = fn
+	_pits.width = 256; _pits.height = 256
+	_pits.seamless = true
+	_pits.as_normal_map = true
+	_pits.bump_strength = 4.0
+	return _pits

@@ -257,12 +257,14 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - spawn/edit/preset input domain: `tools/structureinputcheck.tscn`
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`
 - the composition editor, its pie and its preview: `tools/compositioncheck.tscn`
-- the ground, sea and weather at a pin, and that they run nowhere else: `tools/surfacecheck.tscn`, and with
+- the ground, sea and weather at a pin (a dry world's dust and its devils too), and that they run nowhere else:
+  `tools/surfacecheck.tscn`, and with
   `pixels=1 [quality=low|high]` the frames
 - the showcase, a pin, or the crust on either side of the GPU: `tools/pincheck.tscn`, and with `gpu=1` the
   shader's height against the CPU's
 - what a landing stands on (`SurfaceGround`, contact, landing guidance, the drawn site in flight):
-  `tools/groundcheck.tscn`; how the site's ground draws (`shaders/surface/ground.gdshader`, `SurfaceShadow`):
+  `tools/groundcheck.tscn`, which also holds the Sky Crane's rig (`SkyCraneRig`) and a landing's dust (`PlumeDust`);
+  how the site's ground draws (`shaders/surface/ground.gdshader`, `SurfaceShadow`):
   `tools/groundlookcheck.tscn`; the rover (`sim/surface/rover*.gd`): `tools/rovercheck.gd`, and the drive off a landed
   LM in `groundcheck`
 - a rotorcraft (`Rotorcraft`): `tools/rotorcheck.gd`, Ingenuity off Perseverance in `groundcheck`; Titan, Dragonfly
@@ -286,7 +288,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - flight scenarios, guidance or the fast-forward: `tools/scenariocheck.tscn`
   (`-- replay=1` for the comparison with a played flight)
 - vehicles: `tools/crafttest.tscn -- audit` and `-- clearance`, with and without
-  `assets=0`; `-- parity` requires all fourteen authored models and checks both poses
+  `assets=0`; `-- parity` requires all thirteen authored models and checks both poses
 - launch complexes: `tools/padcheck.gd` (and `-- padmodels=0`); must report zero
 - anything that creates or frees nodes, visuals or caches: `eval=_soak_check`;
   the counts must stay flat after the first round

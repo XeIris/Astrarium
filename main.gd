@@ -2868,6 +2868,7 @@ func jump_scenario(spec: String) -> String:
 		await get_tree().process_frame
 	scenario_jump = null
 	if jump.error != "": return _dev_fail("%s: %s" % [sc.title, jump.error])
+	flight.weather_stated = sc.get("weather", {})
 	print("SCENARIO %s ready: %d frames, %s s flown (%s s on rails), %s ms" % [spec, jump.frames,
 		U.fixed(jump.sim_s, 1), U.fixed(jump.rails_s, 1), U.fixed(jump.wall_ms(), 0)])
 	toast("%s — %s" % [flight.vessel.vehicle.name, sc.title])

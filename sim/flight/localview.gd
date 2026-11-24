@@ -65,6 +65,13 @@ var sun_tint := Color.WHITE
 var sun_extinction := Vector3.ONE
 ## Under a haze like Titan's, its diffuse daylight on the craft (_set_ambient), linear irradiance; else zero.
 var _haze_fill := Vector3.ZERO
+## Dust a storm has lifted over what the sky model already holds: an optical depth, set by the site's weather
+## (SurfaceWeather), and its colour, linear. Zero in clear air.
+var dust_extra := 0.0
+var dust_tint := Color(0.6, 0.42, 0.28)
+## Most of a storm's dust is in its lowest few km (MGS TES and MCS profiles: a well-mixed layer about 10 km
+## deep, with the lifted dust densest near the ground): this deep, as an exponential fog, m.
+const DUST_LAYER_M := 3000.0
 
 ## What of the haze's fill the engine's ambient puts on every surface, in the ground shaders' skylight units.
 func haze_ambient() -> float:
@@ -565,6 +572,18 @@ func update(o: Dictionary) -> Dictionary:
 	pipe.env_local.volumetric_fog_albedo = Color(0.82, 0.88, 0.95)
 	pipe.env_local.volumetric_fog_anisotropy = 0.55
 	pipe.env_local.volumetric_fog_sky_affect = 0.0
+	# Lifted dust closes the view in every direction, the sky with it.
+	var dusty := dust_extra > 0.02 and atm != null and float(o.altitude) < DUST_LAYER_M * 3.0
+	pipe.env_local.fog_enabled = dusty
+	if dusty:
+		pipe.env_local.fog_mode = Environment.FOG_MODE_EXPONENTIAL
+		pipe.env_local.fog_density = dust_extra / DUST_LAYER_M
+		pipe.env_local.fog_light_color = dust_tint.linear_to_srgb()
+		# Lit by the day that reaches it: dark under a night sky.
+		pipe.env_local.fog_light_energy = (0.6 + 0.5 * exp(-dust_extra)) * clampf(sun_over_limb * 3.0, 0.01, 1.0)
+		pipe.env_local.fog_sun_scatter = 0.25
+		pipe.env_local.fog_sky_affect = 1.0
+		pipe.env_local.fog_aerial_perspective = 0.0
 	if atm != null and _reflection_body != str(env.name):
 		_reflection_body = str(env.name)
 		reflection_material.rayleigh_color = Color.hex((int(atm.tint) << 8) | 0xff)
@@ -950,6 +969,10 @@ func _update_sun(o: Dictionary, env: Dictionary, atm, h: float, sun_l: Vector3) 
 	var excess := maxf(m - 1.0, 0.0)
 	sun_extinction = Vector3(exp(-tau.x * excess), exp(-tau.y * excess), exp(-tau.z * excess))
 	if haze_w > 0.0: sun_extinction = sun_extinction.lerp(T, haze_w)
+	# Lifted dust takes the Sun along the whole slant path, blue a little more than red (Mars' dust: Lemmon et
+	# al. 2004's 0.88 µm and 0.44 µm depths differ by about a fifth).
+	if dust_extra > 0.0:
+		sun_extinction *= Vector3(exp(-dust_extra * m * 0.9), exp(-dust_extra * m), exp(-dust_extra * m * 1.1))
 	sun_over_limb = sin(minf(elev + dip, PI / 2.0))
 	_sun_entering = _sun_rgb * T * 2400.0 * pow(teff / 5772.0, 4.0) * vis \
 		* (ang_r * ang_r) / (0.00465 * 0.00465)

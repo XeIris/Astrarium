@@ -127,7 +127,7 @@ CHANGED_RULES = (
       "tools/fixtures/flight_fixture.json"),
      ("flighttimecheck", "flightphysicscheck", "spinframecheck", "sharedflightcheck-*", "flight-descent-*",
       "missioncheck-*", "scenariocheck", "groundcheck", "seacheck", "titancheck")),
-    (("tools/groundcheck.*",), ("groundcheck",)),
+    (("tools/groundcheck.*", "sim/flight/sky_crane_rig.gd", "sim/flight/plume_dust.gd"), ("groundcheck",)),
     (("sim/surface/rover*.gd", "shaders/surface/track.gdshader", "tools/rovercheck.gd"), ("rovercheck", "groundcheck")),
     (("sim/surface/rotorcraft*.gd", "tools/rotorcheck.gd"), ("rotorcheck", "groundcheck", "titancheck")),
     (("sim/titan_moon.gd", "tools/titancheck.*"), ("titancheck", "presetcheck")),
@@ -484,7 +484,7 @@ def checks(suite, godot, output, repeat, export_preset):
             yield script("discoverycheck", r"^DISCOVERYCHECK DONE checks=[1-9]\d* failures=0$", f"assets={assets}")._replace(name=f"discoverycheck-{assets}")
             yield script("endurancecheck", r"^ENDURANCECHECK DONE checks=[1-9]\d* failures=0$", f"assets={assets}")._replace(name=f"endurancecheck-{assets}")
             # The authored gate cannot pass by silently substituting optional fallback models.
-            yield script("assetcheck", rf"^ASSETCHECK DONE [1-9]\d* checks, {'14' if assets == '1' else '0'} authored, 0 failures$", f"assets={assets}")
+            yield script("assetcheck", rf"^ASSETCHECK DONE [1-9]\d* checks, {'13' if assets == '1' else '0'} authored, 0 failures$", f"assets={assets}")
             for action in ("audit", "clearance"):
                 yield (f"craft-{action}-{assets}", base + ["--headless", "res://tools/crafttest.tscn", "--", action, f"assets={assets}"],
                        r"^CRAFTCHECK DONE PASS$", 180)

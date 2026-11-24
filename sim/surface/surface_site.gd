@@ -277,7 +277,11 @@ func _build_scene() -> void:
 	for gi in 2:
 		var channel: PackedFloat32Array = relief.channel_near if gi == 0 else relief.channel_far
 		group.add_child(SiteScene.terrain_mesh(grids, gi, patch_y, R, _mat, has_sea, channel))
-	rocks = SiteRocks.build(body, relief, patch_y, SiteScene._lin(int(pal.a)), crust.biota)
+	# Loose rock wears the dust it sits in: at Jezero (PIA24424, PIA24429) the stones are the soil's hue, a little
+	# greyer, the dark of fresh rock showing only on their faces.
+	var stone := SiteScene._lin(int(pal.soil)).lerp(SiteScene._lin(int(pal.a)), 0.35)
+	var lum := stone.dot(Vector3(0.2126, 0.7152, 0.0722))
+	rocks = SiteRocks.build(body, relief, patch_y, stone.lerp(Vector3(lum, lum, lum), 0.45) * 1.15, crust.biota)
 	if rocks != null: group.add_child(rocks.node)
 	# The sea's own temperature, at its level here, not the mountain's.
 	var freeze := float(Liquid.of(body.name).get("freeze_k", Climate.freezing_point(climate.salinity)))

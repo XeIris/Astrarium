@@ -20,6 +20,8 @@ const LRV := {
 	"wheel_i": 0.45, "half_width": 1.1, "steer_radius": 3.1, "steer_rate": 0.6,
 	"drive": {"kind": "motor", "watts": 186.4, "rpm": 10000.0, "gear": 80.0, "eff": 0.8},
 	"park_brake": 60.0, "brake": 40.0,
+	# Drawn only (RoverTracks): the titanium chevrons round the rim.
+	"grousers": 24, "grouser_curve": false,
 }
 ## Perseverance, from NASA's and JPL's pages: 1025 kg, 3 × 2.7 × 2.2 m, six 52.5 cm wheels each with its own
 ## motor, the corner four steering, a rocker-bogie, 152 m/h on flat hard ground, a 45° tilt without tipping.
@@ -34,6 +36,8 @@ const PERSEVERANCE := {
 	"wheel_i": 0.3, "half_width": 1.45, "steer_radius": 2.0, "steer_rate": 0.3,
 	"drive": {"kind": "speed", "v_max": 152.0 / 3600.0, "torque": 300.0},
 	"park_brake": 300.0, "brake": 300.0,
+	# Drawn only (RoverTracks): 48 gently curved grousers, twice Curiosity's (NASA).
+	"grousers": 48, "grouser_curve": true,
 }
 const VEHICLES := {"lrv": LRV, "perseverance": PERSEVERANCE}
 
