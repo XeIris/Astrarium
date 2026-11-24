@@ -95,6 +95,7 @@ func _dragonfly() -> void:
 	var tilt := rad_to_deg(acos(clampf(DQuat.rotate(DVec3.new(0, 1, 0), h.q).y, -1.0, 1.0)))
 	check("it rests on the drawn ground (a foot within %s m, the next %s m; tilted %s°)" % [U.fixed(gaps[0], 4), U.fixed(gaps[1], 2), U.fixed(tilt, 0)],
 		gaps[0] < 0.02 and tilt < 35.0 and h.vel.length() < 0.05)
+	_dunes(f, h)
 	# Up, across at full speed, and down again.
 	f.rover_keys = false
 	main.set_drawn(false)
@@ -122,6 +123,46 @@ func _dragonfly() -> void:
 		U.fixed(low, 1), U.fixed(h.power_w / 1000.0, 2)], up > 40.0 and speed > 3.0 and low > 3.0 and not h.crashed)
 	check("and stands again (%s m/s)" % U.fixed(h.vel.length(), 3), h.on_ground and not h.crashed and h.vel.length() < 0.1)
 	f.teardown()
+
+# The drawn ground across the dunes under it, through the landing: their spacing from the rises through the
+# mean, their height from crest to trough, against the stated field. And how far over the datum it came down.
+func _dunes(f: Spaceflight, h: Rotorcraft) -> void:
+	var spec: Dictionary = f.vessel.parent.spec.dunes
+	var b := deg_to_rad(float(spec.bearing))
+	# Across the crests, east and north, as the ground reads them.
+	var across := Vector2(cos(b), -sin(b))
+	var heights := PackedFloat64Array()
+	var dl := 10.0
+	for i in range(-290, 291):
+		var p := Vector2(-h.pos.x, h.pos.z) + across * (i * dl)
+		heights.append(h.ground.height(p.x, p.y))
+	# Less a straight line through it, so the long relief under them does not count.
+	var n := heights.size()
+	var sx := 0.0; var sy := 0.0; var sxx := 0.0; var sxy := 0.0
+	for i in n:
+		sx += i; sy += heights[i]; sxx += i * i; sxy += i * heights[i]
+	var slope := (n * sxy - sx * sy) / (n * sxx - sx * sx)
+	var icpt := (sy - slope * sx) / n
+	var resid := PackedFloat64Array()
+	for i in n: resid.append(heights[i] - icpt - slope * i)
+	var lo := INF; var hi := -INF
+	for v in resid:
+		lo = minf(lo, v); hi = maxf(hi, v)
+	# The crests: the highest point within half a dune's width either side, in the top half of the range.
+	var reach := int(0.5 * float(spec.width) / dl)
+	var crests := []
+	for i in range(reach, n - reach):
+		if resid[i] < lo + 0.5 * (hi - lo): continue
+		var top := true
+		for k in range(i - reach, i + reach + 1):
+			if resid[k] > resid[i]: top = false
+		if top: crests.append(i)
+	var spacing: float = (crests[-1] - crests[0]) * dl / float(crests.size() - 1) if crests.size() > 1 else 0.0
+	var ll := SurfaceGround.lat_lon(SurfaceGround.to_mesh(f.vessel.r, f.vessel.body_angle(f.vessel.coord), DVec3.new()))
+	check("Dragonfly stands among Titan's dunes: %s m crest to trough, %s m apart, against %s m and %s m stated; %s m over the datum at %s° N" % [
+		U.fixed(hi - lo, 0), U.fixed(spacing, 0), spec.height, spec.spacing, U.fixed(f.vessel.altitude(), 0), U.fixed(rad_to_deg(ll[0]), 1)],
+		hi - lo > 0.6 * float(spec.height) and hi - lo < 2.0 * float(spec.height) and absf(spacing / float(spec.spacing) - 1.0) < 0.25
+		and absf(f.vessel.altitude()) < 3000.0 * float(f.vessel.parent.spec.landRelief))
 
 func _parity() -> void:
 	var out := []

@@ -116,6 +116,9 @@ static func plan_relief(b: Body, where: PlanetPin, r: PlanetRelief, cells: int, 
 	relief.seed = seed_ & 0x7fffffff
 	relief.cells = cells
 	relief.crater = r.crater
+	relief.lat = where.lat
+	if b.spec.get("landRelief") != null: relief.relief_scale = float(b.spec.landRelief) / 3.2
+	relief.dunes = b.spec.get("dunes", {}) if b.spec.get("dunes") != null else {}
 	# Heights count from the world's sea, if it has one; whether one is in view waits for the grid.
 	relief.has_sea = str(where.ground.kind) in ["sea", "sea ice"] or (climate.wet and climate.ocean > 0.0 and r.sea_km > -30.0)
 	relief.sea_m = r.sea_km * 1000.0 if relief.has_sea else 0.0
@@ -288,7 +291,7 @@ func _set_ground_uniforms() -> void:
 		_mat.set_shader_parameter("uCellM", float(relief.stats.cell_m))
 		_mat.set_shader_parameter("uHurst", relief.hurst)
 	else:
-		_mat.set_shader_parameter("uRoughCell", ROUGH_1KM * minf(SurfaceRelief.G_EARTH / maxf(relief.g, 0.01), SurfaceRelief.MAX_ROUGH))
+		_mat.set_shader_parameter("uRoughCell", ROUGH_1KM * relief.strength())
 		_mat.set_shader_parameter("uCellM", 1000.0)
 		_mat.set_shader_parameter("uHurst", HURST_DEFAULT)
 	_mat.set_shader_parameter("uAirless", 1.0 if climate.flight_atmosphere() == null else 0.0)

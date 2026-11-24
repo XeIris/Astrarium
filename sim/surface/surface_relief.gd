@@ -55,6 +55,15 @@ var rain_mm := 0.0                  # mm/yr, 0 for no running water
 var flowing := false
 var crater := 0.0
 var map_land := -1                  # 1 land, 0 sea when a map says, else the crust does
+## The world's stated land relief against the crust's default 3.2 km, or < 0 where it is not stated. A stated
+## relief already holds what strength and erosion made of a world, so its roughness scales with it, not with
+## 1/g (Titan's 1 km is far gentler than its gravity alone would allow).
+var relief_scale := -1.0
+## A stated dune field ({height, width, spacing, bearing, band}: m, m, m, degrees from north, degrees of latitude),
+## or empty.
+var dunes := {}
+## The pin's latitude, rad, for the dune band.
+var lat := 0.0
 ## A world whose seas are stated (StatedSeas), or "": under a mare the floor is its depth, off it the land
 ## the crust has, kept above the datum.
 var stated := ""
@@ -112,17 +121,20 @@ func build() -> void:
 		if crater > 0.02: _stamp_craters(far, far_half, seed + 1, cell * 0.5)
 	else:
 		# Strength over ρg, up to where a small world's own size has more to say than its gravity.
-		var strength := minf(G_EARTH / g, MAX_ROUGH)
+		var strength := strength()
 		_add_roughness(far, far_half, far_half / 6.0, ROUGH_M * strength, seed)
 		if crater > 0.02: _stamp_craters(far, far_half, seed + 1)
+	_add_dunes(far, far_half)
 	channel_far = _carve(far, far_half, 0.1, 0.55, true)
 	if cancelled: return
 	var near := _grid_inside(far, far_half, near_half)
 	if measured:
 		_add_fractal(near, near_half, 2.0 * far_half / (cells - 1), seed + 7)
 	else:
-		_add_roughness(near, near_half, near_half / 4.0, 0.1 * ROUGH_M * minf(G_EARTH / g, MAX_ROUGH), seed + 7)
+		_add_roughness(near, near_half, near_half / 4.0, 0.1 * ROUGH_M * strength(), seed + 7)
 	if crater > 0.02: _stamp_craters(near, near_half, seed + 11)
+	# The near grid is drawn from the far one, dunes and all: its own at full resolution replace them.
+	_add_dunes(near, near_half, far_half)
 	channel_near = _carve(near, near_half, 0.55, 1.0, false)
 	if cancelled: return
 	grids = [{"n": cells, "half": near_half, "h": near}, {"n": cells, "half": far_half, "h": far}]
@@ -211,6 +223,49 @@ func _grid_inside(far: PackedFloat32Array, far_half: float, half: float) -> Pack
 			var tx := fx - i0
 			out[j * cells + i] = lerpf(lerpf(far[j0 * cells + i0], far[j0 * cells + i0 + 1], tx), lerpf(far[(j0 + 1) * cells + i0], far[(j0 + 1) * cells + i0 + 1], tx), ty)
 	return out
+
+## How much rougher than Earth's this world's ground is: its stated relief's scale, or strength over ρg (the
+## ratio of gravities), up to where a small world's own size has more to say than its gravity.
+func strength() -> float:
+	return relief_scale if relief_scale > 0.0 else minf(G_EARTH / g, MAX_ROUGH)
+
+## Linear dunes across the grid (`dunes`): ridges `spacing` apart running along `bearing`, meandering a little,
+## each a rounded crest `width` across with flat interdunes between, `height` at the crest.
+## They thin out to nothing at the band's edge in latitude and do not climb out of a sea. Where the grid is too
+## coarse to hold a ridge (under 6 cells to a spacing) they are left to the finer grid. `far_half` > 0 is the
+## grid this one was drawn from, whose dunes it replaces.
+func _add_dunes(h: PackedFloat32Array, half: float, far_half := 0.0) -> void:
+	if dunes.is_empty(): return
+	var spacing := float(dunes.spacing)
+	var band := absf(rad_to_deg(lat)) / float(dunes.band)
+	var amp := float(dunes.height) * clampf((1.0 - band) * 3.0, 0.0, 1.0)
+	if amp <= 0.0: return
+	var step := 2.0 * half / (cells - 1)
+	var keep := 1.0 if spacing / step >= 6.0 else 0.0
+	var took := 0.0
+	if far_half > 0.0:
+		took = 1.0 if spacing / (2.0 * far_half / (cells - 1)) >= 6.0 else 0.0
+	if keep == took: return
+	var b := deg_to_rad(float(dunes.bearing))
+	# Across the crests: the grid's (east, north) onto the bearing's normal.
+	var across := Vector2(cos(b), -sin(b))
+	var noise := FastNoiseLite.new()
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	noise.fractal_type = FastNoiseLite.FRACTAL_NONE
+	noise.seed = seed + 23
+	noise.frequency = 1.0 / (spacing * 12.0)
+	var half_w := 0.5 * float(dunes.width) / spacing
+	for j in cells:
+		var y := -half + j * step
+		for i in cells:
+			var x := -half + i * step
+			var k := j * cells + i
+			var base: float = h[k]
+			if has_sea and base <= 0.0: continue
+			var u := (Vector2(x, y).dot(across) + noise.get_noise_2d(x, y) * spacing * 0.5) / spacing
+			var d := absf(u - floorf(u) - 0.5) / half_w
+			var ridge := 0.0 if d >= 1.0 else pow(cos(d * PI * 0.5), 2.0)
+			h[k] = base + amp * ridge * (keep - took)
 
 # Fractal detail with the world's strength behind it, on land only: a sea bed under sediment is smooth.
 func _add_roughness(h: PackedFloat32Array, half: float, wavelength: float, amp: float, s: int) -> void:

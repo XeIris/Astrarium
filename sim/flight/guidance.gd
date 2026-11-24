@@ -1333,9 +1333,13 @@ class Autopilot extends RefCounted:
 	## Normal acceleration, m/s², that steers the flight-path angle γ toward `gref`; below
 	## the preflare toward the pull-up onto the inner glide slope, and below 30 m no
 	## steeper than the flare's sink rate.
+	## The inner slope's capture and the flare are heights for the Shuttle's 100 m/s; a much slower glider
+	## (the Survey Shuttle in Titan's thick air, at 20 m/s) takes them proportionally lower, so the flare lasts as
+	## long as the Shuttle's rather than floating for a minute and stalling over rising ground.
 	func _approach_an(h: float, va: float, gam: float, gref: float, g: float) -> float:
-		if h < PREFLARE_ALT: gref = lerpf(INNER_GS, OUTER_GS, sqrt(clampf((h - 40.0) / 560.0, 0.0, 1.0)))
-		if h < 30.0: gref = maxf(gref, -asin(clampf((0.9 + 0.11 * maxf(h, 0.0)) / maxf(va, 1.0), 0.0, 1.0)))
+		var sh := clampf(va / 60.0, 0.25, 1.0)
+		if h < PREFLARE_ALT: gref = lerpf(INNER_GS, OUTER_GS, sqrt(clampf((h - 40.0 * sh) / (PREFLARE_ALT - 40.0 * sh), 0.0, 1.0)))
+		if h < 30.0 * sh: gref = maxf(gref, -asin(clampf((0.9 + 0.11 * maxf(h, 0.0) / sh) / maxf(va, 1.0), 0.0, 1.0)))
 		var k := 0.8 if h < PREFLARE_ALT else 0.5
 		return clampf(g * cos(gam) + va * k * (gref - gam), 0.2 * g, 1.6 * g)
 
