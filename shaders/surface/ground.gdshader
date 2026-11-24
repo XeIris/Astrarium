@@ -41,6 +41,10 @@ uniform vec3 uPatchCol = vec3(0.3);
 // as Titan's are (dark in Cassini's radar and near-infrared, Lorenz et al. 2006).
 uniform vec4 uDunes = vec4(0.0);
 uniform vec2 uDuneAcross = vec2(0.0, 1.0);
+// The site's fresh craters on an airless world (SurfaceSite._set_crater_uniforms): east, north, radius, m, and a seed
+// for their rays. Fresh ejecta is immature regolith, brighter than the gardened plain round it.
+uniform vec4 uCraters[12];
+uniform int uCraterN = 0;
 
 
 varying vec3 vPlace;     // east, height, north in the site's frame
@@ -215,6 +219,37 @@ void fragment() {
 	}
 	float snow = smoothstep(uSnowLine - 220.0, uSnowLine + 160.0, vPlace.y + (mid - 0.5) * 240.0) * (1.0 - smoothstep(0.35, 0.65, slope));
 	col = mix(col, vec3(0.82, 0.85, 0.9), snow);
+	// Where it lies: the ground against its surroundings 1.2 km about (both grids' own triangles). Under air the
+	// lows collect the darker fines and sand and the highs are weathered rock; on an airless world steep slopes
+	// are fresher, brighter material, as mass wasting keeps exposing it.
+	float around = 0.0;
+	for (int k = 0; k < 6; k++) {
+		float a = 1.0472 * float(k) + 0.3;
+		vec2 q = p + vec2(cos(a), sin(a)) * 1200.0;
+		around += (abs(q.x) < uNearHalf && abs(q.y) < uNearHalf) ? grid_y(uNearH, uNearHalf, q)
+			: ((abs(q.x) < uFarHalf && abs(q.y) < uFarHalf) ? grid_y(uFarH, uFarHalf, q) : here_y);
+	}
+	float rel = here_y - around / 6.0;
+	if (uAirless < 0.5) {
+		col *= mix(1.0, 0.78, smoothstep(-12.0, -70.0, rel));
+		col *= 1.0 + 0.07 * smoothstep(30.0, 120.0, rel);
+	} else {
+		col *= 1.0 + 0.25 * smoothstep(0.15, 0.45, slope);
+	}
+	// Fresh craters: a bright blanket to 2.5 radii and rays to about 12, narrow and broken (estimates; Tycho's run
+	// to some 35 of its radii), fading as they go.
+	for (int i = 0; i < uCraterN; i++) {
+		vec4 c = uCraters[i];
+		vec2 dv = p - c.xy;
+		float d = length(dv) / c.z;
+		if (d > 13.0) continue;
+		float th = atan(dv.y, dv.x);
+		uint cs = uint(c.w);
+		float blanket = 1.0 - smoothstep(1.0, 2.5, d);
+		float rays = smoothstep(0.35, 0.75, 0.5 + 0.5 * gnoise(vec2(th * 7.0, 0.0), cs) + 0.25 * gnoise(vec2(th * 23.0, d * 0.4), cs + 7u));
+		float fall = exp(-max(d - 1.0, 0.0) / 4.0) * smoothstep(13.0, 6.0, d);
+		col *= 1.0 + 0.55 * blanket + 0.45 * rays * fall * step(1.0, d);
+	}
 	// Patches of brighter and darker grain, as fresh and weathered regolith differ: about ±15 %, from 300 m down,
 	// the same on both grids so their seam does not show, filtered by the footprint.
 	patchy = cfbm(p + vec2(3100.0, 700.0), 300.0, foot, 71u, 6);

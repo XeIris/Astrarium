@@ -68,6 +68,8 @@ var air: Variant = null
 var _task := -1
 var _mat: ShaderMaterial
 var _ocean: MeshInstance3D = null
+## The rocks about the eye on a lifeless dry world, or null (SiteRocks).
+var rocks: SiteRocks = null
 var _ocean_mat: ShaderMaterial = null
 var _rain: GPUParticles3D = null
 var _rain_mat: ShaderMaterial = null
@@ -270,10 +272,13 @@ func _build_scene() -> void:
 	_mat.set_shader_parameter("uFillTint", fill_tint())
 	_mat.set_shader_parameter("uPatchCol", patch_colour())
 	_set_dune_uniforms()
+	_set_crater_uniforms()
 	var R: float = relief.radius_m
 	for gi in 2:
 		var channel: PackedFloat32Array = relief.channel_near if gi == 0 else relief.channel_far
 		group.add_child(SiteScene.terrain_mesh(grids, gi, patch_y, R, _mat, has_sea, channel))
+	rocks = SiteRocks.build(body, relief, patch_y, SiteScene._lin(int(pal.a)), crust.biota)
+	if rocks != null: group.add_child(rocks.node)
 	# The sea's own temperature, at its level here, not the mountain's.
 	var freeze := float(Liquid.of(body.name).get("freeze_k", Climate.freezing_point(climate.salinity)))
 	frozen_sea = has_sea and crust.temperature(sin(pin.lat), 0.0) < freeze - 4.0
@@ -290,6 +295,24 @@ func patch_hex() -> Dictionary:
 func patch_colour() -> Vector3:
 	var h := patch_hex()
 	return (SiteScene._lin(int(h.ground)) + SiteScene._lin(int(h.rock))) * 0.5
+
+# An airless world's fresh craters for the shader: of the twelve largest the survey stamped, about one in three,
+# drawn from the site's seed, has bright ejecta and rays. Under air, rays are erased fast and are not drawn.
+func _set_crater_uniforms() -> void:
+	var fresh := PackedVector4Array()
+	fresh.resize(12)
+	var n := 0
+	if climate.flight_atmosphere() == null and not relief.craters.is_empty():
+		var by_size: Array = relief.craters.duplicate()
+		by_size.sort_custom(func(a, b): return float(a[2]) > float(b[2]))
+		var rng := RandomNumberGenerator.new()
+		rng.seed = relief.seed + 404
+		for c: Array in by_size.slice(0, 12):
+			if rng.randf() < 0.35:
+				fresh[n] = Vector4(float(c[0]), float(c[1]), float(c[2]), float(rng.randi_range(1, 60000)))
+				n += 1
+	_mat.set_shader_parameter("uCraterN", n)
+	if n > 0: _mat.set_shader_parameter("uCraters", fresh)
 
 # A stated dune field for the shader: carved on the near grid, shaded past it, faded by the band as carved.
 func _set_dune_uniforms() -> void:
@@ -519,6 +542,10 @@ func light_sea(sun_l: Vector3, sun_rgb: Vector3, sky_top: Vector3, haze: Vector3
 	for key_val in [["uTime", _time], ["uCamLocal", cam], ["uSunDir", sun_l], ["uSunRGB", sun_rgb], ["uSkyTop", sky_top],
 			["uHaze", haze], ["uDensity", density], ["uScaleH", scale_h], ["uCover", cover], ["uTide", tide_h]]:
 		_ocean_mat.set_shader_parameter(key_val[0], key_val[1])
+
+## The rocks laid out about the eye, at (east, north) m in the site's frame.
+func follow_eye(e: float, n: float) -> void:
+	if rocks != null: rocks.follow(e, n)
 
 ## The ground's light and air for this frame: `sun_l` in the site's frame, `eye_y` the eye's height in it.
 ## The flight pass's ground material supplies the air, as it does for the planet's patch.

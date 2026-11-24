@@ -2005,6 +2005,9 @@ func _place_ground(east: DVec3, up: DVec3, north: DVec3, R_loc: float, fr: Dicti
 	if not fr.is_empty():
 		var to_site := basis.inverse()
 		ground_site.light_terrain(to_site * (fr.sun_local as Vector3), (to_site * craft_pos.sub(at).to_v3()).y, 0.0, sun_ang)
+		# The rocks follow the eye over the ground (the site's x runs west).
+		var eye := to_site * local.cam_pos.sub(at).to_v3()
+		ground_site.follow_eye(-eye.x, eye.z)
 
 func _draw_rover() -> void:
 	if rover_model == null:

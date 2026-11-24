@@ -81,6 +81,8 @@ var cells := 129
 var grids: Array = []
 var channel_far := PackedFloat32Array()
 var channel_near := PackedFloat32Array()
+## The craters stamped, [east, north, radius], m, in the site's frame: what the ground shader brightens as fresh.
+var craters: Array = []
 
 var cancelled := false
 var progress := 0.0
@@ -413,6 +415,7 @@ func _stamp_craters(h: PackedFloat32Array, half: float, s: int, largest := INF) 
 		var cx := rng.randf_range(-half, half)
 		var cy := rng.randf_range(-half, half)
 		var depth := 0.4 * r * crater
+		craters.append([cx, cy, r])
 		var reach := int(ceil(r * 1.7 / step))
 		var ic := int((cx + half) / step)
 		var jc := int((cy + half) / step)
