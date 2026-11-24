@@ -52,6 +52,7 @@ func _case(key: String, c: Dictionary) -> bool:
 	print("GROUNDSHOTS %s landed at hour %s°, %s" % [key, U.fixed(rad_to_deg(wrapf(float(run.land_lon) - float(run.sun_lon), -PI, PI)), 1), run.where])
 	var f: Spaceflight = main.flight
 	if key == "lm" and args.get("rover", "1") != "0": await _drive(f, dir)
+	if key == "skycrane" and args.get("rover", "1") != "0": await _drive_mars(f, dir)
 	f.fly_cam.state.userAimed = true
 	for i in VIEWS.size():
 		var vw: Array = VIEWS[i]
@@ -93,6 +94,54 @@ func _drive(f: Spaceflight, dir: String) -> void:
 		for k in 20: await _frame(1.0 / 60.0)
 		await _save(dir.path_join("lrv_%d.png" % i), false)
 	print("GROUNDSHOTS lrv: %d frames filmed: %s" % [shot, f.rover_readout()])
+	f.driving = false
+
+# Perseverance off the Sky Crane: a drive filmed at 20× (it makes 152 m/h), the arm to the ground ahead, and
+# the mast camera's view. Stills after.
+func _drive_mars(f: Spaceflight, dir: String) -> void:
+	if not f.deploy_rover():
+		printerr("GROUNDSHOTS FAIL Perseverance could not be deployed")
+		return
+	var r: Rover = f.rover
+	f.rover_keys = false
+	f.fly_cam.state.userAimed = true
+	f.fly_cam.state.yaw = 2.2
+	f.fly_cam.state.pitch = 0.2
+	f.fly_cam.state.dist = 2.2
+	f.dev_warp = 20.0
+	var film: bool = args.get("video", "1") != "0"
+	var shot := 0
+	var plan := [[8.0, 1.0, 0.0], [6.0, 1.0, 0.8], [6.0, 1.0, 0.0], [5.0, 0.0, 0.0]]
+	for leg: Array in plan:
+		r.throttle = float(leg[1])
+		r.steer = float(leg[2])
+		for k in int(float(leg[0]) * 60.0):
+			await _frame(1.0 / 60.0)
+			if film and k % 2 == 0:
+				await _save(dir.path_join("drive/%05d.jpg" % shot), true)
+				shot += 1
+	f._toggle_arm()
+	f.fly_cam.state.yaw = 0.9
+	f.fly_cam.state.pitch = 0.25
+	f.fly_cam.state.dist = 1.6
+	for k in 60 * 7:
+		await _frame(1.0 / 60.0)
+		if film and k % 2 == 0:
+			await _save(dir.path_join("drive/%05d.jpg" % shot), true)
+			shot += 1
+	f.dev_warp = 0.0
+	var views := [[0.9, 0.25, 1.6], [2.8, 0.15, 2.0], [4.4, 0.5, 3.5]]
+	for i in views.size():
+		f.fly_cam.state.yaw = float(views[i][0])
+		f.fly_cam.state.pitch = float(views[i][1])
+		f.fly_cam.state.dist = float(views[i][2])
+		for k in 20: await _frame(1.0 / 60.0)
+		await _save(dir.path_join("rover_%d.png" % i), false)
+	f.set_camera_mode("mast")
+	for k in 20: await _frame(1.0 / 60.0)
+	await _save(dir.path_join("mast.png"), false)
+	f.set_camera_mode("chase")
+	print("GROUNDSHOTS perseverance: %d frames filmed: %s" % [shot, f.rover_readout()])
 	f.driving = false
 
 # Fly the case's descent from its base, turned `turn` rad about the pole, to touchdown and 3 s past.

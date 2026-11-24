@@ -541,7 +541,9 @@ static func _build_vehicles() -> Dictionary:
 	"skycrane": {
 		"id": "skycrane", "name": "Mars EDL — Sky Crane", "role": "lander", "launchFrom": "Mars",
 		"era": "2012, 2021",
-		"blurb": "Entry at 5.8 km/s behind a heat shield, a supersonic chute at Mach 1.7, then a descent stage that lowers the rover on cables and flies away to crash somewhere else.",
+		"blurb": "Entry at 5.8 km/s behind a heat shield, a supersonic chute at Mach 1.7, then a descent stage that lowers the rover on cables and flies away to crash somewhere else. Down, U takes Perseverance's wheel: W A S D drive, G puts the arm's turret on the ground ahead, C cycles to the mast camera.",
+		# The rover is the stage that touched down: it drives off from where it stands (sim/surface/rover.gd).
+		"rover": "perseverance", "roverOffset": 0.0,
 		# A Mars entry really does peak near 15 g — Curiosity's did — so the
 		# structural limit has to be above the nominal entry, not at it.
 		"limits": { "maxQ": 22e3, "maxG": 20.0, "qAlpha": 8e3, "heatLoad": 120e6 },

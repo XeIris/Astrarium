@@ -23,7 +23,7 @@ var vel := PackedVector3Array()
 var floor_y := PackedFloat32Array()
 var count := 0
 var _rng := RandomNumberGenerator.new()
-var _owed := [0.0, 0.0, 0.0, 0.0]
+var _owed: Array = []
 var view: MultiMeshInstance3D = null
 
 func _init(gravity := 1.62, air_drag := 0.0, seed_ := 1) -> void:
@@ -40,10 +40,11 @@ static func release_velocity(v: float, u: float, theta: float, h: Vector3, up: V
 func step(rover: Rover, dt: float) -> void:
 	var fwd := DQuat.rotate(DVec3.from_v3(Vector3(0, 0, 1)), rover.q).to_v3()
 	var v := rover.speed()
+	while _owed.size() < rover.wheels.size(): _owed.append(0.0)
 	for i in rover.wheels.size():
 		var wh: Rover.Wheel = rover.wheels[i]
 		if not wh.contact: continue
-		var u := wh.spin * Rover.WHEEL_R
+		var u := wh.spin * float(rover.spec.wheel_r)
 		var share := clampf(absf(u) / RIM_FULL, 0.0, 1.5)
 		_owed[i] += RATE * share * dt
 		var h := fwd.rotated(Vector3.UP, wh.steer) * signf(u if absf(u) > 1e-3 else 1.0)
@@ -53,7 +54,7 @@ func step(rover: Rover, dt: float) -> void:
 			var theta := _rng.randf_range(0.15, PI)
 			# Under the guard: caught.
 			if absf(theta - PI) < GUARD: continue
-			var r := Rover.WHEEL_R
+			var r := float(rover.spec.wheel_r)
 			var at := cp + Vector3.UP * (r - r * cos(theta)) - h * (r * sin(theta))
 			var vv := release_velocity(absf(v), absf(u), theta, h, Vector3.UP) * _rng.randf_range(0.85, 1.05)
 			vv += Vector3(_rng.randf_range(-0.15, 0.15), 0.0, _rng.randf_range(-0.15, 0.15)) * absf(u)

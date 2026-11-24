@@ -9,6 +9,8 @@ extends RefCounted
 
 var group: Node3D
 var wheels: Array = []        # [{pivot: Node3D (steer and travel), spin: Node3D}] in Rover.wheels' order
+## Perseverance's arm: its joints' nodes, {az, lift, elbow, wrist}; empty for the LRV.
+var joints := {}
 var _mats := {}
 
 static func _mat(rgb: Color, metal := 0.0, rough := 0.8) -> StandardMaterial3D:
@@ -50,9 +52,11 @@ func _tube(a: Vector3, b: Vector3, r: float, mat: Material, parent: Node3D) -> v
 	var z := x.cross(y)
 	_part(_cyl(r, len, 8), mat, (a + b) * 0.5, parent, Basis(x, y, z))
 
-static func build() -> RoverModel:
+## The model for a Rover's spec: the LRV's or Perseverance's.
+static func build(spec: Dictionary = Rover.LRV) -> RoverModel:
 	var m := RoverModel.new()
-	m._build()
+	if str(spec.name) == "Perseverance": m._build_perseverance()
+	else: m._build()
 	return m
 
 func _build() -> void:
@@ -61,12 +65,13 @@ func _build() -> void:
 	var alu := _mat(Color(0.72, 0.73, 0.74), 0.85, 0.4)
 	var white := _mat(Color(0.86, 0.86, 0.84), 0.0, 0.7)
 	var grey := _mat(Color(0.32, 0.33, 0.34), 0.0, 0.85)
-	var mesh_tyre := _mat(Color(0.55, 0.56, 0.57), 0.9, 0.55)
+	var mesh_tyre := _mat(Color(0.6, 0.61, 0.62), 0.45, 0.6)
 	var titanium := _mat(Color(0.62, 0.6, 0.56), 0.9, 0.35)
 	var seat := _mat(Color(0.36, 0.42, 0.5), 0.0, 0.9)
 	var gold := _mat(Color(0.83, 0.64, 0.25), 0.9, 0.35)
 	var black := _mat(Color(0.05, 0.05, 0.06), 0.0, 0.6)
-	var deck_y := Rover.CLEARANCE - Rover.COM_HEIGHT + 0.05
+	var lrv := Rover.LRV
+	var deck_y := float(lrv.clearance) - float(lrv.com_height) + 0.05
 	# The chassis: three hinged sections of 2219 tubing, a 3.1 m frame. A deck plate over each.
 	for z in [-1.0, 0.0, 1.0]:
 		_part(_box(1.12, 0.05, 1.0), grey, Vector3(0.0, deck_y, z * 1.03), group)
@@ -103,9 +108,10 @@ func _build() -> void:
 	_tube(Vector3(0.52, deck_y + 0.2, 1.0), Vector3(0.52, deck_y + 1.1, 1.0), 0.02, white, group)
 	_part(_box(0.8, 0.5, 0.35), grey, Vector3(0.0, deck_y + 0.27, -1.3), group)
 	# Wheels on double wishbones under dust guards.
-	var r := Rover.WHEEL_R
+	var r := float(lrv.wheel_r)
+	var wb := float(lrv.wheel_b)
 	var probe := Rover.new(Rover.PlaneGround.new(), 1.62)
-	for i in 4:
+	for i in probe.wheels.size():
 		var wh: Rover.Wheel = probe.wheels[i]
 		var pivot := Node3D.new()
 		pivot.position = wh.mount
@@ -113,26 +119,31 @@ func _build() -> void:
 		var spin := Node3D.new()
 		pivot.add_child(spin)
 		var axle := Basis(Vector3.FORWARD, PI * 0.5)
-		_part(_cyl(r, Rover.WHEEL_B, 28), mesh_tyre, Vector3.ZERO, spin, axle)
-		_part(_cyl(0.324, Rover.WHEEL_B + 0.02, 20), alu, Vector3.ZERO, spin, axle)
+		_part(_cyl(r, wb, 28), mesh_tyre, Vector3.ZERO, spin, axle)
+		_part(_cyl(0.324, wb + 0.02, 20), alu, Vector3.ZERO, spin, axle)
 		# Titanium chevrons over half the tread.
 		for k in 24:
 			var a := TAU * k / 24.0
 			var at := Vector3(0.0, cos(a) * (r + 0.004), sin(a) * (r + 0.004))
-			_part(_box(Rover.WHEEL_B * 0.9, 0.006, 0.035), titanium, at, spin, Basis(Vector3.RIGHT, -a) * Basis(Vector3.UP, 0.5 if k % 2 == 0 else -0.5))
+			_part(_box(wb * 0.9, 0.006, 0.035), titanium, at, spin, Basis(Vector3.RIGHT, -a) * Basis(Vector3.UP, 0.5 if k % 2 == 0 else -0.5))
 		var out: float = signf(wh.mount.x)
 		# The guard: an arc over the wheel, standing with the pivot (it steers and rides with the wheel).
 		for k in 7:
 			var a := lerpf(-0.9, 0.9, k / 6.0)
-			_part(_box(Rover.WHEEL_B + 0.08, 0.012, 0.16), grey, Vector3(0.0, cos(a) * (r + 0.06), sin(a) * (r + 0.06)), pivot, Basis(Vector3.RIGHT, -a))
+			_part(_box(wb + 0.08, 0.012, 0.16), grey, Vector3(0.0, cos(a) * (r + 0.06), sin(a) * (r + 0.06)), pivot, Basis(Vector3.RIGHT, -a))
 		# The wishbones, from the chassis's side rail to the hub.
 		var rail := Vector3(out * 0.6, deck_y, wh.mount.z)
 		_tube(rail + Vector3(0, 0.0, 0.18), wh.mount + Vector3(-out * 0.1, 0.05, 0.0), 0.02, alu, group)
 		_tube(rail + Vector3(0, 0.0, -0.18), wh.mount + Vector3(-out * 0.1, 0.05, 0.0), 0.02, alu, group)
 		wheels.append({"pivot": pivot, "spin": spin, "mount": wh.mount})
 
-## Pose the wheels from the physics; the group's own transform is the caller's.
-func update(rover: Rover) -> void:
+## Pose the wheels from the physics, and the arm from its joints; the group's own transform is the caller's.
+func update(rover: Rover, arm: RoverArm = null) -> void:
+	if arm != null and not joints.is_empty():
+		(joints.az as Node3D).basis = Basis(Vector3.UP, float(arm.joints.az))
+		(joints.lift as Node3D).basis = Basis(Vector3.RIGHT, -float(arm.joints.lift))
+		(joints.elbow as Node3D).basis = Basis(Vector3.RIGHT, float(arm.joints.elbow))
+		(joints.wrist as Node3D).basis = Basis(Vector3.RIGHT, float(arm.joints.wrist))
 	for i in wheels.size():
 		var w: Dictionary = wheels[i]
 		var wh: Rover.Wheel = rover.wheels[i]
@@ -144,3 +155,87 @@ func update(rover: Rover) -> void:
 ## The group's transform in the site's frame (x west, y up, z north).
 static func site_transform(rover: Rover) -> Transform3D:
 	return Transform3D(Basis(rover.q.to_quaternion()), rover.pos.to_v3())
+
+# Perseverance, to NASA's 3 × 2.7 × 2.2 m and 52.5 cm wheels: the body (its warm electronics box), the
+# remote sensing mast with its camera head 2.2 m up, the MMRTG canted at the back, the high-gain antenna,
+# rocker-bogie links to six cleated wheels (twice Curiosity's treads, gently curved), and the arm, a chain
+# of joints RoverArm drives.
+func _build_perseverance() -> void:
+	group = Node3D.new()
+	group.name = "Perseverance"
+	var spec := Rover.PERSEVERANCE
+	var body_white := _mat(Color(0.86, 0.86, 0.84), 0.0, 0.6)
+	var alu := _mat(Color(0.7, 0.71, 0.72), 0.85, 0.4)
+	var dark := _mat(Color(0.12, 0.12, 0.13), 0.2, 0.6)
+	var gold := _mat(Color(0.8, 0.6, 0.24), 0.9, 0.35)
+	# Satin aluminium: fully metallic it reflects only a black sky, and reads as a hole.
+	var wheel_mat := _mat(Color(0.7, 0.71, 0.72), 0.45, 0.5)
+	var base_y := float(spec.clearance) - float(spec.com_height)
+	_part(_box(1.15, 0.55, 1.75), body_white, Vector3(0.0, base_y + 0.3, 0.05), group)
+	_part(_box(1.2, 0.04, 1.8), alu, Vector3(0.0, base_y + 0.59, 0.05), group)
+	# The remote sensing mast, front right, its head (Mastcam-Z, SuperCam) 2.2 m over the ground.
+	var mast_base := Vector3(-0.45, base_y + 0.6, 0.7)
+	var head_y := 2.2 - float(spec.com_height) - 0.12
+	_tube(mast_base, Vector3(-0.45, head_y, 0.7), 0.06, body_white, group)
+	_part(_box(0.5, 0.2, 0.22), body_white, Vector3(-0.45, head_y, 0.72), group)
+	for x in [-0.6, -0.3]:
+		_part(_cyl(0.04, 0.06, 12), dark, Vector3(x, head_y, 0.85), group, Basis(Vector3.RIGHT, PI * 0.5))
+	_part(_cyl(0.07, 0.08, 14), dark, Vector3(-0.45, head_y + 0.1, 0.84), group, Basis(Vector3.RIGHT, PI * 0.5))
+	# The MMRTG, canted aft, its fins dark; the high-gain antenna, a hexagon on its gimbal.
+	_part(_cyl(0.32, 0.66, 16), dark, Vector3(0.0, base_y + 0.55, -0.98), group, Basis(Vector3.RIGHT, -0.75))
+	for k in 8:
+		var a := TAU * k / 8.0
+		_part(_box(0.04, 0.6, 0.12), dark, Vector3(cos(a) * 0.36, base_y + 0.55 + sin(a) * 0.36 * 0.68, -0.98 + sin(a) * 0.36 * 0.73), group, Basis(Vector3.RIGHT, -0.75) * Basis(Vector3.UP, a))
+	_tube(Vector3(0.4, base_y + 0.6, -0.4), Vector3(0.4, base_y + 0.95, -0.4), 0.03, alu, group)
+	var hga := _cyl(0.33, 0.04, 6)
+	_part(hga, gold, Vector3(0.4, base_y + 1.0, -0.4), group, Basis(Vector3.RIGHT, 0.6))
+	_tube(Vector3(-0.3, base_y + 0.6, -0.55), Vector3(-0.3, base_y + 0.9, -0.55), 0.02, body_white, group)
+	# Wheels, each on its link from the body's side: the rocker forward, the bogie aft.
+	var r := float(spec.wheel_r)
+	var wb := float(spec.wheel_b)
+	var probe := Rover.new(Rover.PlaneGround.new(), 3.71, spec, Rover.MARS_SAND)
+	for i in probe.wheels.size():
+		var wh: Rover.Wheel = probe.wheels[i]
+		var pivot := Node3D.new()
+		pivot.position = wh.mount
+		group.add_child(pivot)
+		var spin := Node3D.new()
+		pivot.add_child(spin)
+		var axle := Basis(Vector3.FORWARD, PI * 0.5)
+		_part(_cyl(r, wb, 32), wheel_mat, Vector3.ZERO, spin, axle)
+		_part(_cyl(r * 0.55, wb + 0.01, 6), alu, Vector3.ZERO, spin, axle)
+		for k in 48:
+			var a := TAU * k / 48.0
+			var at := Vector3(0.0, cos(a) * (r + 0.006), sin(a) * (r + 0.006))
+			_part(_box(wb * 0.95, 0.012, 0.008), alu, at, spin, Basis(Vector3.RIGHT, -a) * Basis(Vector3.UP, 0.18))
+		var out: float = signf(wh.mount.x)
+		var link_top := Vector3(out * 0.62, base_y + 0.2, 0.15 if wh.axle_z > 0.0 else -0.45)
+		_tube(link_top, wh.mount + Vector3(-out * 0.16, 0.05, 0.0), 0.035, alu, group)
+		var drum := _part(_cyl(0.07, 0.12, 12), dark, Vector3(-out * 0.12, 0.0, 0.0), pivot, axle)
+		drum.name = "motor"
+		wheels.append({"pivot": pivot, "spin": spin, "mount": wh.mount})
+	for side in [-1.0, 1.0]:
+		_tube(Vector3(side * 0.62, base_y + 0.2, 0.15), Vector3(side * 0.62, base_y + 0.2, -0.45), 0.04, alu, group)
+	# The arm: shoulder (azimuth, then lift), elbow, wrist, and the turret's tools on its face.
+	var shoulder := Node3D.new()
+	shoulder.position = RoverArm.SHOULDER
+	group.add_child(shoulder)
+	var lift := Node3D.new()
+	shoulder.add_child(lift)
+	_part(_cyl(0.07, 0.16, 12), alu, Vector3.ZERO, lift, Basis(Vector3.FORWARD, PI * 0.5))
+	_tube(Vector3.ZERO, Vector3(0.0, 0.0, RoverArm.UPPER), 0.045, body_white, lift)
+	var elbow := Node3D.new()
+	elbow.position = Vector3(0.0, 0.0, RoverArm.UPPER)
+	lift.add_child(elbow)
+	_part(_cyl(0.06, 0.14, 12), alu, Vector3.ZERO, elbow, Basis(Vector3.FORWARD, PI * 0.5))
+	_tube(Vector3.ZERO, Vector3(0.0, 0.0, RoverArm.FOREARM), 0.04, body_white, elbow)
+	var wrist := Node3D.new()
+	wrist.position = Vector3(0.0, 0.0, RoverArm.FOREARM)
+	elbow.add_child(wrist)
+	# The turret hangs below the wrist: the coring drill, PIXL, SHERLOC and WATSON round its face.
+	_part(_box(0.34, 0.2, 0.34), body_white, Vector3(0.0, -RoverArm.WRIST * 0.55, 0.0), wrist)
+	_tube(Vector3(0.0, -RoverArm.WRIST * 0.6, 0.0), Vector3(0.0, -RoverArm.WRIST, 0.0), 0.025, alu, wrist)
+	_part(_box(0.12, 0.1, 0.1), gold, Vector3(0.14, -RoverArm.WRIST * 0.75, 0.1), wrist)
+	_part(_box(0.1, 0.08, 0.12), dark, Vector3(-0.14, -RoverArm.WRIST * 0.7, -0.08), wrist)
+	joints = {"az": shoulder, "lift": lift, "elbow": elbow, "wrist": wrist}
+

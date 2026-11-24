@@ -32,6 +32,7 @@ func _ready() -> void:
 	await _land("lm:terminal_descent", "Moon")
 	await _drive_lrv()
 	await _land("skycrane:sky_crane", "Mars")
+	await _drive_perseverance()
 	await _parity("skycrane:sky_crane")
 	_measured_relief()
 	await _earth()
@@ -146,6 +147,43 @@ func _drive_lrv() -> void:
 	f.teardown()
 	await get_tree().process_frame
 	check("nothing of it is left after the flight", f.rover == null and not is_instance_valid(model))
+
+# Perseverance, taken over from the Sky Crane where it touched down: on the drawn triangles, driven, its
+# turret put on the drawn ground ahead.
+func _drive_perseverance() -> void:
+	var f: Spaceflight = main.flight
+	check("the Sky Crane's rover can drive off", f.can_deploy_rover() and f.deploy_rover())
+	if f.rover == null: return
+	var r: Rover = f.rover
+	check("it is Perseverance, where the stage touched down", str(r.spec.name) == "Perseverance"
+		and Vector2(r.pos.x, r.pos.z).distance_to(Vector2(f.vessel.ground.site_point(f.vessel, f.vessel.r).x, f.vessel.ground.site_point(f.vessel, f.vessel.r).z)) < 0.5)
+	var start := r.pos.clone()
+	r.throttle = 1.0
+	main.set_drawn(false)
+	for i in 20 * 120: main.step_flight(0.05)
+	var moved := r.pos.sub(start).length()
+	check("it drives %s m in two minutes (%s m/h)" % [U.fixed(moved, 2), U.fixed(moved / 120.0 * 3600.0, 0)], moved > 3.0 and moved < 5.2)
+	r.throttle = 0.0
+	for i in 20 * 10: main.step_flight(0.05)
+	var aim := f.rover_ground_ahead(1.5)
+	check("the arm reaches the ground 1.5 m ahead", f.rover_arm.reach(aim))
+	for i in 20 * 90: main.step_flight(0.05)
+	main.set_drawn(true)
+	var face := RoverArm.tip(f.rover_arm.joints)
+	var world := r.pos.clone().add_in(DQuat.rotate(DVec3.from_v3(face), r.q))
+	var site: SurfaceSite = f.ground_site
+	var drawn := SiteScene.drawn_height(site.relief.grids, -world.x, world.z, site.patch_y, site.relief.radius_m, false)
+	check("its turret stands on the drawn ground (%s m over it)" % U.fixed(world.y - drawn, 3), f.rover_arm.placed and absf(world.y - drawn) < 0.02)
+	var worst := 0.0
+	for wh: Rover.Wheel in r.wheels:
+		if not wh.contact: continue
+		var cp: DVec3 = wh.contact_point
+		worst = maxf(worst, absf(cp.y + wh.sinkage - SiteScene.drawn_height(site.relief.grids, -cp.x, cp.z, site.patch_y, site.relief.radius_m, false)))
+	check("its wheels on the drawn triangles less their sinkage (worst %s m)" % U.expo(worst, 1), worst < 1e-6)
+	for i in 3: main.animate(1.0 / 60.0)
+	check("drawn as Perseverance, the stage that lowered it gone", f.rover_model != null and f.rover_model.group.name == "Perseverance"
+		and not f.craft.group.visible)
+	f.teardown()
 
 # The contact sampler against the triangles as built, over both grids.
 func _sampler(spec: String, site: SurfaceSite, meshes: Array) -> void:

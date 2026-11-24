@@ -11,14 +11,20 @@ const SHADER := preload("res://shaders/surface/track.gdshader")
 const STEP := 0.2
 const MAX_POINTS := 3000
 
-var paths: Array = [[], [], [], []]       # per wheel: [Vector3 contact point (site frame), sinkage m, distance m]
+var paths: Array = []       # per wheel: [Vector3 contact point (site frame), sinkage m, distance m]
 var view: MeshInstance3D = null
 var _dirty := false
-var _last: Array = [null, null, null, null]
+## The tread's width, m.
+var width := 0.23
+var _last: Array = []
 var _mat: ShaderMaterial = null
 
 ## Record the wheels' contact points as they move on.
 func step(rover: Rover) -> void:
+	width = float(rover.spec.wheel_b)
+	while paths.size() < rover.wheels.size():
+		paths.append([])
+		_last.append(null)
 	for i in rover.wheels.size():
 		var wh: Rover.Wheel = rover.wheels[i]
 		if not wh.contact: continue
@@ -56,7 +62,7 @@ func draw(parent: Node3D, up_offset := 0.006) -> void:
 			var d := b - a
 			if d.length() < 1e-4:
 				continue
-			var side := d.cross(Vector3.UP).normalized() * (Rover.WHEEL_B * 0.5)
+			var side := d.cross(Vector3.UP).normalized() * (width * 0.5)
 			var base := verts.size()
 			for p in [a - side, a + side, b - side, b + side]:
 				verts.append((p as Vector3) + Vector3.UP * up_offset)

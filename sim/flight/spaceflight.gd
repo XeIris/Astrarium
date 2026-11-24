@@ -125,6 +125,7 @@ var rover: Rover = null
 var rover_model: RoverModel = null
 var rover_dust: RoverDust = null
 var rover_tracks: RoverTracks = null
+var rover_arm: RoverArm = null
 var driving := false
 ## Whether the keys drive it; a script that sets the rover's throttle and steering itself turns this off.
 var rover_keys := true
@@ -1103,6 +1104,7 @@ func set_camera_mode(m: String) -> void:
 func camera_modes() -> Array:
 	if docking != null:
 		return ["berth", "orbit", "interior"] if vessel.vehicle.has("interior") else ["berth", "orbit"]
+	if driving and rover != null and str(rover.spec.name) == "Perseverance": return ["chase", "orbit", "mast"]
 	var modes := ["chase", "orbit", "cockpit", "pad"]
 	if vessel != null and vessel.vehicle.has("interior") and subject == null:
 		modes.insert(3, "interior")
@@ -1352,18 +1354,25 @@ func can_deploy_rover() -> bool:
 		and vessel.ground.adopted and vessel.vehicle.get("rover") != null
 
 ## Put the rover down beside the vehicle (7 m east of its centre, clear of an LM's 9.4 m leg span, facing
-## north) and take the wheel. The vehicle stands in its way as a cylinder of its own diameter.
+## north) and take the wheel; the vehicle stands in its way as a cylinder of its own diameter. A rover that
+## is the landed stage itself (`roverOffset` 0, the Sky Crane's) starts where it stands, and what lowered it
+## has gone.
 func deploy_rover() -> bool:
 	if rover != null or not can_deploy_rover(): return false
 	var g: SurfaceGround = vessel.ground
 	var at := g.site_point(vessel, vessel.r)
-	rover = Rover.new(Rover.SiteGround.new(g.relief.grids, g.patch_y, g.relief.radius_m), float(vessel.env.gSurf))
-	rover.obstacles = [[Vector2(at.x, at.z), maxf(float(vessel.diameter) * 0.6, 1.0)]]
-	rover.place(-at.x + 7.0, at.z, 0.0)
+	var spec: Dictionary = Rover.VEHICLES.get(str(vessel.vehicle.rover), Rover.LRV)
+	var soil: Dictionary = Rover.SOILS.get(vessel.parent.name, Rover.LUNAR_SOIL)
+	rover = Rover.new(Rover.SiteGround.new(g.relief.grids, g.patch_y, g.relief.radius_m), float(vessel.env.gSurf), spec, soil)
+	var offset := float(vessel.vehicle.get("roverOffset", 7.0))
+	if offset > 0.0: rover.obstacles = [[Vector2(at.x, at.z), maxf(float(vessel.diameter) * 0.6, 1.0)]]
+	elif craft != null: craft.group.visible = false
+	rover.place(-at.x + offset, at.z, 0.0)
+	rover_arm = RoverArm.new() if str(spec.name) == "Perseverance" else null
 	rover_tracks = RoverTracks.new()
 	rover_dust = RoverDust.new(rover.g, 0.0 if vessel.env.atm == null else 4.0, vessel.id)
 	driving = true
-	vessel.log_event("LRV deployed — 7 m east of the LM")
+	vessel.log_event("%s deployed%s" % [str(spec.name), (" — %s m east of the lander" % U.fixed(offset, 0)) if offset > 0.0 else ""])
 	return true
 
 func _step_rover(sim_seconds: float) -> void:
@@ -1373,6 +1382,7 @@ func _step_rover(sim_seconds: float) -> void:
 		rover.steer = (1.0 if c.held("steer_left", main.keys) else 0.0) - (1.0 if c.held("steer_right", main.keys) else 0.0)
 	# At most a few seconds of driving in one frame: warped time on the ground is the rover's too.
 	rover.advance(minf(sim_seconds, 4.0))
+	if rover_arm != null: rover_arm.advance(minf(sim_seconds, 4.0))
 	rover_tracks.step(rover)
 	if history and rover_dust != null: rover_dust.step(rover, minf(sim_seconds, 0.25))
 
@@ -1387,7 +1397,26 @@ func _drop_rover() -> void:
 	rover = null
 	rover_dust = null
 	rover_tracks = null
+	rover_arm = null
 	driving = false
+
+## Send the arm's turret to the ground 1.5 m ahead of the body, or stow it.
+func _toggle_arm() -> void:
+	if not rover_arm.stowed:
+		rover_arm.stow()
+		_toast("Arm stowing")
+		return
+	var at_ground := rover_ground_ahead(1.5)
+	if rover_arm.reach(at_ground): _toast("Arm to the ground ahead")
+	else: _toast("The ground ahead is out of the arm's reach")
+
+## The ground `ahead` m in front of the rover's body, on its centreline, in the body frame.
+func rover_ground_ahead(ahead: float) -> Vector3:
+	var fwd := DQuat.rotate(DVec3.new(0.0, 0.0, 1.0), rover.q)
+	var p := rover.pos.clone().add_scaled_in(fwd, ahead + 0.85)
+	var y: float = rover.ground.height(-p.x, p.z)
+	p.y = y
+	return DQuat.rotate(p.sub(rover.pos), rover.q.clone().invert()).to_v3()
 
 ## The rover in the local frame, where the camera and placement work: its centre of mass.
 func rover_local() -> DVec3:
@@ -1742,8 +1771,16 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 			fly_cam.look_at(subject.pos, Vector3.UP)
 	elif driving and rover != null and ground_site != null:
 		interior.set_enabled(false, craft, vessel.vehicle)
-		fly_cam.update({"craftPos": rover_local(), "craftBasis": _site_basis * Basis(rover.q.to_quaternion()),
-			"length": 3.1, "up": Vector3(0, 1, 0), "dt": dt, "sunLocal": sun_l, "interior": {}})
+		var rb := _site_basis * Basis(rover.q.to_quaternion())
+		if fly_cam.state.mode == "mast":
+			# The mast's head, 2.2 m over the ground, looking ahead and a little down, as its cameras do.
+			var head := Vector3(-0.45, 2.2 - float(rover.spec.com_height) - 0.12, 0.95)
+			fly_cam.pos.copy_from(rover_local()).add_in(DVec3.from_v3(rb * head))
+			fly_cam.look_at(fly_cam.pos.clone().add_in(DVec3.from_v3(rb * Vector3(0.0, -0.25, 1.0))), Vector3.UP)
+			fly_cam.near = 0.05
+		else:
+			fly_cam.update({"craftPos": rover_local(), "craftBasis": rb,
+				"length": float(rover.spec.size[2]), "up": Vector3(0, 1, 0), "dt": dt, "sunLocal": sun_l, "interior": {}})
 	else:
 		interior.set_enabled(fly_cam.state.mode == "interior", craft, vessel.vehicle)
 		fly_cam.update({"craftPos": craft_pos, "craftBasis": craft_basis,
@@ -1829,10 +1866,10 @@ func _place_ground(east: DVec3, up: DVec3, north: DVec3, R_loc: float, fr: Dicti
 
 func _draw_rover() -> void:
 	if rover_model == null:
-		rover_model = RoverModel.build()
+		rover_model = RoverModel.build(rover.spec)
 		ground_site.group.add_child(rover_model.group)
 	rover_model.group.transform = RoverModel.site_transform(rover)
-	rover_model.update(rover)
+	rover_model.update(rover, rover_arm)
 	rover_tracks.draw(ground_site.group)
 	var tint := (ground_site._mat.get_shader_parameter("uSoil") as Vector3)
 	rover_dust.draw(ground_site.group, Color(tint.x, tint.y, tint.z).linear_to_srgb())
@@ -2074,8 +2111,17 @@ func rover_readout() -> String:
 		sink = maxf(sink, wh.sinkage)
 	var home := vessel.ground.site_point(vessel, vessel.r) if vessel.ground != null else Vector3.ZERO
 	var away := Vector2(rover.pos.x - home.x, rover.pos.z - home.z).length()
-	return "LRV · %s km/h · heading %s° · slip %s%% · tracks %s cm · %s m from the LM" % [U.fixed(absf(rover.speed()) * 3.6, 1),
+	var name := str(rover.spec.name)
+	var line := "%s · %s · heading %s° · slip %s%% · tracks %s cm · %s m from where it landed" % [name,
+		("%s km/h" % U.fixed(absf(rover.speed()) * 3.6, 1)) if name == "LRV" else ("%s m/h" % U.fixed(absf(rover.speed()) * 3600.0, 0)),
 		U.fixed(fposmod(rad_to_deg(rover.heading()), 360.0), 0), U.fixed(slip * 100.0, 0), U.fixed(sink * 100.0, 1), U.fixed(away, 0)]
+	if rover_arm != null:
+		line += " · arm %s" % ("stowed" if rover_arm.stowed and rover_arm.joints == rover_arm.target else ("on the ground" if rover_arm.placed else "moving"))
+	# MEDA's air: the site's, as the surface model has it here (SurfaceSite: its weather, at the ground).
+	if ground_site != null and vessel.env.atm != null:
+		var w := ground_site.weather.now()
+		line += " · MEDA %s Pa, %s °C, wind %s m/s" % [U.fixed(ground_site.pressure_here * 1e5, 0), U.fixed(ground_site.temp_here - 273.15, 0), U.fixed(float(w.wind), 1)]
+	return line
 
 ## Distance (m) and speed (m/s) of the vessel relative to the navigation point, which
 ## moves with its pair's rotating frame: {name, dist, speed, closing}, or null.
@@ -2126,7 +2172,12 @@ func key_action(action: String) -> bool:
 			vessel.throttle = maxf(0.0, vessel.throttle - 0.06); return true
 		"stage":
 			vessel.stage(); return true
+		"flight_follow":
+			follow_next(); return true
 		"gear":
+			if driving and rover_arm != null:
+				_toggle_arm()
+				return true
 			for st in vessel.stages:
 				if st.attached and int(st.spec.get("look", {}).get("arms", 0)) > 0:
 					arms_out = not arms_out
@@ -2137,8 +2188,6 @@ func key_action(action: String) -> bool:
 					st.gear_out = not st.gear_out
 					break
 			return true
-		"flight_follow":
-			follow_next(); return true
 		"rover":
 			if rover == null:
 				if not deploy_rover():

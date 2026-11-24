@@ -1,7 +1,12 @@
-# The rover: `sim/surface/rover.gd`, `rover_dust.gd`, `rover_tracks.gd`
+# The rovers: `sim/surface/rover.gd`, `rover_arm.gd`, `rover_dust.gd`, `rover_tracks.gd`
 
-The Apollo Lunar Roving Vehicle, put down beside a landed LM (`Spaceflight.deploy_rover`, key U; W A S D drive it)
-on the surveyed site it landed on ([the ground under a landing](surface.md#the-ground-under-a-landing)). In the site's
+Two vehicles, as data on one physics (`Rover.LRV`, `Rover.PERSEVERANCE`), on the world's soil (`Rover.SOILS`):
+- the Apollo Lunar Roving Vehicle, put down beside a landed LM;
+- Perseverance, the stage the Sky Crane lowered, driven off from where it touched down.
+
+Key U deploys either, W A S D drive, and on Perseverance G sends the arm to the ground and C reaches the mast
+camera (`Spaceflight.deploy_rover`). They drive on the surveyed site the lander came down on
+([the ground under a landing](surface.md#the-ground-under-a-landing)). In the site's
 frame (x west, y up, z north), SI, doubles, a fixed 1/600 s step, on the flight clock whether drawn or not. It reads
 the ground and writes nothing back.
 
@@ -89,4 +94,46 @@ drag rate stands in for a 50 µm grain's (an estimate). Drawing only.
 left the ground starts a new strip. Drawing only. The soil does not yet remember being driven over (repetitive
 loading compacts it).
 
-Not modelled: rocks, the regolith's density with depth, a tyre's flex, the batteries' charge, a crew standing up.
+## Perseverance
+
+From [NASA's rover pages](https://science.nasa.gov/mission/mars-2020-perseverance/rover-components/) and
+[JPL's press kit](https://www.jpl.nasa.gov/news/press_kits/mars_2020/launch/mission/spacecraft/perseverance_rover/):
+1025 kg, 3 × 2.7 × 2.2 m, six 52.5 cm wheels each with its own motor, the corner four steering, a rocker-bogie,
+152 m/h on flat hard ground, a 45° tilt without tipping, and a five-jointed 2 m arm with a 45 kg turret.
+
+These are estimates: the axles' places and the track inside the 3 × 2.7 m, the tread (narrower than Curiosity's), the
+centre of mass, the drive's torque limit, the steering's least radius (2 m) and rate. The rocker-bogie is a passive
+linkage, stood in for here by stiff springs with its travel, so the loads it shares are not the linkage's. The drive
+is speed-controlled: each wheel is commanded for its own arc about the turn's centre and held there as far as its
+torque allows.
+
+The soil is M90, a simulant of the sand of Martian dunes and ripples: kc 572.1 kN/m^(n+1), kφ 4915.3 kN/m^(n+2),
+n 1.3, c 2 kPa, φ 35°, K 0.0254. These are Oravec et al. 2021's values, as [arXiv 2606.06790](https://arxiv.org/html/2606.06790)'s
+Table 2 gives them, untuned there. Its K is labelled mm, and read here in metres, as the dry sand's beside it is.
+
+| Test (`rovercheck`) | This model | The record |
+| --- | --- | --- |
+| Sinkage at rest in M90 | 1.95 cm (Bekker's exactly) | Curiosity's wheels went in about 1 cm on Gale's firmer ground ([Arvidson et al. 2014](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1002/2013JE004605)) |
+| Level sand, full speed | 138 m/h | 152 m/h on flat hard ground, less its 8% slip in sand |
+| Up 15° of sand | 93 m/h, 33% slip | — (25°: 39 m/h, 62% slip, printed) |
+| Full lock | 2.02 m radius | its corner wheels set for 2 m |
+| Parked across 40° | stands; would tip past 49° | a 45° tilt without tipping |
+
+## The arm
+
+`rover_arm.gd`. A shoulder that turns and lifts, an elbow, and a wrist that keeps the turret square to the ground.
+Its links are estimates within JPL's 2 m. It places the turret's face on a point of ground the rover can reach, by
+the law of cosines in the arm's vertical plane, elbow up, and moves there at 0.15 rad/s a joint. It is kinematics
+only: its mass does not move the rover. `rovercheck` holds the solve to the forward kinematics: 241 points reached,
+the worst 2.5e-7 m out, and 159 out of reach refused. `groundcheck` puts the turret on the drawn ground 1.5 m ahead
+of Perseverance after its Sky Crane landing.
+
+## Instruments
+
+The flight HUD's rover line carries MEDA's air: the pressure, temperature and wind the surface model has at the site
+(`SurfaceSite`, [the surface's weather](surface.md#weather)). It is the model's, not a measurement, and the model's
+Martian winds run two to three times high. The mast camera (C) looks from the mast's head, 2.2 m up, ahead and a
+little down. Mastcam-Z's zoom is not modelled.
+
+Not modelled: rocks, the regolith's density with depth, a tyre's flex, the batteries' charge or the MMRTG's power,
+a crew standing up, what the instruments would read off the rocks (no composition), dust devils.
