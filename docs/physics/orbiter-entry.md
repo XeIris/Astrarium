@@ -169,6 +169,11 @@ The flight-path reference is:
 - **Gear down** at 90 m (300 ft).
 - **Flare**: a sink rate of `0.9 + 0.11 h` m/s below 30 m.
 
+These heights are for the Shuttle's 100 m/s. A glider below 60 m/s takes the inner slope's 40 m, the flare's 30 m
+and its sink schedule in proportion to its airspeed over 60 m/s, down to a quarter: the Survey Shuttle in Titan's
+thick air comes in at 20 m/s, and at the Shuttle's heights it floated for a minute and stalled over rising ground.
+Above 60 m/s, every Earth approach, nothing changes.
+
 Touchdown is on the main wheels. `gear.point`, in the stage frame, is the contact
 patch, which sits off the vessel's reference point once the stack has staged
 (`Vessel.contact_altitude`). The rating is 9.6 ft/s (2.9 m/s) of sink.

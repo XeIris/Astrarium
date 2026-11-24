@@ -83,6 +83,17 @@ A summit reads below its peak because a cell is a mean or a median over its quar
    Everest's 8.8 km is 2.5, and the gravity ratio is 2.6
    ([table](https://en.wikipedia.org/wiki/List_of_tallest_mountains_in_the_Solar_System)). `surfacecheck` holds the
    local relief to that ratio. Its ±450 m on Earth (`ROUGH_M` 900 m, half of it either way) is itself an estimate.
+   A world that states its relief (`landRelief`, km from the datum to its highest rises; the crust's default is
+   3.2) scales its roughness with that instead: the statement already holds what strength and erosion made of it.
+   Titan's 1 km (Corlies et al. 2017 keep it within about ±2 km of its geoid, its mountains under 700 m) gives
+   it under a third of Earth's roughness, where 1/g alone would give it four times.
+2a. **Dunes,** on a world that states a dune field (`dunes`: Titan's equatorial sand seas). Linear ridges of a
+   stated height and width, a stated spacing apart along a stated bearing, meandering a little (a twelfth of a
+   wavelength's noise), with flat interdunes between. They thin out over the outer third of their latitude band
+   and stay out of a sea. Only a grid with six cells or more to a spacing carries them: the near grid's 6 km about
+   a landing, not the far grid's 1 km cells. Titan's: 120 m high, 1 km wide, 3 km apart, along 80° within 30° of
+   the equator, a choice inside Lorenz et al. (2006) and Radebaugh et al. (2008): 100–150 m, about 1 km, 1–4 km,
+   roughly east–west.
 3. **Rivers,** where anything flows: the stream-power law,
 
        dz/dt = U − K A^m S^n + D∇²z,     m = 0.5, n = 1
