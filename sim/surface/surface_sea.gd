@@ -1,8 +1,8 @@
 class_name SurfaceSea
 extends RefCounted
 
-# The sea under a vessel built to float (`floats` in its vehicle), coming down on a world with oceans: the
-# recovery area's weather and its FFT sea, asked for when the chutes open and stood on 20 flight-seconds later,
+# The sea under a vessel built to float (`floats` in its vehicle), coming down on a world with oceans or with
+# seas stated where they were mapped (StatedSeas: Titan's): the recovery area's weather and its FFT sea, asked for when the chutes open and stood on 20 flight-seconds later,
 # then the Floater that takes the vessel the last few metres down and holds it afloat. Physics only, owned by
 # the Vessel; Spaceflight draws the site (SurfaceSite with this field) and the floating craft. It reads the
 # world and writes nothing back. docs/physics/ocean.md#coming-down-at-sea. SI.
@@ -26,6 +26,10 @@ var weather: SurfaceWeather = null
 var liquid := Liquid.SEAWATER
 var field: OceanField = null
 var floater: Floater = null
+## What floats: Capsule (the Apollo CM) or TimeCapsule, by the vehicle's `floats`.
+var hull = Capsule
+var depth := DEPTH
+var fetch := FETCH
 var adopt_at := INF
 var adopted := false
 ## Coordinate time of the site's clock zero, s; and when the bags were switched on, on that clock (−1 not).
@@ -42,9 +46,12 @@ var _m := DVec3.new()
 
 ## The sea for a vessel of `vehicle` over `b`, or null.
 static func for_world(b: Body, env: Dictionary, vehicle: Dictionary, seed_: int) -> SurfaceSea:
-	if b == null or b.climate == null or not bool(vehicle.get("floats", false)) or not bool(env.get("oceans", false)): return null
+	var floats = vehicle.get("floats", false)
+	if b == null or b.climate == null or not (floats is String or bool(floats)): return null
+	if not bool(env.get("oceans", false)) and not StatedSeas.has(b.name): return null
 	var s := SurfaceSea.new()
 	s.body = b
+	s.hull = hull_for(vehicle)
 	s.run_seed = seed_
 	SurfaceStats.count("sea_init")
 	return s
@@ -55,7 +62,7 @@ func request(v: Vessel, rr: DVec3) -> void:
 	var theta := v.body_angle(v.coord)
 	var ll := SurfaceGround.lat_lon(SurfaceGround.to_mesh(rr, theta, DVec3.new()))
 	var p := PlanetPin.at(body, ll[0], ll[1])
-	if not (str(p.ground.kind) in ["sea"]):
+	if str(p.ground.kind) != "sea":
 		v.log_event("Coming down on land at %s° %s°" % [U.fixed(rad_to_deg(ll[0]), 1), U.fixed(rad_to_deg(ll[1]), 1)])
 		return
 	pin = p
@@ -65,15 +72,20 @@ func request(v: Vessel, rr: DVec3) -> void:
 	DQuat.nrm(north)
 	datum_r = v.surface_r(rr)
 	liquid = Liquid.of(body.name)
+	# A stated mare's own depth under the point and its breadth for the fetch; the open ocean's elsewhere.
+	if p.ground.has("mare"):
+		var mare := StatedSeas.at(body.name, ll[0], ll[1], body.radius * Rocketry.AU_M)
+		depth = maxf(float(mare.depth), 10.0)
+		fetch = 2.0 * float(mare.reach)
 	weather = SurfaceWeather.new()
 	weather.setup(body, body.climate, pin.lat, pin.lon, SurfaceSite.site_seed(body, pin, run_seed))
 	var w := weather.now()
-	field = OceanField.new(float(body.climate.gravity), DEPTH, liquid, maxf(float(w.wind), 0.5), float(w.wind_dir), FETCH,
+	field = OceanField.new(float(body.climate.gravity), depth, liquid, Liquid.field_wind(liquid, float(w.wind)), float(w.wind_dir), fetch,
 		SurfaceSite.site_seed(body, pin, run_seed))
 	t0 = v.coord
 	adopt_at = v.coord + ADOPT_S
-	v.log_event("Recovery area at %s° %s°: wind %s m/s, waves %s m" % [U.fixed(rad_to_deg(ll[0]), 2), U.fixed(rad_to_deg(ll[1]), 2),
-		U.fixed(float(w.wind), 1), U.fixed(field.hs(), 1)])
+	v.log_event("%s at %s° %s°: wind %s m/s, waves %s m" % [str(p.ground.get("mare", "Recovery area")), U.fixed(rad_to_deg(ll[0]), 2),
+		U.fixed(rad_to_deg(ll[1]), 2), U.fixed(float(w.wind), 1), U.fixed(field.hs(), 2)])
 
 ## The site's clock at the vessel's coordinate time, s.
 func site_time(v: Vessel) -> float:
@@ -94,7 +106,7 @@ func tick(v: Vessel, dt: float) -> void:
 	if floater.chute != null and splash_t >= 0.0 and now - splash_t > MAINS_CUT:
 		floater.chute = null
 		v.log_event("Main chutes released")
-	if bags_at >= 0.0: Capsule.inflate(floater, (now - bags_at) / Capsule.INFLATE_S)
+	if bags_at >= 0.0: hull.inflate(floater, (now - bags_at) / Capsule.INFLATE_S)
 	var was_wet := floater.wet
 	var vz := floater.v[1]
 	floater.advance(now)
@@ -108,7 +120,7 @@ func tick(v: Vessel, dt: float) -> void:
 
 ## Hand the vessel to the sea: a Floater at its place, velocity and attitude, under the chute it has out.
 func take(v: Vessel, chute_at_y: float) -> void:
-	floater = Capsule.floater(float(body.climate.gravity), liquid, float(Rocketry.density(v.env.atm, 0.0)) if v.env.atm != null else 0.0)
+	floater = hull.floater(float(body.climate.gravity), liquid, float(Rocketry.density(v.env.atm, 0.0)) if v.env.atm != null else 0.0)
 	floater.field = field
 	floater.t = site_time(v)
 	var at := site_point(v, v.r)
@@ -117,19 +129,24 @@ func take(v: Vessel, chute_at_y: float) -> void:
 	var to_site := Basis(_v3(ax[1]), _v3(ax[2]), _v3(ax[3])).inverse()
 	var body_b := to_site * Basis(v.q.to_quaternion())
 	floater.set_basis(body_b)
-	var cg := body_b * Vector3(Capsule.CG_X, Capsule.CG_Y, 0.0)
+	var centre: Vector3 = hull.centre()
+	var cg := body_b * centre
 	floater.p = PackedFloat64Array([at.x + cg.x, at.y + cg.y, at.z + cg.z])
 	var gv := v.ground_velocity(v.r, v.v, DVec3.new())
 	var sv := to_site * gv.to_v3()
 	floater.v = PackedFloat64Array([sv.x, sv.y, sv.z])
 	if v.chute_open != null:
-		floater.chute = {"at": PackedFloat64Array([-Capsule.CG_X, chute_at_y - Capsule.CG_Y, 0.0]),
+		floater.chute = {"at": PackedFloat64Array([-centre.x, chute_at_y - centre.y, 0.0]),
 			"area": float(v.chute_open.area), "cd": float(v.chute_open.Cd)}
 	v.log_event("On the sea's own physics — %s m up" % U.fixed(v.altitude(), 1))
 
-## Start the uprighting bags' compressors.
+## What floats for a vehicle: TimeCapsule for `floats: "time"`, otherwise the CM.
+static func hull_for(vehicle: Dictionary):
+	return TimeCapsule if str(vehicle.get("floats", "")) == "time" else Capsule
+
+## Start the uprighting bags' compressors, on a craft that has them.
 func inflate_bags(v: Vessel) -> void:
-	if floater == null or bags_at >= 0.0: return
+	if floater == null or bags_at >= 0.0 or hull != Capsule: return
 	bags_at = site_time(v)
 	v.log_event("Uprighting bags inflating")
 

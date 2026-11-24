@@ -87,6 +87,8 @@ func agl(v: Vessel, rr: DVec3) -> float:
 		var e := _m.dot(east)
 		var n := _m.dot(north)
 		var g := SiteScene.drawn_height(relief.grids, e, n, patch_y, relief.radius_m, false)
+		# A stated sea's floor is under its liquid, which is what stops a fall.
+		if relief.stated != "": g = maxf(g, 0.0)
 		if not is_nan(g): return _m.dot(c) - datum_r - g
 	var ll := lat_lon(_m)
 	return v.altitude(rr) - coarse_m(ll[0], ll[1])
@@ -96,7 +98,14 @@ func agl(v: Vessel, rr: DVec3) -> float:
 func coarse_m(lat: float, lon: float) -> float:
 	if elevation != null: return elevation.at(lat, lon)
 	var h := crust.height(PlanetPin.direction(lat, lon)).x
-	return (h - crust.sea_km if crust.sea_km > -30.0 else h) * 1000.0
+	var m := (h - crust.sea_km if crust.sea_km > -30.0 else h) * 1000.0
+	# Over a stated sea, what an altimeter ranges to is the liquid, at the datum.
+	if StatedSeas.has(body.name) and _at_sea(lat, lon): return 0.0
+	return m
+
+func _at_sea(lat: float, lon: float) -> bool:
+	var mare := StatedSeas.at(body.name, lat, lon, body.radius * Rocketry.AU_M)
+	return not mare.is_empty() and float(mare.inside) > 0.0
 
 ## Survey the ground around the flight-frame point `rr`, once. The first request stands.
 func request(v: Vessel, rr: DVec3) -> void:
@@ -104,6 +113,10 @@ func request(v: Vessel, rr: DVec3) -> void:
 	var theta := v.body_angle(v.coord)
 	var ll := lat_lon(to_mesh(rr, theta, DVec3.new()))
 	pin = PlanetPin.at(body, ll[0], ll[1])
+	# At sea the liquid is the ground, and SurfaceSea stands under a craft built to float.
+	if str(pin.ground.kind) == "sea":
+		v.log_event("Coming down on %s" % str(pin.ground.get("mare", "the sea")))
+		return
 	c.set_v(cos(ll[1]) * cos(ll[0]), sin(ll[0]), -sin(ll[1]) * cos(ll[0]))
 	east.set_v(-sin(ll[1]), 0.0, -cos(ll[1]))
 	north.cross_vectors(c, east)

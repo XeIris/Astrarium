@@ -900,6 +900,10 @@ func authority(pa: float) -> Dictionary:
 			# roughly the radius plus a fraction of the length.
 			tau += s.rcs.thrust * maxf(float(s.rcs.count) / 4.0, 1.0) * (diameter * 0.5 + L * 0.25)
 	tau += _aero_control(L)
+	# Under a canopy the risers hold the craft below it, a pendulum on the chute's drag at about a body length:
+	# what turns a capsule without thrusters to hang in the airflow, as the steering law asks.
+	if chute_open != null:
+		tau += float(telemetry.get("q", 0.0)) * float(chute_open.Cd) * float(chute_open.area) * chute_deploy * L
 	return { "alpha": tau / maxf(I.pitch, 1.0), "tau": tau, "I": I, "gimballed": gimballed }
 
 ## Steering torque from control surfaces in the airflow, N·m: a lone ship's flaps

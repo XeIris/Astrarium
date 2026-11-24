@@ -934,6 +934,7 @@ static func _build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	if _t(look.get("tank")): return ShuttleLines.build_et(spec, parts)
 	if _t(look.get("aeroshell")): return build_aeroshell(spec, parts)
 	if _t(look.get("cm")): return Capsule.build_model(spec, parts)
+	if _t(look.get("time")): return TimeCapsule.build_model(spec, parts)
 	# Inside the backshell until it is released; then RotorcraftModel draws it.
 	if _t(look.get("dragonfly")): return {"group": _grp(), "parts": parts}
 	if _t(look.get("skycrane")): return build_sky_crane(spec, parts)

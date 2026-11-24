@@ -55,6 +55,9 @@ var rain_mm := 0.0                  # mm/yr, 0 for no running water
 var flowing := false
 var crater := 0.0
 var map_land := -1                  # 1 land, 0 sea when a map says, else the crust does
+## A world whose seas are stated (StatedSeas), or "": under a mare the floor is its depth, off it the land
+## the crust has, kept above the datum.
+var stated := ""
 ## Measured height in place of the crust's, m from sea level (or the datum on a dry world); loaded
 ## by the caller on the main thread.
 var elevation: PlanetElevation = null
@@ -143,6 +146,7 @@ func _grid_from_crust(half: float) -> PackedFloat32Array:
 				coarse[j * m + i] = elevation.at(ll.x, ll.y)
 			else:
 				coarse[j * m + i] = (relief.height(_dir(e, n)).x * 1000.0) - sea_m
+				if stated != "": coarse[j * m + i] = _stated_height(_dir(e, n), coarse[j * m + i])
 		progress = 0.1 * float(j + 1) / m
 	if elevation != null:
 		_keep_map_coast(coarse, m, 2.0 * half / (m - 1))
@@ -165,6 +169,18 @@ func _grid_from_crust(half: float) -> PackedFloat32Array:
 			tx = tx * tx * (3.0 - 2.0 * tx)
 			out[j * cells + i] = lerpf(lerpf(coarse[j0 * m + i0], coarse[j0 * m + i0 + 1], tx), lerpf(coarse[(j0 + 1) * m + i0], coarse[(j0 + 1) * m + i0 + 1], tx), ty)
 	return out
+
+# On a world with stated seas: the mare's floor under it, and off it the crust's land, rising from the shore
+# over SHORE_RISE so a coast is a beach, not the crust's height cut off.
+const SHORE_RISE := 20.0e3
+
+func _stated_height(d: Vector3, crust_m: float) -> float:
+	var ll := PlanetPin.lat_lon(d)
+	var mare := StatedSeas.at(stated, ll.x, ll.y, radius_m, INF)
+	if mare.is_empty(): return absf(crust_m) + COAST_M
+	var inside := float(mare.inside)
+	if inside > 0.0: return -maxf(float(mare.depth), COAST_M)
+	return absf(crust_m) * (1.0 - exp(inside / SHORE_RISE)) + COAST_M
 
 # A measured cell averages across a coast; the map, which is finer, says which side the pin is on.
 # Only the pin's own neighbourhood moves, over one measured cell, to a few metres on the map's side.

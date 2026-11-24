@@ -108,7 +108,8 @@ func setup(b: Body, cl: Climate, lat_r: float, lon_r: float, seed: int) -> void:
 	systems.clear()
 	_span = 2.0 * life_s
 	_age = 0.0
-	if has_air and eady_rate > 0.0:
+	# A cell that runs past the pole leaves no baroclinic zone poleward of it, so no storms grow (Titan, Venus).
+	if has_air and eady_rate > 0.0 and hadley < PI * 0.5:
 		var count: int = clampi(int(round(TAU * radius * cos(storm_lat) / wavelength)), 1, 16)
 		# Spread through their lives, so a visit does not start on a blank sky.
 		for i in count:

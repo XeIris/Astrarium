@@ -83,6 +83,14 @@ static func read_ground(b: Body, p: Vector3, lat_r: float, lon_r: float) -> Dict
 	elif sea: kind = "sea"
 	elif frost >= 0.5: kind = "ice sheet"
 	else: biome = _biome(t, pr, hr.y, biota, r)
+	# A stated sea is where it was mapped, whatever the crust draws there.
+	var mare := StatedSeas.at(b.name, lat_r, lon_r, b.radius * Rocketry.AU_M) if StatedSeas.has(b.name) else {}
+	if not mare.is_empty() and float(mare.inside) > 0.0:
+		kind = "sea"
+		biome = ""
+		out.depth_m = maxf(float(mare.depth), SurfaceRelief.COAST_M)
+		out.height_m = -float(out.depth_m)
+		out.mare = mare.name
 	out.kind = kind
 	out.biome = biome
 	out.text = describe(out, b)
@@ -145,7 +153,10 @@ static func _biome(t: float, pr: float, rug: float, biota: float, r: PlanetRelie
 static func describe(g: Dictionary, b: Body) -> String:
 	var c := "%s °C" % U.fixed(float(g.temp_k) - 273.15, 0)
 	match g.kind:
-		"sea": return "Open sea, %s deep, %s at the surface." % [_distance(float(g.depth_m)), c]
+		"sea":
+			if g.has("mare"):
+				return "%s: open sea of %s, %s deep, %s at the surface." % [g.mare, Liquid.of(b.name).name, _distance(float(g.depth_m)), c]
+			return "Open sea, %s deep, %s at the surface." % [_distance(float(g.depth_m)), c]
 		"sea ice": return "Sea ice over %s of water, %s." % [_distance(float(g.depth_m)), c]
 		"ice sheet": return "An ice sheet, %s, %s." % [_level(float(g.height_m), b), c]
 		_:

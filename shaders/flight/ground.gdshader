@@ -41,6 +41,11 @@ uniform vec3 uCamLocal = vec3(0.0);
 uniform int uShadowSteps = 6;
 uniform sampler2D uEarthColor : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D uEarthLand : filter_linear_mipmap_anisotropic, repeat_enable;
+// Seas the crust does not draw (StatedSeas): each cap's centre from the planet's centre in this patch's frame
+// (x east, y up, z north) and its angular radius; and the liquid's colour.
+uniform vec4 uMaria[8];
+uniform int uMariaN = 0;
+uniform vec3 uLiquid = vec3(0.01, 0.02, 0.03);
 
 varying float vDist;
 varying vec3 vWorld;
@@ -180,6 +185,20 @@ void fragment() {
 			float dep = smoothstep(uSeaLevel, uSeaLevel - 0.18, big);
 			col = mix(col, uSea, dep * 0.92);
 			water_frac = dep;
+		}
+		if (uMariaN > 0) {
+			// Metres in from the nearest shore of any cap, the coast pushed a few kilometres either way by
+			// noise, as the site's own survey of the coast is.
+			vec3 dir = normalize(vec3(vWorld.x, vWorld.y + uRadius, vWorld.z));
+			float inside = -1e9;
+			for (int i = 0; i < uMariaN; i++) {
+				inside = max(inside, (uMaria[i].w - acos(clamp(dot(dir, uMaria[i].xyz), -1.0, 1.0))) * uRadius);
+			}
+			inside += (fbm(gp * (1.0 / 9000.0) + vec2(4.4, 1.9)) - 0.5) * 6000.0
+				+ (fbm(gp * (1.0 / 900.0) + vec2(2.2, 6.1)) - 0.5) * 900.0 * (1.0 - smoothstep(2000.0, 20000.0, vDist));
+			float wet = smoothstep(-150.0, 150.0, inside);
+			col = mix(col, uLiquid, wet);
+			water_frac = max(water_frac, wet);
 		}
 	}
 

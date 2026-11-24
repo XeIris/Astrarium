@@ -21,9 +21,9 @@ extends RefCounted
 const DT := 0.05
 const MAX_FRAMES := 400000
 
-const ORDER := ["saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "apollocm", "dragonfly", "evapod", "ranger", "discovery", "endurance", "lander"]
+const ORDER := ["saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "apollocm", "dragonfly", "time", "evapod", "ranger", "discovery", "endurance", "lander"]
 const NAMES := {"saturnv": "Saturn V", "falcon9": "Falcon 9", "shuttle": "Shuttle", "starship": "Starship",
-	"lm": "Lunar Module", "skycrane": "Sky crane", "apollocm": "Command module", "dragonfly": "Dragonfly", "ranger": "Survey Shuttle", "discovery":"Jupiter Explorer",
+	"lm": "Lunar Module", "skycrane": "Sky crane", "apollocm": "Command module", "dragonfly": "Dragonfly", "time": "Titan Mare Explorer", "ranger": "Survey Shuttle", "discovery":"Jupiter Explorer",
 	"lander":"Cargo Lander","endurance":"Expedition Ring","evapod":"EVA Pod"}
 
 static var _list := {}
@@ -234,6 +234,11 @@ static func _build_list() -> Dictionary:
 		_sc("dragonfly", "parachute", "Parachute, Mach 1.5", "Landing", _dragonfly(), {"state": "chute"},
 			{"program": "edl", "state": "chute"}),
 	]
+	out.time = [
+		_sc("time", "entry", "Titan entry over Ligeia Mare, 600 km", "Landing", _time(), {}, {"alt": [590e3, 601e3], "program": "edl"}),
+		_sc("time", "parachute", "Main chute, Mach 1.5", "Landing", _time(), {"state": "chute"},
+			{"program": "edl", "state": "chute"}),
+	]
 	return out
 
 ## The orbiter alone in a 300 km, 51.6° orbit with its OMS propellant, as
@@ -291,6 +296,15 @@ static func _f9_booster() -> Dictionary:
 ## Dragonfly at the top of Titan's air at Huygens' speed, 30° down, in the Titan expedition.
 static func _dragonfly() -> Dictionary:
 	return {"kind": "descent", "preset": "titan_voyage", "body": "Titan", "alt": 600e3, "v_inertial": 6000.0, "fpa": -30.0, "program": "edl"}
+
+## TiME at the top of Titan's air as Dragonfly enters, over a point up-track of Ligeia Mare's middle (`over`:
+## mesh latitude, east longitude and heading, degrees) so its entry, chutes and drift bring it down there.
+static func _time() -> Dictionary:
+	var b := _dragonfly()
+	b.over = TIME_OVER
+	return b
+
+const TIME_OVER := [53.3, -248.0, 0.0]
 
 ## Apollo 11 at entry interface: 400,000 ft, 36,194 ft/s inertial, 6.48° down (NASA SP-4029), on a track
 ## that comes down in the open Pacific.
@@ -376,8 +390,13 @@ static func _subset(key: String, b: Dictionary) -> Dictionary:
 ## Speed and attitude of a descent's start: the velocity relative to the turning air,
 ## nose against it ("retro-air").
 static func _descent_state(v: Vessel, b: Dictionary) -> void:
+	if b.has("over"): _place_over(v, b)
 	var up := DQuat.nrm(v.r.clone())
 	var east := DQuat.nrm(DVec3.new(0.0, -1.0, 0.0).cross(up))
+	if b.has("over"):
+		var head := deg_to_rad(float(b.over[2]))
+		var north := DQuat.nrm(up.cross(east))
+		east = east.clone().scale_in(sin(head)).add_scaled_in(north, cos(head))
 	var spin := DVec3.new(0.0, -float(v.env.rotRate), 0.0).cross(v.r)
 	if b.has("v_inertial"):
 		var g := deg_to_rad(float(b.fpa))
@@ -389,6 +408,15 @@ static func _descent_state(v: Vessel, b: Dictionary) -> void:
 	v.q.set_from_unit_vectors(Vessel.BODY_FWD, DQuat.nrm(air.scale_in(-1.0)))
 	v.omega.set_v(0.0, 0.0, 0.0)
 	v.phase = Vessel.PHASE.DESCENT
+
+## The vessel `alt` over a mesh latitude and east longitude (degrees) at its start, as SurfaceGround reads places.
+static func _place_over(v: Vessel, b: Dictionary) -> void:
+	var lat := deg_to_rad(float(b.over[0]))
+	var lon := deg_to_rad(float(b.over[1]))
+	var m := DVec3.new(cos(lon) * cos(lat), sin(lat), -sin(lon) * cos(lat))
+	var dir := SurfaceGround.from_mesh(m, v.body_angle(v.coord), DVec3.new())
+	DQuat.nrm(dir)
+	v.r.copy_from(dir).scale_in(v.surface_r(dir) + float(b.alt))
 
 ## In the air: `airspeed` m/s through the moving air, along the
 ## orbit's track, `fpa` degrees above the horizon (negative descending). _settle sets

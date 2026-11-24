@@ -647,6 +647,35 @@ static func _build_vehicles() -> Dictionary:
 		},
 	},
 
+	# TIME — the Titan Mare Explorer (Discovery finalist, 2012): Huygens' descent onto Ligeia Mare, then three
+	# months afloat on liquid methane (sim/surface/time_capsule.gd).
+	"time": {
+		"id": "time", "name": "Titan Mare Explorer — Ligeia Mare", "role": "lander", "launchFrom": "Titan",
+		"era": "proposed for 2023",
+		"blurb": "The capsule NASA nearly sent to sail a sea of liquid methane: one 700 kg shape that enters behind its own heat shield, comes down under Huygens' kind of chutes for two hours, and floats on Ligeia Mare as a drifting buoy, rocking on waves that rise in Titan's light winds and low gravity.",
+		# No authored model: the outline that floats is the one drawn.
+		"procedural": true,
+		"floats": "time",
+		"limits": { "maxQ": 30e3, "maxG": 25.0, "qAlpha": 10e3, "heatLoad": 200e6 },
+		"stages": [
+			stage({ "key": "time", "name": "TiME capsule", "dry": 700.0, "prop": 0.0,
+				"engine": null, "count": 0, "L": 1.6, "D": 2.9, "sep": "none",
+				# Huygens' shield on its 2.7 m (AQ60 tiles, Lebreton et al. 2005) scaled to 2.9 m; ρ and Q* are
+				# estimates. The nose sphere is the stagnation radius.
+				"blunt": true, "heatShield": { "area": 6.6, "ablator": true, "noseR": 0.75,
+					"thickness": 0.03, "rho": 280.0, "qstar": 5.0e7 },
+				"chute": TimeCapsule.MAIN,
+				"look": { "skin": "ablator", "time": true } }),
+		],
+		"edl": {
+			# Huygens' speed at the top of the air, 30° down as Dragonfly's is here (the single-scale-height air).
+			"entry": { "alt": 600000.0, "v": 6000.0, "fpa": -30.0 },
+			# Huygens' main opened at Mach 1.5; its stabiliser took over 15 minutes later, near 110 km.
+			"chute": { "mach": 1.5, "machOnly": true },
+			"mains": { "alt": 110000.0, "area": TimeCapsule.STABILISER.area, "Cd": TimeCapsule.STABILISER.Cd, "inflate": 3.0 },
+		},
+	},
+
 	# ION CRUISER — the interplanetary workhorse. 237 mN and months of burn: it
 	# is the vehicle that makes the warp ladder necessary.
 	"ioncruiser": {
@@ -753,7 +782,7 @@ static func booster_return(key: String):
 	return veh
 
 const VEHICLE_ORDER := [
-	"saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "apollocm", "dragonfly",
+	"saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "apollocm", "dragonfly", "time",
 	"ioncruiser", "solarsail", "hailmary", "beetle", "evapod", "ranger", "discovery", "endurance", "lander",
 ]
 

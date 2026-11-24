@@ -119,6 +119,11 @@ static func plan_relief(b: Body, where: PlanetPin, r: PlanetRelief, cells: int, 
 	# Heights count from the world's sea, if it has one; whether one is in view waits for the grid.
 	relief.has_sea = str(where.ground.kind) in ["sea", "sea ice"] or (climate.wet and climate.ocean > 0.0 and r.sea_km > -30.0)
 	relief.sea_m = r.sea_km * 1000.0 if relief.has_sea else 0.0
+	# A stated sea's level is the datum, its shores wherever a mare comes within the far grid.
+	if StatedSeas.has(b.name) and not StatedSeas.at(b.name, where.lat, where.lon, relief.radius_m, 2.0 * SurfaceRelief.FAR_HALF).is_empty():
+		relief.stated = b.name
+		relief.has_sea = true
+		relief.sea_m = 0.0
 	relief.rain_index = float(where.ground.get("rain", -1.0)) if climate.wet else -1.0
 	var melt := float(where.ground.temp_k) > climate.freezing_point(climate.salinity) - 5.0
 	relief.flowing = climate.wet and climate.ocean > 0.0 and melt
@@ -213,7 +218,7 @@ func _palette() -> Dictionary:
 	return row
 
 # The sky's colour, for what it lights: a Venus's fill is orange. Bright channel at one.
-func _fill_tint() -> Vector3:
+func fill_tint() -> Vector3:
 	var own = climate.flight_atmosphere()
 	if own == null: return Vector3.ONE
 	var c := SiteScene._lin(int(own.haze))
@@ -255,13 +260,14 @@ func _build_scene() -> void:
 	var snow_line: float = (temp_here - frost) / maxf(lapse, 1e-5) + ground_y if frost > 0.0 else 1.0e9
 	_mat.set_shader_parameter("uSnowLine", snow_line)
 	_mat.set_shader_parameter("uRivers", 1.0 if relief.flowing else 0.0)
-	_mat.set_shader_parameter("uFillTint", _fill_tint())
+	_mat.set_shader_parameter("uFillTint", fill_tint())
 	var R: float = relief.radius_m
 	for gi in 2:
 		var channel: PackedFloat32Array = relief.channel_near if gi == 0 else relief.channel_far
 		group.add_child(SiteScene.terrain_mesh(grids, gi, patch_y, R, _mat, has_sea, channel))
 	# The sea's own temperature, at its level here, not the mountain's.
-	frozen_sea = has_sea and crust.temperature(sin(pin.lat), 0.0) < Climate.freezing_point(climate.salinity) - 4.0
+	var freeze := float(Liquid.of(body.name).get("freeze_k", Climate.freezing_point(climate.salinity)))
+	frozen_sea = has_sea and crust.temperature(sin(pin.lat), 0.0) < freeze - 4.0
 	if has_sea: _build_ocean(at_sea)
 	_build_rain()
 
@@ -300,7 +306,7 @@ func _build_ocean(at_sea: bool) -> void:
 	if RDU.available() and not frozen_sea:
 		if ocean == null:
 			var w := weather.now()
-			ocean = OceanField.new(climate.gravity, _site_depth(), liquid, maxf(float(w.wind), 0.5), float(w.wind_dir), fetch, hash(pin.n) & 0xffffff)
+			ocean = OceanField.new(climate.gravity, _site_depth(), liquid, Liquid.field_wind(liquid, float(w.wind)), float(w.wind_dir), fetch, hash(pin.n) & 0xffffff)
 		ocean_gpu = OceanGPU.new(ocean)
 		_ocean_mat.shader = WATER_SHADER
 		_water_uniforms()
@@ -466,10 +472,12 @@ func update(dt: float, sim_seconds: float, up: Vector3, bodies: Array, cam_y: fl
 
 ## In flight: run the FFT sea on its owner's clock (`sea_time`, set first) and light it. `cam` is the eye in
 ## the site's frame.
-func draw_sea(dt: float, sun_l: Vector3, sun_rgb: Vector3, sky_top: Vector3, haze: Vector3, density: float, scale_h: float, cover: float, cam: Vector3) -> void:
+func draw_sea(dt: float, sun_l: Vector3, sun_rgb: Vector3, sky_top: Vector3, haze: Vector3, density: float, scale_h: float, cover: float, cam: Vector3,
+		light := Vector3.ONE) -> void:
 	if _ocean == null: return
 	if ocean_gpu != null: ocean_gpu.run(sea_time, dt)
 	light_sea(sun_l, sun_rgb, sky_top, haze, density, scale_h, cover, 0.0, cam)
+	_ocean_mat.set_shader_parameter("uLight", light)
 
 ## The sea's light and air for this frame, in the site's frame: `cam` the eye's place in it.
 func light_sea(sun_l: Vector3, sun_rgb: Vector3, sky_top: Vector3, haze: Vector3, density: float, scale_h: float, cover: float, tide_h: float, cam: Vector3) -> void:

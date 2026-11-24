@@ -2,7 +2,8 @@ extends Node
 
 # TITAN CHECK: Titan in the Titan expedition, and what comes down on it (docs/physics/rotorcraft.md#titan).
 # Dragonfly flies its entry, opens its chute at Huygens' Mach 1.5, leaves its backshell and lands itself on the
-# drawn ground; it is then flown up, across and down. The Survey Shuttle comes in from orbit and rolls to a
+# drawn ground; it is then flown up, across and down. The Titan Mare Explorer comes down on Ligeia Mare and
+# floats (docs/physics/ocean.md#the-titan-mare-explorer). The Survey Shuttle comes in from orbit and rolls to a
 # stop. Drawn and undrawn descents land alike, and nothing of the surface outlives the flights.
 #   Godot --headless --path . res://tools/titancheck.tscn
 
@@ -29,12 +30,14 @@ func _ready() -> void:
 	SurfaceStats.reset()
 	await _dragonfly()
 	await _parity()
+	await _time()
 	await _ranger()
 	main.flight.teardown()
 	var c := SurfaceStats.calls
-	check("every ground and site was let go (grounds %d/%d, sites %d/%d)" % [int(c.get("ground_init", 0)), int(c.get("ground_dispose", 0)),
-		int(c.get("site_init", 0)), int(c.get("site_dispose", 0))],
-		int(c.get("ground_init", 0)) > 0 and c.get("ground_init", 0) == c.get("ground_dispose", 0) and c.get("site_init", 0) == c.get("site_dispose", 0))
+	check("every ground, sea and site was let go (grounds %d/%d, seas %d/%d, sites %d/%d)" % [int(c.get("ground_init", 0)),
+		int(c.get("ground_dispose", 0)), int(c.get("sea_init", 0)), int(c.get("sea_dispose", 0)), int(c.get("site_init", 0)), int(c.get("site_dispose", 0))],
+		int(c.get("ground_init", 0)) > 0 and c.get("ground_init", 0) == c.get("ground_dispose", 0) and int(c.get("sea_init", 0)) > 0
+		and c.get("sea_init", 0) == c.get("sea_dispose", 0) and c.get("site_init", 0) == c.get("site_dispose", 0))
 	print("TITANCHECK DONE checks=%d failures=%d" % [checks, failures])
 	get_tree().quit(1 if failures > 0 else 0)
 
@@ -132,6 +135,61 @@ func _parity() -> void:
 	var d: float = (out[0][1] as Vector3).distance_to(out[1][1])
 	check("drawn and undrawn come down alike (%s s apart, %s m)" % [U.fixed(absf(out[0][0] - out[1][0]), 3), U.expo(d, 1)],
 		absf(out[0][0] - out[1][0]) < 1e-6 and d < 1e-6)
+
+# TiME from the top of Titan's air to Ligeia Mare at 20×, then a minute afloat at 1×: drawn when `drawn`.
+func _time_down(drawn: bool) -> Spaceflight:
+	var err: String = await main.jump_scenario("time:entry")
+	if err != "":
+		check("time:entry: jump (%s)" % err, false)
+		return null
+	var f: Spaceflight = main.flight
+	main.set_drawn(drawn)
+	f.dev_warp = 20.0
+	var n := 0
+	while not f.vessel.afloat() and f.vessel.phase != Vessel.PHASE.DESTROYED and n < 60000:
+		main.step_flight(0.05)
+		n += 1
+	f.dev_warp = 0.0
+	for i in 1200: main.step_flight(0.05)
+	main.set_drawn(true)
+	return f
+
+func _time() -> void:
+	var f := await _time_down(false)
+	if f == null: return
+	var v := f.vessel
+	var log_ := _events(v)
+	var chute := _first(log_, "Parachute deploy")
+	var mach := float(chute.get_slice("Mach ", 1).get_slice(",", 0)) if chute.contains("Mach ") else 0.0
+	check("TiME's main opens at Huygens' Mach 1.5 and its stabiliser at 110 km (%s; %s)" % [chute, _first(log_, "Main chutes")],
+		absf(mach - 1.5) < 0.05 and _first(log_, "Main chutes") != "")
+	var sea: SurfaceSea = v.sea
+	check("it comes down on Ligeia Mare (%s)" % _first(log_, "Ligeia Mare at"), v.afloat() and sea != null and sea.pin != null
+		and str(sea.pin.ground.get("mare", "")) == "Ligeia Mare")
+	if not v.afloat(): return
+	var splash := _first(log_, "Splashdown")
+	var speed := float(splash.get_slice("— ", 1).get_slice(" m/s", 0)) if splash.contains("— ") else 0.0
+	check("it splashes down at Huygens' 4.5 m/s (%s)" % splash, absf(speed - 4.5) < 0.6 and sea.floater.peak_accel / 9.81 < 5.0)
+	var fl := sea.floater
+	var want := TimeCapsule.MASS / float(sea.liquid.rho)
+	check("it floats upright on methane, %s m³ of it displaced against m/ρ %s m³ (heel %s°)" % [U.fixed(fl.displaced, 3), U.fixed(want, 3),
+		U.fixed(sea.heel(), 1)], sea.heel() < 20.0 and absf(fl.displaced / want - 1.0) < 0.15 and str(sea.liquid.name) == "liquid methane")
+	var w := sea.weather.now()
+	var lm := 0.2 * float(w.wind) * float(w.wind) / 1.352
+	check("on Ligeia's waves: Hs %s m in %s m/s of wind, against Lorenz & Mann's 0.2U²/g %s m, %s m deep" % [U.fixed(sea.field.hs(), 2),
+		U.fixed(float(w.wind), 1), U.fixed(lm, 2), U.fixed(sea.depth, 0)], sea.field.calm() or absf(sea.field.hs() / lm - 1.0) < 0.3)
+	print("TITANCHECK note TiME: %s" % f.sea_readout())
+	var at := [v.coord, Vector3(fl.p[0], fl.p[1], fl.p[2])]
+	f.teardown()
+	var g := await _time_down(true)
+	if g == null or not g.vessel.afloat():
+		check("TiME drawn: afloat", false)
+		return
+	var gf: Floater = g.vessel.sea.floater
+	var d: float = (at[1] as Vector3).distance_to(Vector3(gf.p[0], gf.p[1], gf.p[2]))
+	check("drawn and undrawn come down on the sea alike (%s s apart, %s m)" % [U.fixed(absf(float(at[0]) - g.vessel.coord), 3), U.expo(d, 1)],
+		absf(float(at[0]) - g.vessel.coord) < 1e-6 and d < 1e-6)
+	g.teardown()
 
 func _ranger() -> void:
 	var err: String = await main.jump_scenario("ranger:titan_orbit")

@@ -31,6 +31,16 @@ const INFLATE_S := 240.0
 const DROGUE := {"area": 2.0 * PI * 2.515 * 2.515 / 4.0, "Cd": 0.55}
 const MAINS := {"area": 3.0 * PI * 25.45 * 25.45 / 4.0, "Cd": 0.82}
 
+static func stage_key() -> String:
+	return "cm"
+
+## The craft's centre of mass in its stage frame, m.
+static func centre() -> Vector3:
+	return Vector3(CG_X, CG_Y, 0.0)
+
+static func span() -> float:
+	return HEIGHT
+
 ## The outline from the shield's centre to the tunnel's top: (r, y), m. `detail` 1 is what floats; the drawn
 ## model samples the same curve finer.
 static func outline(detail := 1) -> PackedVector2Array:

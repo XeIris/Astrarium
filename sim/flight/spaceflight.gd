@@ -1639,7 +1639,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	var fr: Dictionary = {} if not history or fast_forward > 0 else local.update({"env": env, "altitude": eye_alt,
 		"surfaceR": R_loc, "sunDirWorld": sun, "upWorld": up, "northWorld": north,
 		"starFlux": star_flux, "padWorld": site_pos, "mapSite": map_site,
-		"planetSpin": planet_spin, "anchorWorld": anchor_pos, "dt": dt,
+		"planetSpin": planet_spin, "anchorWorld": anchor_pos, "dt": dt, "maria": _maria(),
 		"frame": Basis(vessel.frame.to_quaternion()),
 		# a steady 9 m/s westerly, the trade-wind belt's upper flow reversed
 		"cloudWind": wind_dir * (9.0 * vessel.met),
@@ -1905,7 +1905,8 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		var afloat := vessel.afloat()
 		# A capsule is framed by its own size, not its canopies'; afloat it rolls with the sea, so it is
 		# framed level.
-		var span: float = Capsule.HEIGHT if craft.stage("cm") != null else (craft.height if craft.height else vessel.length)
+		var hull = SurfaceSea.hull_for(vessel.vehicle)
+		var span: float = hull.span() if craft.stage(hull.stage_key()) != null else (craft.height if craft.height else vessel.length)
 		fly_cam.update({"craftPos": craft_pos, "craftBasis": Basis() if afloat else craft_basis,
 			"length": span, "up": Vector3(0, 1, 0),
 			"dt": dt, "sunLocal": sun_l, "interior": vessel.vehicle.get("interior", {})})
@@ -2040,7 +2041,8 @@ func _place_sea(east: DVec3, up: DVec3, north: DVec3, R_loc: float, fr: Dictiona
 	_sea_level_y = at.y
 	if vessel.afloat():
 		# The craft's stage origin is the shield's lowest point; the floater's, its centre of mass.
-		var pose := sea.floater.transform() * Transform3D(Basis(), -Vector3(Capsule.CG_X, Capsule.CG_Y, 0.0))
+		var centre: Vector3 = sea.hull.centre()
+		var pose := sea.floater.transform() * Transform3D(Basis(), -centre)
 		craft_pos.copy_from(at).add_in(DVec3.from_v3(basis * pose.origin))
 		craft.group.basis = (basis * pose.basis).orthonormalized()
 	_pose_capsule()
@@ -2064,23 +2066,39 @@ func _place_sea(east: DVec3, up: DVec3, north: DVec3, R_loc: float, fr: Dictiona
 	var gm := local.ground_mat
 	sea_site.sea_time = sea.site_time(vessel)
 	var w := sea.weather.now()
-	sea_site.draw_sea(dt, to_site * (fr.sun_local as Vector3), Vector3.ONE * float(fr.get("sun_visible", 1.0)), tint * 0.55,
+	# The sea in the ground's light: the star's flux through the exposure (uSunI is 3 at Earth's) and what the
+	# air leaves of the sunlight, so a sea at Saturn is not lit as one at 1 AU.
+	var flux := float(gm.get_shader_parameter("uSunI")) / 3.0
+	var through: Vector3 = gm.get_shader_parameter("uSunTint")
+	sea_site.draw_sea(dt, to_site * (fr.sun_local as Vector3), through * flux * float(fr.get("sun_visible", 1.0)), tint * 0.55 * flux,
 		gm.get_shader_parameter("uHaze"), float(gm.get_shader_parameter("uDensity")), float(gm.get_shader_parameter("uScaleH")),
-		float(w.cover), cam_site)
+		float(w.cover), cam_site, sea_site.fill_tint() * flux)
 
-# The command module's bags and canopies: the vessel's chute in the air, the Floater's on the sea.
+# The parent's stated seas in the flight frame now: [[unit centre, angular radius rad], …], for the ground patch.
+func _maria() -> Array:
+	var b: Body = vessel.parent
+	if b == null or not StatedSeas.has(b.name): return []
+	var theta := vessel.body_angle(vessel.coord)
+	var out := []
+	for cap: Array in StatedSeas.caps(b.name, b.radius * Rocketry.AU_M):
+		out.append([SurfaceGround.from_mesh(DVec3.from_v3(cap[0]), theta, DVec3.new()), cap[1]])
+	return out
+
+# A floating capsule's bags and canopies: the vessel's chute in the air, the Floater's on the sea.
 func _pose_capsule() -> void:
 	if craft == null: return
-	var cs = craft.stage("cm")
+	var hull = SurfaceSea.hull_for(vessel.vehicle)
+	var cs = craft.stage(hull.stage_key())
 	if cs == null: return
 	var sea: SurfaceSea = vessel.sea
 	if vessel.afloat():
 		var fill := clampf((sea.site_time(vessel) - sea.bags_at) / Capsule.INFLATE_S, 0.0, 1.0) if sea.bags_at >= 0.0 else 0.0
-		Capsule.pose_model(cs.group, fill, "mains" if sea.floater.chute != null else "", 1.0)
+		hull.pose_model(cs.group, fill, "mains" if sea.floater.chute != null else "", 1.0)
 		return
 	var ch = vessel.chute_open
-	var kind := "" if ch == null else ("mains" if float(ch.area) > 100.0 else "drogue")
-	Capsule.pose_model(cs.group, 0.0, kind, vessel.chute_deploy)
+	# The first chute out is the CM's drogues or TiME's main; the second, the CM's mains or TiME's stabiliser.
+	var second: bool = autopilot != null and autopilot.mains_out
+	hull.pose_model(cs.group, 0.0, "" if ch == null else ("mains" if second else "drogue"), vessel.chute_deploy)
 
 func _drop_sea_site() -> void:
 	if sea_site != null:
@@ -2092,13 +2110,15 @@ func sea_readout() -> String:
 	var sea: SurfaceSea = vessel.sea
 	var f := sea.floater
 	var heel := sea.heel()
-	var attitude := "Stable I (upright)" if heel < 60.0 else ("on its side" if heel < 100.0 else "Stable II (inverted)")
+	var cm: bool = sea.hull == Capsule
+	var attitude := ("Stable I (upright)" if cm else "upright") if heel < 60.0 else ("on its side" if heel < 100.0 else
+		("Stable II (inverted)" if cm else "capsized"))
 	var w := sea.weather.now()
 	var line := "Afloat · %s, heel %s° · Hs %s m, %s s · wind %s m/s · drift %s m" % [attitude, U.fixed(heel, 0),
 		U.fixed(sea.field.hs(), 1), U.fixed(TAU / sea.field.peak_omega, 1), U.fixed(float(w.wind), 1), U.fixed(Vector2(f.p[0], f.p[2]).length(), 0)]
 	if sea.bags_at >= 0.0:
 		line += " · bags %s%%" % U.fixed(100.0 * clampf((sea.site_time(vessel) - sea.bags_at) / Capsule.INFLATE_S, 0.0, 1.0), 0)
-	elif heel > 60.0:
+	elif heel > 60.0 and cm:
 		line += " · G inflates the uprighting bags"
 	return line
 

@@ -137,7 +137,12 @@ func set_wind(wind_ms: float, bearing_rad: float) -> void:
 	_fill()
 	t_snap = -INF
 
+## Whether the wind is under the liquid's onset for waves (Liquid's `onset`): then the sea lies flat.
+func calm() -> bool:
+	return wind < float(liquid.get("onset", 0.0))
+
 func _fill() -> void:
+	var still := calm()
 	for c in CASCADES:
 		var nn := n[c]
 		var dk := TAU / L[c]
@@ -151,7 +156,7 @@ func _fill() -> void:
 				var k := sqrt(kx * kx + kz * kz)
 				var a := 0.0
 				# The Nyquist row and column stay empty, so every mode has its −k partner on the lattice.
-				if k >= k_lo[c] and k < k_hi[c] and ix != nn / 2 and iz != nn / 2:
+				if not still and k >= k_lo[c] and k < k_hi[c] and ix != nn / 2 and iz != nn / 2:
 					var e := spectrum_k(kx, kz) * dk * dk
 					var_c += e
 					sl_c += e * k * k
@@ -186,7 +191,7 @@ func hs(cascades := CASCADES) -> float:
 func unresolved_slope() -> float:
 	var k0 := k_hi[CASCADES - 1]
 	var k1 := sqrt(float(liquid.rho) * g / float(liquid.sigma))
-	if k1 <= k0: return 0.0
+	if k1 <= k0 or calm(): return 0.0
 	var steps := 64
 	var total := 0.0
 	var r := pow(k1 / k0, 1.0 / steps)

@@ -258,6 +258,9 @@ static var PRESETS: Dictionary = _make_presets()
 
 static var PRESET_ORDER: Array = EduPresets.EDU_ORDER + ["blank", "stellar_zoo", "sirius", "vega", "achernar", "betelgeuse", "alphacen", "etacar", "hr_ladder", "trisolaris", "trisolaris_wander", "trisolaris_compact", "trisolaris_wide", "trisolaris_alpha", "trisolaris_chaos", "sandbox", "solar", "jovian_voyage", "titan_voyage", "threebody", "binarystar", "bhmerger", "nsmerger", "feeding", "gargantua_demo"]
 
+## 2023 July 1, 0h TT: the Titan expedition's date.
+const TITAN_EPOCH_JD := 2460126.5
+
 static func _make_presets() -> Dictionary:
 	var P := {}
 	# The teaching scenarios (sim/edupresets.gd), merged so PRESETS is the one lookup.
@@ -309,11 +312,13 @@ static func _make_presets() -> Dictionary:
 
 	P.titan_voyage = U.merged(P.solar,{
 		"name":"Titan expedition",
-		"blurb":"The Solar System with Titan on an approximate circular orbit in Saturn's equatorial plane: 1.5 bar of nitrogen and methane at 94 K under an orange haze. Fly Dragonfly down to its dunes, or bring the Survey Shuttle in from orbit. The moon's phase is illustrative, not a dated ephemeris.",
+		"blurb":"The Solar System on 1 July 2023, the Titan Mare Explorer's planned arrival, with Titan on an approximate circular orbit in Saturn's equatorial plane: 1.5 bar of nitrogen and methane at 94 K under an orange haze, and late northern summer over its methane seas. Fly Dragonfly down to its dunes, TiME down to Ligeia Mare, or bring the Survey Shuttle in from orbit. The moon's phase is illustrative, not a dated ephemeris.",
 		# Roughly 400 Yoshida steps per 16-day orbit of Titan.
 		"maxStep":1.1e-4,"timeScale":.001,
+		# TiME's arrival (Lorenz & Mann 2015): Titan's northern summer, when the Sun stays up over Ligeia.
+		"epochJD":TITAN_EPOCH_JD,
 		"build":func() -> Array:
-			var bodies:=_build_solar()
+			var bodies:=_build_solar((TITAN_EPOCH_JD - 2451545.0) / 36525.0)
 			for i in bodies.size():
 				if bodies[i].name=="Saturn":
 					var system:=TitanMoon.system(bodies[i])

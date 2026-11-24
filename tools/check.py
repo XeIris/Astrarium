@@ -92,6 +92,8 @@ CHANGED_RULES = (
     # The sea: its FFT field and liquids, what floats on it, and the GPU's half of it.
     (("sim/surface/ocean_field.gd", "sim/surface/surface_waves.gd", "sim/surface/liquid.gd", "sim/surface/floater.gd",
       "sim/surface/capsule.gd", "tools/oceancheck.gd"), ("oceancheck", "seacheck", "oceanlookcheck")),
+    # Titan's seas where they were mapped, and the capsule that floats on them.
+    (("sim/stated_seas.gd", "sim/surface/time_capsule.gd"), ("oceancheck", "titancheck", "seacheck", "surfacecheck", "groundcheck")),
     (("sim/surface/ocean_gpu.gd", "shaders/surface/ocean_fft.glsl", "shaders/surface/water.gdshader", "tools/oceanlookcheck.*"),
      ("oceanlookcheck",)),
     (("sim/surface/surface_sea.gd", "tools/seacheck.*"), ("seacheck",)),

@@ -25,6 +25,9 @@ uniform sampler2D uDepth : hint_depth_texture, filter_nearest, repeat_disable;
 uniform vec3 uCamLocal = vec3(0.0);
 uniform vec3 uSunDir = vec3(0.0, 1.0, 0.0);
 uniform vec3 uSunRGB = vec3(1.0);
+// The diffuse light's level and colour against an Earth day's: a sea at Saturn under an orange haze is not lit
+// like one at 1 AU.
+uniform vec3 uLight = vec3(1.0);
 uniform vec3 uSkyTop = vec3(0.1, 0.2, 0.4);
 uniform vec3 uHaze = vec3(0.5, 0.6, 0.7);
 uniform float uDensity = 2.6e-5;
@@ -118,7 +121,7 @@ void fragment() {
 	float up = max(R.y, 0.0);
 	float day = clamp(uSunDir.y * 2.0 + 0.25, 0.02, 1.0);
 	vec3 sky = mix(uHaze * 1.4, uSkyTop * 2.2, pow(up, 0.5)) * day;
-	sky = mix(sky, vec3(0.75) * day, uCover * 0.75);
+	sky = mix(sky, vec3(0.75) * day, uCover * 0.75) * uLight;
 	// The sun's glint: the slopes that face it, over the rough surface's spread of them. Irradiance in the
 	// site's units, where a white ground under a high sun reads about 3 = E/π.
 	vec3 H = normalize(viewDir + uSunDir);
@@ -127,7 +130,7 @@ void fragment() {
 	float glint = fs * beckmann(dot(H, N), s2) / (4.0 * cosv);
 	vec3 sun_e = uSunRGB * 3.0 * 3.14159 * step(0.0, uSunDir.y) * (1.0 - uCover);
 	// The light in the liquid: what comes back out of a deep column (R∞), and the floor where it is near.
-	vec3 down_e = vec3(3.0) * clamp(uSunDir.y * 1.6 + 0.1, 0.02, 1.0) * (1.0 - 0.5 * uCover);
+	vec3 down_e = vec3(3.0) * uLight * clamp(uSunDir.y * 1.6 + 0.1, 0.02, 1.0) * (1.0 - 0.5 * uCover);
 	vec3 deep = uDeepR * down_e;
 	vec2 uv = vec2(-at.x, at.y) / (2.0 * uHeightsHalf) + 0.5;
 	float bed = texture(uHeights, uv).r;
@@ -172,7 +175,7 @@ void fragment() {
 	if (uFrozen > 0.5) col = vec3(1.5, 1.6, 1.7) * clamp(uSunDir.y * 1.4 + 0.1, 0.03, 1.0);
 	float mean_rho = uScaleH * (1.0 - exp(-max(uCamLocal.y, 1.0) / uScaleH)) / max(uCamLocal.y, 1.0);
 	float fog = 1.0 - exp(-uDensity * dist * mean_rho);
-	col = mix(col, uHaze * clamp(uSunDir.y * 1.1 + 0.25, 0.02, 1.0), fog);
+	col = mix(col, uHaze * uLight * clamp(uSunDir.y * 1.1 + 0.25, 0.02, 1.0), fog);
 	ALBEDO = col;
 	ALPHA = 1.0;
 }

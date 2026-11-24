@@ -22,9 +22,13 @@ const SEAWATER := {
 ## methane at 92 K, NIST WebBook's saturated liquid (449.7 kg/m³, 0.0168 N/m, 186.7 µPa·s). Its dissolved
 ## nitrogen and ethane are not in it. Absorption and backscatter are estimates: methane's red bands weaker than
 ## water's, and Rayleigh backscatter scaled from water's by (n² − 1)².
+## - Freezing: methane's triple point, 90.694 K (NIST), under Ligeia's 92 K.
+## - Waves start only above 0.4 m/s of wind at 10 m, where the wind's work beats the liquid's viscosity
+##   (Lorenz & Mann 2015, for methane); below it the sea lies flat, as Cassini's radar found it.
 const TITAN_SEA := {
 	"name": "liquid methane", "rho": 449.7, "sigma": 0.0168, "nu": 4.15e-7, "molar": CH4_MOLAR,
 	"absorb": Vector3(0.06, 0.004, 0.002), "backscatter": Vector3(0.00032, 0.00067, 0.00176),
+	"freeze_k": 90.694, "onset": 0.4,
 }
 
 const BY_WORLD := {"Earth": SEAWATER, "Titan": TITAN_SEA}
@@ -40,6 +44,11 @@ static func of(world_name: String) -> Dictionary:
 static func lorentz_lorenz(rho: float, molar: float, alpha: float) -> float:
 	var x := 4.0 * PI / 3.0 * rho / molar * AVOGADRO * alpha
 	return sqrt((1.0 + 2.0 * x) / (1.0 - x))
+
+## The wind an OceanField is drawn for, m/s: under the liquid's onset the calm itself, else at least 0.5 m/s,
+## where the spectrum's peak still falls on the lattices.
+static func field_wind(l: Dictionary, wind: float) -> float:
+	return wind if wind < float(l.get("onset", 0.0)) else maxf(wind, 0.5)
 
 ## Normal-incidence reflectance, ((n − 1)/(n + 1))².
 static func f0(n: float) -> float:
