@@ -81,6 +81,7 @@ var cells := 129
 var grids: Array = []
 var channel_far := PackedFloat32Array()
 var channel_near := PackedFloat32Array()
+
 var cancelled := false
 var progress := 0.0
 var stats := {}
@@ -137,6 +138,7 @@ func build() -> void:
 	_add_dunes(near, near_half, far_half)
 	channel_near = _carve(near, near_half, 0.55, 1.0, false)
 	if cancelled: return
+	if not has_sea: _ramp_rim(far)
 	grids = [{"n": cells, "half": near_half, "h": near}, {"n": cells, "half": far_half, "h": far}]
 	progress = 1.0
 
@@ -224,6 +226,61 @@ func _grid_inside(far: PackedFloat32Array, far_half: float, half: float) -> Pack
 			out[j * cells + i] = lerpf(lerpf(far[j0 * cells + i0], far[j0 * cells + i0 + 1], tx), lerpf(far[(j0 + 1) * cells + i0], far[(j0 + 1) * cells + i0 + 1], tx), ty)
 	return out
 
+## A dune's crest factor, 0–1, at (east, north) `p` m: the profile ground.gdshader shades past the near grid,
+## its meander the same gradient noise on the same hash, so the carved crests and the shaded ones are one field.
+static func dune_ridge(p: Vector2, across: Vector2, spacing: float, half_w: float) -> float:
+	var meander := 0.25 * gnoise(p / (spacing * 12.0), 61) * spacing
+	var u := (p.dot(across) + meander) / spacing
+	var d := absf(u - floorf(u) - 0.5) / half_w
+	return 0.0 if d >= 1.0 else pow(cos(d * PI * 0.5), 2.0)
+
+const _M32 := 0xFFFFFFFF
+
+# ground.gdshader's pcg2d (Jarzynski & Olano 2020), in 32-bit unsigned arithmetic.
+static func _pcg_x(vx: int, vy: int) -> int:
+	vx = (vx * 1664525 + 1013904223) & _M32
+	vy = (vy * 1664525 + 1013904223) & _M32
+	vx = (vx + vy * 1664525) & _M32
+	vy = (vy + vx * 1664525) & _M32
+	vx ^= vx >> 16
+	vy ^= vy >> 16
+	vx = (vx + vy * 1664525) & _M32
+	vx ^= vx >> 16
+	return vx
+
+static func _hash2(cx: int, cy: int, s: int) -> float:
+	return float(_pcg_x((cx + s) & _M32, (cy + s * 747796405) & _M32)) / 4294967295.0
+
+## ground.gdshader's gnoise: Perlin's gradient noise, quintic, in [−1, 1].
+static func gnoise(p: Vector2, s: int) -> float:
+	var ix := floori(p.x); var iy := floori(p.y)
+	var fx := p.x - ix; var fy := p.y - iy
+	var ux := fx * fx * fx * (fx * (fx * 6.0 - 15.0) + 10.0)
+	var uy := fy * fy * fy * (fy * (fy * 6.0 - 15.0) + 10.0)
+	var v := [0.0, 0.0, 0.0, 0.0]
+	for k in 4:
+		var ox := k & 1; var oy := k >> 1
+		var a := _hash2(ix + ox, iy + oy, s) * TAU
+		v[k] = cos(a) * (fx - ox) + sin(a) * (fy - oy)
+	return 1.414 * lerpf(lerpf(v[0], v[1], ux), lerpf(v[2], v[3], ux), uy)
+
+## The far grid's outer RIM of its half-width eased down to its lowest point, where SurfaceSite.patch_level
+## lays the planet's patch, so the site meets the patch as a slope, not a cliff standing out of it. A dry world's
+## only: under a sea the patch is below the water anyway. Contact reads the eased grid, as it is drawn.
+const RIM := 0.15
+
+func _ramp_rim(h: PackedFloat32Array) -> void:
+	var lowest := INF
+	for v in h: lowest = minf(lowest, v)
+	var c := (cells - 1) * 0.5
+	for j in cells:
+		for i in cells:
+			var r := maxf(absf(i - c), absf(j - c)) / c
+			var t := clampf((r - (1.0 - RIM)) / RIM, 0.0, 1.0)
+			if t <= 0.0: continue
+			var k := j * cells + i
+			h[k] = lerpf(h[k], lowest, t * t * (3.0 - 2.0 * t))
+
 ## How much rougher than Earth's this world's ground is: its stated relief's scale, or strength over ρg (the
 ## ratio of gravities), up to where a small world's own size has more to say than its gravity.
 func strength() -> float:
@@ -249,11 +306,6 @@ func _add_dunes(h: PackedFloat32Array, half: float, far_half := 0.0) -> void:
 	var b := deg_to_rad(float(dunes.bearing))
 	# Across the crests: the grid's (east, north) onto the bearing's normal.
 	var across := Vector2(cos(b), -sin(b))
-	var noise := FastNoiseLite.new()
-	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	noise.fractal_type = FastNoiseLite.FRACTAL_NONE
-	noise.seed = seed + 23
-	noise.frequency = 1.0 / (spacing * 12.0)
 	var half_w := 0.5 * float(dunes.width) / spacing
 	for j in cells:
 		var y := -half + j * step
@@ -262,10 +314,9 @@ func _add_dunes(h: PackedFloat32Array, half: float, far_half := 0.0) -> void:
 			var k := j * cells + i
 			var base: float = h[k]
 			if has_sea and base <= 0.0: continue
-			var u := (Vector2(x, y).dot(across) + noise.get_noise_2d(x, y) * spacing * 0.5) / spacing
-			var d := absf(u - floorf(u) - 0.5) / half_w
-			var ridge := 0.0 if d >= 1.0 else pow(cos(d * PI * 0.5), 2.0)
+			var ridge := dune_ridge(Vector2(x, y), across, spacing, half_w)
 			h[k] = base + amp * ridge * (keep - took)
+
 
 # Fractal detail with the world's strength behind it, on land only: a sea bed under sediment is smooth.
 func _add_roughness(h: PackedFloat32Array, half: float, wavelength: float, amp: float, s: int) -> void:

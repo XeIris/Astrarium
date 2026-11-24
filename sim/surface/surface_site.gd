@@ -213,6 +213,10 @@ func _palette() -> Dictionary:
 	var biome: String = pin.ground.get("biome", "")
 	var row: Dictionary = BIOMES.get(biome, BIOMES["bare ground"]).duplicate()
 	var regolith = body.spec.get("regolith")
+	# On a dry mapped world the map's own colour here, at the albedo the globe draws it: the site, its rim and
+	# the flight's patch past it (LocalView._dry_map) are then one ground.
+	var mapped := PlanetPin.map_colour(body.name, pin.lat, pin.lon)
+	if mapped >= 0: regolith = mapped
 	if regolith != null and float(row.grow) == 0.0:
 		row.a = int(regolith)
 		row.b = _shade(int(regolith), 0.8)
@@ -264,6 +268,8 @@ func _build_scene() -> void:
 	_mat.set_shader_parameter("uSnowLine", snow_line)
 	_mat.set_shader_parameter("uRivers", 1.0 if relief.flowing else 0.0)
 	_mat.set_shader_parameter("uFillTint", fill_tint())
+	_mat.set_shader_parameter("uPatchCol", patch_colour())
+	_set_dune_uniforms()
 	var R: float = relief.radius_m
 	for gi in 2:
 		var channel: PackedFloat32Array = relief.channel_near if gi == 0 else relief.channel_far
@@ -273,6 +279,29 @@ func _build_scene() -> void:
 	frozen_sea = has_sea and crust.temperature(sin(pin.lat), 0.0) < freeze - 4.0
 	if has_sea: _build_ocean(at_sea)
 	_build_rain()
+
+## The colours the planet's patch past the grids wears, as hex: the site's soil and rock in the sky's light.
+func patch_hex() -> Dictionary:
+	var pal := _palette()
+	var tint := fill_tint()
+	return {"ground": SurfaceVisit._tinted(int(pal.soil), tint), "rock": SurfaceVisit._tinted(int(pal.a), tint)}
+
+## Their mean, linear: what the far grid's rim fades to.
+func patch_colour() -> Vector3:
+	var h := patch_hex()
+	return (SiteScene._lin(int(h.ground)) + SiteScene._lin(int(h.rock))) * 0.5
+
+# A stated dune field for the shader: carved on the near grid, shaded past it, faded by the band as carved.
+func _set_dune_uniforms() -> void:
+	var d: Dictionary = relief.dunes
+	if d.is_empty():
+		_mat.set_shader_parameter("uDunes", Vector4.ZERO)
+		return
+	var band := clampf((1.0 - absf(rad_to_deg(relief.lat)) / float(d.band)) * 3.0, 0.0, 1.0)
+	var b := deg_to_rad(float(d.bearing))
+	_mat.set_shader_parameter("uDunes", Vector4(float(d.height), float(d.width), float(d.spacing), band))
+	_mat.set_shader_parameter("uDuneAcross", Vector2(cos(b), -sin(b)))
+
 
 # What the ground shader reads beyond the palette: the grids' heights for the Sun's march, the
 # world's roughness below the grid, and whether a regolith lies under no air.
@@ -504,7 +533,9 @@ func light_terrain(sun_l: Vector3, eye_y: float, cover: float, sun_ang := 0.0046
 	# Under cloud the sunlight has not gone, it has been scattered: the deck's bright underside lights
 	# the ground from everywhere. A factor by eye; nothing here casts a shadow from the deck.
 	var fill: float = float(gm.get_shader_parameter("uSkyI")) * (1.0 + OVERCAST_FILL * cover)
-	_mat.set_shader_parameter("uSkyI", fill)
+	# Under a haze like Titan's the engine's ambient carries some of that skylight already (LocalView's haze fill),
+	# so the site's own term gives way to it, or it stands brighter than the patch beside it.
+	_mat.set_shader_parameter("uSkyI", maxf(fill - local.haze_ambient(), 0.0))
 	# The planet's patch past the grids stands in the same light, or it reads as dark water. Its shading
 	# divides by π; the site's emission does not.
 	gm.set_shader_parameter("uSkyI", fill * PI)

@@ -1640,6 +1640,8 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		"surfaceR": R_loc, "sunDirWorld": sun, "upWorld": up, "northWorld": north,
 		"starFlux": star_flux, "padWorld": site_pos, "mapSite": map_site,
 		"planetSpin": planet_spin, "anchorWorld": anchor_pos, "dt": dt, "maria": _maria(),
+		"dunes": vessel.parent.spec.get("dunes") if vessel.parent != null else null,
+		"geoTheta": vessel.body_angle(vessel.coord) if vessel.parent != null else null,
 		"frame": Basis(vessel.frame.to_quaternion()),
 		# a steady 9 m/s westerly, the trade-wind belt's upper flow reversed
 		"cloudWind": wind_dir * (9.0 * vessel.met),
@@ -1977,6 +1979,13 @@ func _place_ground(east: DVec3, up: DVec3, north: DVec3, R_loc: float, fr: Dicti
 		ground_site = SurfaceSite.new(local, vessel.parent, g.pin, _render_quality, g.run_seed, g.relief)
 		ground_site.poll()
 		local.set_ground_shadows(true)
+	# The planet's patch past the grids wears the site's colours, so the far grid's rim fades into it; the
+	# flight's own colours come back when the site goes.
+	if ground_site.built and _patch_saved.is_empty():
+		_patch_saved = {"ground": vessel.env.ground, "rock": vessel.env.rock}
+		var ph := ground_site.patch_hex()
+		vessel.env.ground = ph.ground
+		vessel.env.rock = ph.rock
 	var ax := g.site_axes(vessel)
 	var rel := (ax[0] as DVec3).clone().add_scaled_in(up, -R_loc)
 	var at := DVec3.new(rel.dot(east), rel.dot(up), rel.dot(north))
@@ -2017,7 +2026,13 @@ func _camera_over_ground(target: DVec3) -> void:
 	fly_cam.pos.add_in(DVec3.from_v3(_site_basis * Vector3(0.0, g + CAMERA_CLEAR - rel.y, 0.0)))
 	fly_cam.look_at(target, Vector3.UP)
 
+var _patch_saved := {}
+
 func _drop_ground_site() -> void:
+	if not _patch_saved.is_empty() and vessel != null:
+		vessel.env.ground = _patch_saved.ground
+		vessel.env.rock = _patch_saved.rock
+	_patch_saved = {}
 	if ground_site != null:
 		_drop_rover_views()
 		ground_site.dispose()

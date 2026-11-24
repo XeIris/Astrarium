@@ -45,9 +45,9 @@ static func around(saturn: Dictionary, m: float) -> Dictionary:
 		# Its thick, slow air carries the heat poleward: Cassini's CIRS finds the poles only 2–4 K colder than
 		# the 93.7 K equator (Jennings et al. 2016), which this transport gives; the default leaves Ligeia frozen.
 		"transport": 0.87,
-		# Cassini's topography keeps Titan within about ±2 km of its geoid, and none of the mountains its last map
-		# found pass 700 m (Corlies et al. 2017): 1 km from the datum to its highest rises.
-		"landRelief": 1.0,
+		# Lorenz et al. 2013's map: its highest gridded point 520 m over the 2575 km sphere and its lowest 1.7 km under;
+		# Corlies et al. 2017's new mountains none over 700 m. Half a kilometre from the datum to its broad rises.
+		"landRelief": 0.5,
 		# The equatorial sand seas: linear dunes 100–150 m high and about 1 km wide, 1–4 km apart with flat
 		# interdunes between, running roughly east–west within about 30° of the equator (Lorenz et al. 2006;
 		# Radebaugh et al. 2008). 120 m, 3 km and 80° are a choice inside those.

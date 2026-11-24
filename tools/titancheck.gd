@@ -162,7 +162,7 @@ func _dunes(f: Spaceflight, h: Rotorcraft) -> void:
 	check("Dragonfly stands among Titan's dunes: %s m crest to trough, %s m apart, against %s m and %s m stated; %s m over the datum at %s° N" % [
 		U.fixed(hi - lo, 0), U.fixed(spacing, 0), spec.height, spec.spacing, U.fixed(f.vessel.altitude(), 0), U.fixed(rad_to_deg(ll[0]), 1)],
 		hi - lo > 0.6 * float(spec.height) and hi - lo < 2.0 * float(spec.height) and absf(spacing / float(spec.spacing) - 1.0) < 0.25
-		and absf(f.vessel.altitude()) < 3000.0 * float(f.vessel.parent.spec.landRelief))
+		and absf(f.vessel.altitude()) < 4000.0 * float(f.vessel.parent.spec.landRelief))
 
 func _parity() -> void:
 	var out := []

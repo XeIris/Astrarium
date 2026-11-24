@@ -65,6 +65,10 @@ var sun_tint := Color.WHITE
 var sun_extinction := Vector3.ONE
 ## Under a haze like Titan's, its diffuse daylight on the craft (_set_ambient), linear irradiance; else zero.
 var _haze_fill := Vector3.ZERO
+
+## What of the haze's fill the engine's ambient puts on every surface, in the ground shaders' skylight units.
+func haze_ambient() -> float:
+	return (_haze_fill.x + _haze_fill.y + _haze_fill.z) / 3.0 / PI
 ## Sine of the Sun's height over the horizon the vehicle actually has, which is below the local
 ## horizontal by the dip. Past the limb it goes negative.
 var sun_over_limb := 1.0
@@ -291,6 +295,16 @@ func _init(p: RenderPipeline) -> void:
 
 	place(ground, DVec3.new())
 	place(sky, DVec3.new())
+
+# A world's stated dune field on the ground patch, about the eye's latitude (the pole is −Y in this frame).
+func _set_dunes(d, east: DVec3, up: DVec3, north: DVec3, anchor) -> void:
+	if d == null or (d as Dictionary).is_empty():
+		ground_mat.set_shader_parameter("uDunes", Vector4.ZERO)
+		return
+	var b := deg_to_rad(float(d.bearing))
+	ground_mat.set_shader_parameter("uDunes", Vector4(float(d.width), float(d.spacing), deg_to_rad(float(d.band)),
+		asin(clampf(-up.y, -1.0, 1.0))))
+	ground_mat.set_shader_parameter("uDuneAcross", Vector2(cos(b), -sin(b)))
 
 # A world's stated seas on the ground patch: `maria` is [[unit centre (flight frame), angular radius rad], …].
 func _set_maria(maria: Array, east: DVec3, up: DVec3, north: DVec3) -> void:
@@ -617,6 +631,7 @@ func update(o: Dictionary) -> Dictionary:
 	var east := DQuat.nrm(DVec3.new().cross_vectors(up, o.northWorld))
 	var north := DQuat.nrm(DVec3.new().cross_vectors(east, up))
 	_set_maria(o.get("maria", []), east, up, north)
+	_set_dunes(o.get("dunes"), east, up, north, o.get("anchorWorld"))
 	ground_mat.set_shader_parameter("uGeoReady", 0.0)
 	var pad = o.get("padWorld")
 	# The planet-fixed point the ground's detail is laid out about: the pad
@@ -654,7 +669,11 @@ func update(o: Dictionary) -> Dictionary:
 			ground_mat.set_shader_parameter("uGeoFrame", Basis(gx, gy, gz))
 			_hold_planet_map(env.body, site_up.to_v3(), lat, lon, o.get("frame", Basis()))
 			ground_mat.set_shader_parameter("uPadLocal", Vector2((pad as DVec3).dot(east), (pad as DVec3).dot(north)))
+			ground_mat.set_shader_parameter("uMapScale", 1.0)
 			ground_mat.set_shader_parameter("uGeoReady", 1.0)
+	elif env.name != "Earth" and o.get("geoTheta") != null and PlanetMaps.has_map(str(env.name)) \
+			and int(PlanetMaps.SOURCES[str(env.name)].kind) == 2:
+		_dry_map(str(env.name), float(o.geoTheta), east, up, north)
 	var sw: DVec3 = o.sunDirWorld
 	var sun_l := Vector3(sw.dot(east), sw.dot(up), sw.dot(north)).normalized()
 	if haze_w > 0.0:
@@ -716,6 +735,34 @@ static func planet_day(y: float) -> float:
 ## the pad's direction `pad_up` in the parent frame, north on −Y, which `frame`
 ## turns into orrery axes. Seen from past the ground patch, the vehicle is then over
 ## the ground it launched from, turning at the real rate.
+# A mapped dry world (Mars, the Moon, Io) under any vessel: the patch takes the map's colour, as Earth's does
+# under a pad, scaled to the world's albedo as the globe is (PlanetMaps' `scale`), all of it land. The frame
+# turns the patch's (east, up, north) into the map's, through the mesh frame at the body's angle `theta`.
+var _dry_name := ""
+var _dry_color: Texture2D = null
+var _dry_land: Texture2D = null
+
+func _dry_map(body_name: String, theta: float, east: DVec3, up: DVec3, north: DVec3) -> void:
+	if _dry_name != body_name:
+		_dry_name = body_name
+		_dry_color = null
+		PlanetMaps.load_planet_map(body_name, func(m: Dictionary) -> void:
+			if _dry_name == body_name: _dry_color = m.color)
+	if _dry_color == null: return
+	if _dry_land == null:
+		var img := Image.create(1, 1, false, Image.FORMAT_L8)
+		img.fill(Color.WHITE)
+		_dry_land = ImageTexture.create_from_image(img)
+	var to_geo := func(v: DVec3) -> Vector3:
+		var m := SurfaceGround.to_mesh(v, theta, DVec3.new())
+		return Vector3(m.x, m.y, -m.z)
+	ground_mat.set_shader_parameter("uEarthColor", _dry_color)
+	ground_mat.set_shader_parameter("uEarthLand", _dry_land)
+	ground_mat.set_shader_parameter("uGeoFrame", Basis(to_geo.call(east), to_geo.call(up), to_geo.call(north)))
+	ground_mat.set_shader_parameter("uPadLocal", Vector2(1.0e9, 1.0e9))
+	ground_mat.set_shader_parameter("uMapScale", float(PlanetMaps.SOURCES[body_name].scale))
+	ground_mat.set_shader_parameter("uGeoReady", 1.0)
+
 func _hold_planet_map(body, pad_up: Vector3, lat: float, lon: float, frame: Basis) -> void:
 	if body == null: return
 	var viz = (body as Body).viz
