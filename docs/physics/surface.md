@@ -190,7 +190,8 @@ This is the equilibrium tide, with no basins, resonance or coasts, which is why 
 | Life | 1.4/σ | **Calibrated** to Earth's ~4 days ([Sharkey et al. 2019](https://arxiv.org/abs/1905.08840)) |
 | Surface wind | U ∝ (absorbed/ρ)^⅓, 7 m/s today | An energy-budget estimate, pinned to Earth |
 
-The contrast ∂T/∂y is the world's own latitude model's (a dry world, an estimate of 0.3 T). Systems are seeded along the storm
+The contrast ∂T/∂y is the world's own latitude model's (a dry world, an estimate of 0.3 T). Where the Hadley cell runs past
+the pole (Titan, Venus) there is no baroclinic zone poleward of it and no storms grow. Elsewhere systems are seeded along the storm
 track, grow and decay on their Eady clock, and drift on half the column's thermal wind. Cover rises and wind veers under
 one. **None of this reaches `Climate`.**
 
@@ -228,7 +229,8 @@ rivers still carve with the climate's global mean rain, not the site's.
 and the descent law read `Vessel.height_above_ground`; the air, the heating and orbit targets still read `altitude`,
 over the flight figure. A world with seas or launch sites (Earth) keeps the figure as its ground, and its flights are unchanged.
 A dry world without a measured grid (Titan, Io) stands on the crust its visual draws, as a pin reads it, until
-surveyed.
+surveyed. Over a stated sea (Titan's maria, [the sea](ocean.md#titans-seas)) the ground is the liquid at the datum,
+and no survey is carved: a craft built to float comes down on `SurfaceSea`.
 
 1. **Measured, until surveyed.** Height over the figure less `PlanetElevation`'s cell at the vessel's latitude and
    longitude. The flight frame turns into the planet mesh's by `Vessel.body_angle`, the same longitude the pad uses.

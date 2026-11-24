@@ -75,14 +75,20 @@ Its descent:
 ## Titan
 
 `sim/titan_moon.gd`, the Titan expedition preset: Titan on a circular orbit in Saturn's equatorial plane (NASA's
-factsheet), not an ephemeris.
+factsheet), not an ephemeris, on 1 July 2023, the Titan Mare Explorer's planned arrival in Titan's late northern
+summer. Its orbital phase is chosen so that Ligeia Mare sees the Sun at noon when TiME comes down.
 - **Surface:** 93.65 K and 1.467 bar, stated from Huygens (Fulchignoni et al. 2005).
 - **Methane:** its climate column is all nitrogen, because the gas fits know methane only at Earth's trace. The
   flight's air table and the entry's glow carry its methane.
+- **Poles:** its thick, slow air carries heat poleward, stated as the crust's transport (0.87). That gives 94.5 K
+  at the equator and 91.2 K at Ligeia, against Cassini CIRS's 93.7 K and about 91 K (Jennings et al. 2016).
 - **Ground:** with no measured map it stands on the crust its visual draws. The crust's relief is 3.2 km on every
   world, and a survey's roughness scales as 1/g, so Titan's ground here is far rougher than its real dunes and
   plains.
-- **Seas:** not drawn yet.
+- **Seas:** its three maria are stated where Cassini mapped them ([Titan's seas](ocean.md#titans-seas)), and the
+  Titan Mare Explorer comes down on Ligeia.
+- **Sky:** the haze hides the Sun and the stars, and the ground is lit by its diffuse light
+  ([Mars and Titan](sky.md#mars-and-titan)).
 
 The Survey Shuttle comes in from 800 km over Titan. Without a landing site, its deorbit burn aims its perigee
 where the air reaches 1e-4 kg/m³, never above half the air's top: about 75 km on Earth, and inside Titan's
@@ -107,13 +113,14 @@ own air and ahead at 10 m/s, then lands with its feet on the drawn triangles to 
 `titancheck` (flight, headless):
 - Dragonfly comes down from the top of Titan's air, its chute opening at Mach 1.49.
 - It leaves the backshell and lands itself on less steep ground, tilted 4°, a foot on the drawn triangles.
-- It flies 73 m up and 9 m/s across the hills, never under 68 m, then stands again.
+- It flies 75 m up and across the hills, 3.8 m/s at the last as the ground rises, never under 18 m, then stands again.
 - Drawn and undrawn descents land identically.
 - The Survey Shuttle comes in from orbit and stops.
-- Dragonfly's descent under its chute and the Shuttle's glide take hours, as Huygens' 2.5 under its chutes
-  did, so they are flown at 20× here and are not scenarios to jump to. At 20× the Shuttle's flare settles
-  differently: it touches down at 7.6 m/s against 20.4 m/s at 1×.
-- Every ground is let go.
+- The Titan Mare Explorer comes down on Ligeia Mare and floats ([the sea](ocean.md#what-tests-it)).
+- Dragonfly's and TiME's descents under their chutes and the Shuttle's glide take hours, as Huygens' 2.5 under
+  its chutes did, so they are flown at 20× here, and only their first minutes are scenarios to jump to. At 20× the
+  Shuttle touches down at 20.6 m/s and 0.7 m/s of sink.
+- Every ground and sea is let go.
 
 Mutations: Glauert's factor of two, and the yaw split's sign.
 

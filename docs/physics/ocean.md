@@ -1,7 +1,8 @@
-# The sea: `sim/surface/ocean_field.gd`, `ocean_gpu.gd`, `floater.gd`, `capsule.gd`, `surface_sea.gd`
+# The sea: `sim/surface/ocean_field.gd`, `ocean_gpu.gd`, `floater.gd`, `capsule.gd`, `time_capsule.gd`, `surface_sea.gd`, `sim/stated_seas.gd`
 
 A sea as Tessendorf's FFT ocean, the same field on the GPU (drawn) and the CPU (floated on); a rigid body that
-floats on it; and Apollo's command module, which comes down on it from a lunar return. SI, the site's frame
+floats on it; Apollo's command module, which comes down on it from a lunar return; and the Titan Mare Explorer,
+which comes down on Titan's Ligeia Mare. SI, the site's frame
 (x west, y up, z north). The spectrum is [the surface's](surface.md#oceans): JONSWAP on the world's own g, with
 dispersion over the local depth and the liquid's surface tension.
 
@@ -17,11 +18,41 @@ dispersion over the local depth and the liquid's surface tension.
 | Index of refraction | 1.339 | 1.294, from Lorentz–Lorenz with methane's polarisability volume 2.593 Å³ (CRC) |
 | Absorption at 650, 550, 450 nm | 0.340, 0.0565, 0.0092 /m: pure water's ([Pope & Fry 1997](https://doi.org/10.1364/AO.36.008710)) | estimates, red weaker than water's |
 | Backscatter | half of pure sea water's b, [Morel 1974](https://www.oceanopticsbook.info/view/optical-constituents-of-the-ocean/water), λ^-4.32 | water's scaled by (n² − 1)² |
+| Freezes at | the climate's freezing point for its salinity | 90.694 K, methane's triple point (NIST), under Ligeia's 91 K |
+| Waves start at | any wind | 0.4 m/s at 10 m, where the wind's work beats the viscosity ([Lorenz & Mann 2015](https://www.jhuapl.edu/sites/default/files/2024-09/33-02-Lorenz.pdf), for methane) |
 
 Ligeia is methane-dominated ([Le Gall et al. 2016](https://ui.adsabs.harvard.edu/abs/2016JGRE..121..233L)); its
 dissolved nitrogen and ethane are not in it. A deep column sends back R∞ ≈ 0.33 b_b/a of the light that reaches it
 ([Gordon et al. 1975](https://doi.org/10.1364/AO.14.000417)): 8.8% in the blue, 0.5% in the green and 0.04% in the
 red for clear sea water, which is why the open sea is blue. Chlorophyll and silt are not modelled.
+
+Under its wind's onset a liquid lies flat (`OceanField.calm`): no mode is drawn and the glint has no unresolved
+roughness, as Cassini's radar found Ligeia, flat to millimetres. Earth's sea has no onset here.
+
+## Titan's seas
+
+`sim/stated_seas.gd`. Titan's crust is procedural and draws no seas, so its three maria are stated where Cassini's
+radar mapped them, each as spherical caps sized to its mapped area (Cassini's west longitudes negated to east, in the
+mesh's own longitudes):
+
+| Mare | Centre | Area | Depth |
+| --- | --- | --- | --- |
+| Ligeia | 79° N 248° W, one 200 km cap | 126,000 km² (Stofan et al. 2012) | 170 m at the deepest (Mastrogiuseppe et al. 2014) |
+| Kraken | two basins, 73° N 315° W and 62° N 305° W, 280 and 300 km | about 500,000 km² (Hayes 2016) | 300 m, a floor: its main body was deeper than the radar reached (Poggiali et al. 2020) |
+| Punga | 85.1° N 339.7° W, 139 km | 61,000 km² (Hayes 2016) | 120 m (Mastrogiuseppe et al. 2018) |
+
+The depth goes as (d/R)^1.2 of the deepest, d in from the shore of a cap of radius R. With Ligeia's 170 m that gives
+Le Gall et al.'s (2016) mean of about 50 m. Every reader takes them from there:
+- **The pin** reads "sea" inside one, with its name and depth.
+- **The survey of a site** within reach of one lays the floor at the mare's depth under it, and off it the crust's
+  land rising over 20 km from a datum-level shore.
+- **A vessel's ground** over one is the liquid, at the datum, as an altimeter ranges to it, and `SurfaceGround`
+  stands down there for the sea.
+- **The flight's far ground** draws them dark from altitude, the coast pushed a few kilometres either way by noise.
+
+Not stated: Titan's hundreds of smaller lakes, Kraken's composition (70% methane, 16% nitrogen, 14% ethane, Poggiali
+et al. 2020; it floats on Ligeia's liquid here), the maria on the globe seen from orbit, where the haze hides them
+anyway, and the seas' common level against the mean radius.
 
 ## The spectrum on four lattices
 
@@ -72,6 +103,9 @@ RenderingDevice nothing is allocated, and the site falls back to the trains.
   site's own ground is nearer) attenuates what is behind by e^{−(a + b_b)ℓ}, and the light that lit it came down
   through the liquid too. What the column sends back, R∞ under the light that reaches the surface, fills the rest.
   The screen texture is bent a little along the normal: a screen-space refraction, not a traced one.
+- **The light** the sky, the column and the fog are lit by is the ground's, the star's flux through the exposure
+  in the sky's colour (`uLight`), and the sun's glint takes what the air leaves of the direct beam: at Saturn, under
+  Titan's haze, both are a fraction of Earth's.
 - **Foam** on the crests, where the three longer cascades together squeeze the surface towards folding,
   J = (1 + ∂Dx/∂x)(1 + ∂Dz/∂z) − (∂Dx/∂z)², below 0.55, which is an estimate. A linear sea seldom folds, so this
   marks steep crests, not a calibrated whitecap cover. It is not kept from frame to frame.
@@ -114,14 +148,52 @@ flies at L/D 0.30, banked 60°, and its Avcoat ablates. Baroswitches fire two 16
 three 83.5 ft ringsail mains at 10,700 ft. The mains' drag area is what Apollo's 22 mph on three implies (C_D 0.54
 on the nominal area), so the splash speed is an input, not a result.
 
+## The Titan Mare Explorer
+
+`time_capsule.gd`. TiME was a 2011 Discovery finalist that would have splashed down on Ligeia Mare in 2023 and
+floated for six Titan days. One capsule enters behind its own heat shield, comes down on chutes and floats as a
+drifting buoy. From [Lorenz & Mann 2015](https://www.jhuapl.edu/sites/default/files/2024-09/33-02-Lorenz.pdf):
+- **Mass:** 700 kg.
+- **Hull:** axisymmetric, modelled there as stacked cylinders 0.8–2.9 m across, with the centre of mass close to the
+  waterline. Not self-righting, like a discus buoy.
+
+These are estimates:
+- **Shape:** a forebody with Huygens' 60° half-angle and a 0.75 m nose, the shoulder 2.9 m across, a backshell
+  rising to the 0.8 m top 1.6 m up.
+- **Centre of mass:** 0.62 m up.
+- **Inertia:** the outline's as a uniform solid.
+- **Drawn only:** the camera's sphere and the antenna's box on their masts (Lorenz & Mann's figure 4), and two
+  radioisotope generators.
+
+On methane it draws 0.69 m with 0.91 m of freeboard. It bobs at 2.85 s, against 2π√(m/ρgA) = 2.73 s on its 2.78 m
+waterline. Lorenz & Mann give about 2.6 s on an ethane-rich sea, where it would sit higher.
+
+Its descent:
+- **Entry:** at Huygens' 6.0 km/s, 30° down as Dragonfly's is here, over a point up-track of Ligeia's middle.
+- **Main chute:** Huygens' 8.3 m scaled to 700 kg, opened at Huygens' Mach 1.5.
+- **Stabiliser:** takes over at 110 km, as Huygens' did after 15 minutes. It is sized so that it and the capsule's
+  own drag bring 700 kg down at Huygens' 4.5 m/s (Lebreton et al. 2005).
+- **Under the chutes:** the risers hold it below the canopy, a pendulum whose torque is the chute's drag at about a
+  body length (`Vessel.authority`), so a capsule without thrusters hangs in the airflow.
+
+The Titan expedition is dated 1 July 2023, TiME's planned arrival, in Titan's late northern summer: the subsolar
+latitude is 9.5° and the Sun is 19.5° up over Ligeia at splashdown. Lorenz & Mann say it never climbs past about
+30° there.
+
 ## Coming down at sea
 
-`surface_sea.gd`. A vehicle with `floats` over a world with oceans asks for the sea where its chute will bring it
-down: the pin, the site's weather (`SurfaceWeather`), and an FFT field for its wind over an open ocean's fetch and
-4 km of depth. Twenty flight-seconds later it stands on it, drawn or not. Fifteen metres above the mean sea the
+`surface_sea.gd`. A vehicle with `floats` over a world with oceans, or with stated seas, asks for the sea where its
+chute will bring it down: the pin, the site's weather (`SurfaceWeather`), and an FFT field for its wind. The fetch is
+an open ocean's with 4 km of depth, or across a stated mare at its depth under the point. Twenty flight-seconds later it stands on it, drawn or not. Fifteen metres above the mean sea the
 Floater takes the vessel at its place, velocity and attitude, under its mains; the crew cut them 2 s after
 splashdown (an estimate). The vessel stays landed where it came down, and the craft is drawn where the Floater has
-it. On land there is no sea, and the capsule meets the ground as any vehicle does. G starts the bags' compressors.
+it. On land there is no sea, and the capsule meets the ground as any vehicle does. G starts the CM's bags'
+compressors; TiME has none.
+
+On Ligeia the site's weather gives about 1 m/s, the energy-budget wind of
+[the surface's weather](surface.md#weather). Titan's Hadley cell runs past the pole, so no storms grow there. Lorenz &
+Mann's own winds for the season are lighter (a Weibull scale of 0.4 m/s; Huygens measured about 0.3), and 1 m/s is
+the strongest they expected.
 
 ## What tests it
 
@@ -141,6 +213,12 @@ it. On land there is no sea, and the capsule meets the ground as any vehicle doe
 | In a 7 m/s sea, inverted, the bags started | upright 42 s later | Apollo 11: upright 7.6 min after splashdown (SP-4029; the crew's wait is in it) |
 | Heave in a 10 m/s sea against the water under it | correlation 0.999, ratio 1.05 | a 4 m body on 80 m waves rides them |
 | On Ligeia Mare | floats with 10.97 of its 16.06 m³ under | |
+| Ligeia's place, depth, area and mean depth | 79° N 248° W, 170 m; 125,640 km², mean 50 m | Stofan et al. 2012's 126,000 km², Le Gall et al.'s about 50 m |
+| A mare's place against the pin's | the same vector to 1e-7 | |
+| Methane at 0.3 m/s | H_s 0, no unresolved slope | flat, under its 0.4 m/s onset |
+| Methane at 1.0 and 1.5 m/s | H_s 0.161 and 0.362 m | Lorenz & Mann's 0.2U²/g: 0.148 and 0.333 m |
+| TiME on still methane | displaces 1.557 m³, its weight; rests upright or capsized | not self-righting (Lorenz & Mann) |
+| Its heave | 2.85 s | 2π√(m/ρgA) = 2.73 s |
 
 Printed, not judged: on still water with full bags it rights from Stable II. Mean-square slope at 10 m/s is 0.026
 drawn and 0.006 unresolved, against [Cox & Munk 1954](https://doi.org/10.1364/JOSA.44.000838)'s measured 0.054 for a
@@ -150,9 +228,16 @@ clean sea. The spectrum's tail is lighter than a real sea's.
 2.2 m sea (1.9e-6 of H_s) and 3.3e-7 m on Titan. It also draws the water shader once.
 
 `seacheck` (flight, headless): the command module from its mains to the Pacific. The sea is stood on before it
-arrives, it splashes at 10.0 m/s with a 6.4 g peak, and the probes read the drawn sea to 3 mm. It floats inverted
+arrives, it splashes at 9.7 m/s with a 5.5 g peak, and the probes read the drawn sea to 3 mm. It floats inverted
 here, as Apollo 11 did, pulled over by its mains in the wind, and G rights it. Drawn and undrawn flights float
 identically, other Earth flights make no sea, and every sea is let go.
+
+`titancheck` (flight, headless) flies TiME from the top of Titan's air at 20×:
+- its main opens at Mach 1.50 and its stabiliser at 110 km;
+- it comes down on Ligeia Mare at 4.5 m/s with a 1.6 g peak, and floats upright, heel under 2°, displacing
+  1.66 m³ of methane on the waves against its 1.56 m³ at rest;
+- the sea's 0.14 m in 0.9 m/s of wind is Lorenz & Mann's 0.13 m;
+- drawn and undrawn come down on the sea identically.
 
 The entry, in the scenarios: peak heating 305 W/cm² against Apollo 11's 286 BTU/ft²/s (325 W/cm²), and a peak of
 8.6 g against its 6.56 g. Its constant 60° bank is not Apollo's guided bank. It comes down at 0° N, 168.3° W; Apollo

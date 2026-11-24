@@ -134,7 +134,7 @@ uses an integer hash for this reason (`TERRAIN_EXACT`); cloud decks, giants and 
 ## The surface
 
 `sim/surface/` runs only while someone stands on a world (`Showcase.stand`), a vessel comes down on a dry
-mapped one (`SurfaceGround`: the Moon, Mars), a vessel built to float comes down at sea (`SurfaceSea`), or a rover
+mapped one (`SurfaceGround`: the Moon, Mars), a vessel built to float comes down at sea (`SurfaceSea`, Earth's or a stated one: `StatedSeas`, Titan's maria), or a rover
 drives off one or a rotorcraft flies over it (`Rover`, `Rotorcraft`). Nothing of it is created, and it computes nothing, in the orrery,
 an Earth flight or the Observatory: `surfacecheck` holds `SurfaceStats` at zero through them and the object counts
 flat after a visit, and `groundcheck` holds a landing's to its flight. It reads the world's gravity, air, water and temperature, and writes
@@ -266,8 +266,9 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
   `tools/groundlookcheck.tscn`; the rover (`sim/surface/rover*.gd`): `tools/rovercheck.gd`, and the drive off a landed
   LM in `groundcheck`
 - a rotorcraft (`Rotorcraft`): `tools/rotorcheck.gd`, Ingenuity off Perseverance in `groundcheck`; Titan, Dragonfly
-  and the Survey Shuttle there: `tools/titancheck.tscn`
-- the FFT sea, the liquids and what floats (`OceanField`, `Floater`, `Capsule`): `tools/oceancheck.gd`; the GPU's
+  and the Survey Shuttle there: `tools/titancheck.tscn`, which also brings TiME down on Ligeia Mare
+- the FFT sea, the liquids, Titan's stated seas and what floats (`OceanField`, `StatedSeas`, `Floater`, `Capsule`,
+  `TimeCapsule`): `tools/oceancheck.gd`; the GPU's
   half of the sea against the CPU's: `tools/oceanlookcheck.tscn`; a splashdown (`SurfaceSea`): `tools/seacheck.tscn`
 - how a world's look follows its climate: `tools/lookcheck.tscn`, and with `pixels=1` the frames
 - tidal disruption, natal kicks, the disc model, the climate or its draw: `tools/realismcheck.tscn`
