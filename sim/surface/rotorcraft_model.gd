@@ -29,9 +29,9 @@ static func _mat(c: Color, metal := 0.0, rough := 0.6) -> StandardMaterial3D:
 
 func _box(size: Vector3, at: Vector3, mat: Material) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
-	var b := BoxMesh.new()
-	b.size = size
-	mi.mesh = b
+	var box := BoxMesh.new()
+	box.size = size
+	mi.mesh = box
 	mi.material_override = mat
 	mi.position = at
 	group.add_child(mi)
