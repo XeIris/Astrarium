@@ -579,6 +579,40 @@ static func _build_vehicles() -> Dictionary:
 		},
 	},
 
+	# APOLLO COMMAND MODULE — the return: Apollo 11's entry, two drogues, three mains, and the
+	# Pacific. It floats (sim/surface/surface_sea.gd): down, G inflates the uprighting bags.
+	"apollocm": {
+		"id": "apollocm", "name": "Apollo Command Module — return", "role": "lander", "launchFrom": "Earth",
+		"era": "1968–1975",
+		"blurb": "Columbia's return from the Moon: entry at 11 km/s with 0.3 of lift, two drogues at 7.3 km, three mains at 3.3 km, and the Pacific at 22 mph. It floats either way up, as Apollo 11 did, until G inflates the uprighting bags.",
+		# No authored model: the outline that floats is the one drawn (sim/surface/capsule.gd).
+		"procedural": true,
+		"floats": true,
+		# Apollo 11's entry peaked at 6.56 g (NASA SP-4029); the structure took far more.
+		"limits": { "maxQ": 40e3, "maxG": 15.0, "qAlpha": 20e3, "heatLoad": 400e6 },
+		"stages": [
+			stage({ "key": "cm", "name": "Command Module \"Columbia\"", "dry": 4931.9, "prop": 0.0,
+				"engine": null, "count": 0, "L": 3.2258, "D": 3.9116, "sep": "none",
+				# Avcoat in a honeycomb, 2 in at the thickest (Wikipedia, "Apollo command and service
+				# module"); ρ 512 kg/m³ and Q* 30 MJ/kg are estimates for it. The shield's sphere is the
+				# stagnation radius.
+				"blunt": true, "heatShield": { "area": 12.0, "ablator": true, "noseR": 4.694,
+					"thickness": 0.0508, "rho": 512.0, "qstar": 3.0e7 },
+				# Flown at L/D 0.30 (NASA SP-4029), banked to steer as the MSL aeroshell is.
+				"lift": { "LD": 0.30 },
+				# The drogues first; the mains are in `edl`.
+				"chute": { "area": 9.94, "Cd": 0.55 },
+				"look": { "skin": "ablator", "cm": true } }),
+		],
+		"edl": {
+			"entry": { "alt": 121920.0, "v": 11032.0, "fpa": -6.48 },
+			# Baroswitches: drogues at 24,000 ft, mains at 10,700 ft (NASA). The mains' drag area is
+			# what Apollo's 22 mph on three implies, so that speed is an input here, not a result.
+			"chute": { "alt": 7315.0 },
+			"mains": { "alt": 3261.0, "area": 1526.0, "Cd": 0.54, "inflate": 8.0 },
+		},
+	},
+
 	# ION CRUISER — the interplanetary workhorse. 237 mN and months of burn: it
 	# is the vehicle that makes the warp ladder necessary.
 	"ioncruiser": {
@@ -685,7 +719,7 @@ static func booster_return(key: String):
 	return veh
 
 const VEHICLE_ORDER := [
-	"saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane",
+	"saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "apollocm",
 	"ioncruiser", "solarsail", "hailmary", "beetle", "evapod", "ranger", "discovery", "endurance", "lander",
 ]
 

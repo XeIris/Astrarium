@@ -113,6 +113,9 @@ var craft_pos := DVec3.new()      # the vehicle in the local frame: (0, alt, 0) 
 var ground_pos := DVec3.new()     # the ground patch's own offset (0, −gradeDrop, 0)
 ## The landing survey the vessel stands on (vessel.ground), drawn once it is the ground.
 var ground_site: SurfaceSite = null
+## The recovery area as drawn, once the vessel's SurfaceSea is stood on.
+var sea_site: SurfaceSite = null
+var _sea_level_y := 0.0
 var _drawn_ground: SurfaceGround = null
 ## Where the drawn site stands in the local frame this frame: origin and basis.
 var _site_at := DVec3.new()
@@ -736,6 +739,7 @@ func teardown() -> void:
 	pad_fire = null
 	_drop_ground_site()
 	_drop_rover()
+	_drop_sea_site()
 	if vessel != null: vessel.release_ground()
 	ground_pos.y = 0.0
 	plumes = []; sep_plumes = []; entry = null; cryo = null; vapour = null
@@ -1603,6 +1607,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		# The pad camera stands ON the pad, so it moves with it.
 		fly_cam.state.padPos = site_local.clone().add_in(DVec3.from_v3(pad_offset))
 	_place_ground(east, up, north, R_loc, fr, float(key.ang_r) if key != null else 0.00465)
+	_place_sea(east, up, north, R_loc, fr, dt)
 	local.place(local.ground, ground_pos)
 
 	# moving parts
@@ -1783,9 +1788,16 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 				"length": float(rover.spec.size[2]), "up": Vector3(0, 1, 0), "dt": dt, "sunLocal": sun_l, "interior": {}})
 	else:
 		interior.set_enabled(fly_cam.state.mode == "interior", craft, vessel.vehicle)
-		fly_cam.update({"craftPos": craft_pos, "craftBasis": craft_basis,
-			"length": craft.height if craft.height else vessel.length, "up": Vector3(0, 1, 0),
+		var afloat := vessel.afloat()
+		# A capsule is framed by its own size, not its canopies'; afloat it rolls with the sea, so it is
+		# framed level.
+		var span: float = Capsule.HEIGHT if craft.stage("cm") != null else (craft.height if craft.height else vessel.length)
+		fly_cam.update({"craftPos": craft_pos, "craftBasis": Basis() if afloat else craft_basis,
+			"length": span, "up": Vector3(0, 1, 0),
 			"dt": dt, "sunLocal": sun_l, "interior": vessel.vehicle.get("interior", {})})
+		if afloat and fly_cam.state.mode != "interior" and fly_cam.pos.y < _sea_level_y + 1.2:
+			fly_cam.pos.y = _sea_level_y + 1.2
+			fly_cam.look_at(craft_pos, Vector3.UP)
 	if docking != null and fly_cam.state.mode == "berth":
 		var pod := vessel.vehicle_key == "evapod"
 		var offset := Vector3(-13, 8, -9) if pod else Vector3(-52, 40, -38)
@@ -1891,6 +1903,84 @@ func _drop_ground_site() -> void:
 		ground_site = null
 		local.set_ground_shadows(false)
 	_drawn_ground = null
+
+## The sea under a vessel coming down to float: the recovery area's site, drawn from the vessel's own field
+## and clock, the patch dropped under it, and, afloat, the craft where its Floater has it.
+func _place_sea(east: DVec3, up: DVec3, north: DVec3, R_loc: float, fr: Dictionary, dt: float) -> void:
+	var sea: SurfaceSea = vessel.sea
+	if sea == null or not sea.adopted:
+		_drop_sea_site()
+		_pose_capsule()
+		return
+	var ax := sea.site_axes(vessel)
+	var rel := (ax[0] as DVec3).clone().add_scaled_in(up, -R_loc)
+	var at := DVec3.new(rel.dot(east), rel.dot(up), rel.dot(north))
+	var axis := func(d: DVec3) -> Vector3: return Vector3(d.dot(east), d.dot(up), d.dot(north))
+	var basis := Basis(axis.call(ax[1]), axis.call(ax[2]), axis.call(ax[3])).orthonormalized()
+	_sea_level_y = at.y
+	if vessel.afloat():
+		# The craft's stage origin is the shield's lowest point; the floater's, its centre of mass.
+		var pose := sea.floater.transform() * Transform3D(Basis(), -Vector3(Capsule.CG_X, Capsule.CG_Y, 0.0))
+		craft_pos.copy_from(at).add_in(DVec3.from_v3(basis * pose.origin))
+		craft.group.basis = (basis * pose.basis).orthonormalized()
+	_pose_capsule()
+	if fr.is_empty(): return
+	if sea_site == null:
+		sea_site = SurfaceSite.new(local, vessel.parent, sea.pin, _render_quality, vessel.ground_seed)
+		sea_site.use_ocean(sea.field)
+	if not sea_site.built:
+		sea_site.poll()
+		if not sea_site.built: return
+	sea_site.group.basis = basis
+	local.place(sea_site.group, at)
+	ground_pos.y = at.y + sea_site.patch_y
+	var to_site := basis.inverse()
+	var cam_site := to_site * local.cam_pos.sub(at).to_v3()
+	var tint := Vector3(0.3, 0.45, 0.7)
+	var atm = vessel.env.atm
+	if atm != null:
+		var c := Color.hex((int(atm.tint) << 8) | 0xff)
+		tint = Vector3(c.r, c.g, c.b)
+	var gm := local.ground_mat
+	sea_site.sea_time = sea.site_time(vessel)
+	var w := sea.weather.now()
+	sea_site.draw_sea(dt, to_site * (fr.sun_local as Vector3), Vector3.ONE * float(fr.get("sun_visible", 1.0)), tint * 0.55,
+		gm.get_shader_parameter("uHaze"), float(gm.get_shader_parameter("uDensity")), float(gm.get_shader_parameter("uScaleH")),
+		float(w.cover), cam_site)
+
+# The command module's bags and canopies: the vessel's chute in the air, the Floater's on the sea.
+func _pose_capsule() -> void:
+	if craft == null: return
+	var cs = craft.stage("cm")
+	if cs == null: return
+	var sea: SurfaceSea = vessel.sea
+	if vessel.afloat():
+		var fill := clampf((sea.site_time(vessel) - sea.bags_at) / Capsule.INFLATE_S, 0.0, 1.0) if sea.bags_at >= 0.0 else 0.0
+		Capsule.pose_model(cs.group, fill, "mains" if sea.floater.chute != null else "", 1.0)
+		return
+	var ch = vessel.chute_open
+	var kind := "" if ch == null else ("mains" if float(ch.area) > 100.0 else "drogue")
+	Capsule.pose_model(cs.group, 0.0, kind, vessel.chute_deploy)
+
+func _drop_sea_site() -> void:
+	if sea_site != null:
+		sea_site.dispose()
+		sea_site = null
+
+## The floating craft's line on the flight HUD: how it floats, the sea and the wind.
+func sea_readout() -> String:
+	var sea: SurfaceSea = vessel.sea
+	var f := sea.floater
+	var heel := sea.heel()
+	var attitude := "Stable I (upright)" if heel < 60.0 else ("on its side" if heel < 100.0 else "Stable II (inverted)")
+	var w := sea.weather.now()
+	var line := "Afloat · %s, heel %s° · Hs %s m, %s s · wind %s m/s · drift %s m" % [attitude, U.fixed(heel, 0),
+		U.fixed(sea.field.hs(), 1), U.fixed(TAU / sea.field.peak_omega, 1), U.fixed(float(w.wind), 1), U.fixed(Vector2(f.p[0], f.p[2]).length(), 0)]
+	if sea.bags_at >= 0.0:
+		line += " · bags %s%%" % U.fixed(100.0 * clampf((sea.site_time(vessel) - sea.bags_at) / Capsule.INFLATE_S, 0.0, 1.0), 0)
+	elif heel > 60.0:
+		line += " · G inflates the uprighting bags"
+	return line
 
 ## Hand the pad camera over to chase once the vehicle climbs out of frame.
 func _pad_view_lost(alt: float) -> void:
@@ -2080,6 +2170,8 @@ func update_hud() -> void:
 		status="r = %s GM/c² · dt/dτ = %s× · reference at infinity"%[U.fixed(orbit.radiusM,2),U.fixed(orbit.dilation,3)]
 	if rover != null and driving:
 		status = rover_readout()
+	elif vessel.afloat():
+		status = sea_readout()
 	if docking!=null:
 		var d: Dictionary=docking.capture if docking.latched else docking.readout
 		status=("%s · %s m · %s m/s · %s rpm"%[docking.status,U.fixed(d.gap,2),U.fixed(d.speed,2),U.fixed(d.rpm,1)]) if docking.failure=="" else docking.failure
@@ -2177,6 +2269,9 @@ func key_action(action: String) -> bool:
 		"gear":
 			if driving and rover_arm != null:
 				_toggle_arm()
+				return true
+			if vessel.afloat():
+				vessel.sea.inflate_bags(vessel)
 				return true
 			for st in vessel.stages:
 				if st.attached and int(st.spec.get("look", {}).get("arms", 0)) > 0:

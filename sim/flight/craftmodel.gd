@@ -933,6 +933,7 @@ static func _build_stage(spec: Dictionary, ctx: Dictionary) -> Dictionary:
 	if _t(look.get("orbiter")): return ShuttleLines.build_orbiter(spec, parts)
 	if _t(look.get("tank")): return ShuttleLines.build_et(spec, parts)
 	if _t(look.get("aeroshell")): return build_aeroshell(spec, parts)
+	if _t(look.get("cm")): return Capsule.build_model(spec, parts)
 	if _t(look.get("skycrane")): return build_sky_crane(spec, parts)
 	if _t(look.get("rover")): return build_rover(spec, parts)
 	if _t(look.get("hailmary")): return build_hail_mary(spec, parts)

@@ -7,6 +7,10 @@ extends RefCounted
 # docs/physics/surface.md.
 
 const OCEAN_SHADER := preload("res://shaders/surface/ocean.gdshader")
+const WATER_SHADER := preload("res://shaders/surface/water.gdshader")
+## A new wind redraws the FFT sea's amplitudes when it differs by this fraction or this bearing, rad.
+const SEA_REWIND := 0.15
+const SEA_REBEAR := 0.2
 const RAIN_SHADER := preload("res://shaders/surface/rain.gdshader")
 const TERRAIN_SHADER := preload("res://shaders/surface/ground.gdshader")
 # Below the grid on a world without a measured cell (SurfaceRelief.HURST): ν at 1 km and H, scaled by
@@ -40,6 +44,13 @@ var relief: SurfaceRelief
 var weather := SurfaceWeather.new()
 var sea_trains: Array = []
 var sea := {}
+## The FFT sea, where a RenderingDevice draws it (otherwise the trains): its field, its GPU half, the liquid
+## and the field's clock, s. A SurfaceSea in flight hands its own field in and runs the clock and the wind.
+var ocean: OceanField = null
+var ocean_gpu: OceanGPU = null
+var liquid := Liquid.SEAWATER
+var sea_time := 0.0
+var _sea_owned := true
 var tide := {"height": 0.0, "rows": []}
 ## A sea in view: under the pin, or in the far grid's low ground.
 var has_sea := false
@@ -170,7 +181,7 @@ func dispose() -> void:
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task = -1
 	local.unplace(group)
-	if _ocean != null: local.unplace(_ocean)
+	if ocean_gpu != null: ocean_gpu.dispose()
 	if _rain != null: local.unplace(_rain)
 	if is_instance_valid(group): group.queue_free()
 	SurfaceStats.count("site_dispose")
@@ -283,15 +294,24 @@ static func _height_texture(g: Dictionary) -> ImageTexture:
 
 func _build_ocean(at_sea: bool) -> void:
 	_ocean_mat = ShaderMaterial.new()
-	_ocean_mat.shader = OCEAN_SHADER
+	liquid = Liquid.of(body.name)
 	var fetch := FETCH_OPEN if at_sea else maxf(FETCH_MIN, relief.grids[1].half)
-	sea_trains = SurfaceWaves.make_trains(maxf(weather.wind_mean, 0.5), climate.gravity, _site_depth(), hash(pin.n) & 0xffffff)
 	sea = {"fetch": fetch}
+	if RDU.available() and not frozen_sea:
+		if ocean == null:
+			var w := weather.now()
+			ocean = OceanField.new(climate.gravity, _site_depth(), liquid, maxf(float(w.wind), 0.5), float(w.wind_dir), fetch, hash(pin.n) & 0xffffff)
+		ocean_gpu = OceanGPU.new(ocean)
+		_ocean_mat.shader = WATER_SHADER
+		_water_uniforms()
+	else:
+		_ocean_mat.shader = OCEAN_SHADER
+		sea_trains = SurfaceWaves.make_trains(maxf(weather.wind_mean, 0.5), climate.gravity, _site_depth(), hash(pin.n) & 0xffffff)
+		_ocean_mat.set_shader_parameter("uDeep", _water_colour(0.02))
+		_ocean_mat.set_shader_parameter("uShallow", _water_colour(0.5))
 	_ocean_mat.set_shader_parameter("uFrozen", 1.0 if frozen_sea else 0.0)
 	_ocean_mat.set_shader_parameter("uRadius", relief.radius_m)
 	_ocean_mat.set_shader_parameter("uOpen", 1.0 if at_sea else 0.0)
-	_ocean_mat.set_shader_parameter("uDeep", _water_colour(0.02))
-	_ocean_mat.set_shader_parameter("uShallow", _water_colour(0.5))
 	_set_depth_tex()
 	# A polar disc about the camera, so the vertex budget stays where the waves can be seen.
 	var verts := PackedVector3Array()
@@ -325,8 +345,8 @@ func _build_ocean(at_sea: bool) -> void:
 	_ocean.material_override = _ocean_mat
 	_ocean.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_ocean.custom_aabb = AABB(Vector3(-OCEAN_REACH, -200.0, -OCEAN_REACH), Vector3(2.0 * OCEAN_REACH, 400.0, 2.0 * OCEAN_REACH))
+	# A child of the site's group, so placed in the site's frame (light_sea), not against the camera.
 	group.add_child(_ocean)
-	local.place(_ocean, DVec3.new())
 
 # The sea's depth under the pin, m: at least enough to read as deep, a shelf's if the crust says so.
 func _site_depth() -> float:
@@ -336,6 +356,30 @@ func _site_depth() -> float:
 # (https://en.wikipedia.org/wiki/Color_of_water). Chlorophyll is not modelled.
 func _water_colour(shallow: float) -> Vector3:
 	return Vector3(0.012, 0.045, 0.105).lerp(Vector3(0.03, 0.22, 0.26), shallow)
+
+# The FFT sea's textures, its lattices and the liquid's optics, for water.gdshader.
+func _water_uniforms() -> void:
+	var m := _ocean_mat
+	for c in OceanField.CASCADES:
+		m.set_shader_parameter("uDisp%d" % c, ocean_gpu.disp[c])
+		m.set_shader_parameter("uDeriv%d" % c, ocean_gpu.deriv[c])
+	m.set_shader_parameter("uTile", Vector4(ocean.L[0], ocean.L[1], ocean.L[2], ocean.L[3]))
+	m.set_shader_parameter("uCells", Vector4(ocean.n[0], ocean.n[1], ocean.n[2], ocean.n[3]))
+	m.set_shader_parameter("uSlopeVar", Vector4(ocean.slope_var[0], ocean.slope_var[1], ocean.slope_var[2], ocean.slope_var[3]))
+	m.set_shader_parameter("uUnresolved", ocean.unresolved_slope())
+	m.set_shader_parameter("uF0", Liquid.f0(float(liquid.n)))
+	m.set_shader_parameter("uIor", float(liquid.n))
+	m.set_shader_parameter("uAbsorb", liquid.absorb)
+	m.set_shader_parameter("uBackscatter", liquid.backscatter)
+	m.set_shader_parameter("uDeepR", Liquid.deep_reflectance(liquid))
+	m.set_shader_parameter("uPatchY", patch_y)
+	sea = {"fetch": float(sea.get("fetch", ocean.fetch)), "hs": ocean.hs(), "peak_period": TAU / ocean.peak_omega,
+		"wind": ocean.wind, "wind_dir": ocean.bearing}
+
+## Hand a SurfaceSea's field in before the site is built: it then owns the field's clock and wind.
+func use_ocean(f: OceanField) -> void:
+	ocean = f
+	_sea_owned = false
 
 # Heights for the shader's shoreline and shallows, from the far grid.
 func _set_depth_tex() -> void:
@@ -396,19 +440,45 @@ func update(dt: float, sim_seconds: float, up: Vector3, bodies: Array, cam_y: fl
 	current = w
 	tide = SurfaceWaves.tide(body, up, bodies) if has_sea else {"height": 0.0, "rows": []}
 	if _ocean != null:
-		_sea_acc += dt
-		if _sea_acc > 0.5:
-			_sea_acc = 0.0
-			sea = SurfaceWaves.fill(sea_trains, maxf(float(w.wind), 0.1), float(w.wind_dir), climate.gravity, float(sea.fetch))
-			var arrays := SurfaceWaves.shader_arrays(sea_trains)
-			_ocean_mat.set_shader_parameter("uWaves", arrays.waves)
-			_ocean_mat.set_shader_parameter("uPhases", arrays.phases)
-		local.place(_ocean, DVec3.new(local.cam_pos.x, float(tide.height), local.cam_pos.z))
-		for key_val in [["uTime", _time], ["uCamLocal", local.cam_pos.to_v3()], ["uSunDir", sun_l], ["uSunRGB", sun_rgb], ["uSkyTop", sky_top],
-				["uHaze", haze], ["uDensity", density], ["uScaleH", scale_h], ["uCover", float(w.cover)], ["uTide", float(tide.height)]]:
-			_ocean_mat.set_shader_parameter(key_val[0], key_val[1])
+		if ocean_gpu != null:
+			if _sea_owned:
+				sea_time += dt
+				_sea_acc += dt
+				if _sea_acc > 2.0:
+					_sea_acc = 0.0
+					var wind := maxf(float(w.wind), 0.1)
+					if absf(wind / ocean.wind - 1.0) > SEA_REWIND or absf(angle_difference(float(w.wind_dir), ocean.bearing)) > SEA_REBEAR:
+						ocean.set_wind(wind, float(w.wind_dir))
+						ocean_gpu.refill()
+						_water_uniforms()
+			ocean_gpu.run(sea_time, dt)
+		else:
+			_sea_acc += dt
+			if _sea_acc > 0.5:
+				_sea_acc = 0.0
+				sea = SurfaceWaves.fill(sea_trains, maxf(float(w.wind), 0.1), float(w.wind_dir), climate.gravity, float(sea.fetch))
+				var arrays := SurfaceWaves.shader_arrays(sea_trains)
+				_ocean_mat.set_shader_parameter("uWaves", arrays.waves)
+				_ocean_mat.set_shader_parameter("uPhases", arrays.phases)
+		light_sea(sun_l, sun_rgb, sky_top, haze, density, scale_h, float(w.cover), float(tide.height), local.cam_pos.to_v3())
 	_rain_tick(w, cam_y)
 	light_terrain(sun_l, cam_y, float(w.cover))
+
+## In flight: run the FFT sea on its owner's clock (`sea_time`, set first) and light it. `cam` is the eye in
+## the site's frame.
+func draw_sea(dt: float, sun_l: Vector3, sun_rgb: Vector3, sky_top: Vector3, haze: Vector3, density: float, scale_h: float, cover: float, cam: Vector3) -> void:
+	if _ocean == null: return
+	if ocean_gpu != null: ocean_gpu.run(sea_time, dt)
+	light_sea(sun_l, sun_rgb, sky_top, haze, density, scale_h, cover, 0.0, cam)
+
+## The sea's light and air for this frame, in the site's frame: `cam` the eye's place in it.
+func light_sea(sun_l: Vector3, sun_rgb: Vector3, sky_top: Vector3, haze: Vector3, density: float, scale_h: float, cover: float, tide_h: float, cam: Vector3) -> void:
+	if _ocean_mat == null: return
+	# The disc follows the eye; its vertices take their place in the sea from uCamLocal.
+	_ocean.position = Vector3(cam.x, tide_h, cam.z)
+	for key_val in [["uTime", _time], ["uCamLocal", cam], ["uSunDir", sun_l], ["uSunRGB", sun_rgb], ["uSkyTop", sky_top],
+			["uHaze", haze], ["uDensity", density], ["uScaleH", scale_h], ["uCover", cover], ["uTide", tide_h]]:
+		_ocean_mat.set_shader_parameter(key_val[0], key_val[1])
 
 ## The ground's light and air for this frame: `sun_l` in the site's frame, `eye_y` the eye's height in it.
 ## The flight pass's ground material supplies the air, as it does for the planet's patch.

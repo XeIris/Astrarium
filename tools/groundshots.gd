@@ -3,12 +3,14 @@ extends Node
 # GROUND SHOTS: evidence frames of a landing on the surveyed ground (docs/physics/surface.md#the-ground-under-a-landing).
 # The LM on the Moon and the Sky Crane on Mars, each descent turned about the pole so it lands in a low
 # morning sun, which shows relief; the last of the descent as a frame sequence for a video, and stills
-# after touchdown. Windowed: it judges nothing, it draws.
-#   Godot --path . --resolution 1280x720 res://tools/groundshots.tscn -- out=/abs/dir [only=lm|skycrane] [video=0] [hour=-60]
+# after touchdown. The command module comes down in the sea, at the first hour of its list that puts it there.
+# Windowed: it judges nothing, it draws.
+#   Godot --path . --resolution 1280x720 res://tools/groundshots.tscn -- out=/abs/dir [only=lm|skycrane|apollocm] [video=0] [hour=-60]
 
 const CASES := {
 	"lm": {"base": "lm:powered_descent", "world": "Moon", "film_below": 260.0},
 	"skycrane": {"base": "skycrane:entry", "world": "Mars", "film_below": 400.0},
+	"apollocm": {"base": "apollocm:entry", "world": "Earth", "film_below": 90.0, "sea": true},
 }
 # Stills after touchdown: [yaw, pitch, distance in vehicle lengths].
 const VIEWS := [[2.4, 0.10, 3.0], [0.6, 0.22, 5.0], [4.0, 0.05, 2.2], [1.5, 0.55, 14.0]]
@@ -45,14 +47,21 @@ func _case(key: String, c: Dictionary) -> bool:
 	# Once undrawn to see how far round the descent carries it, then turned so it lands at `hour`.
 	var trial := await _fly(c, 0.0, false, "")
 	if trial.is_empty(): return false
-	var hour := deg_to_rad(float(args.get("hour", "-60")))
-	var turn := wrapf(float(trial.sun_lon) + hour - float(trial.land_lon), -PI, PI)
+	var hours: Array = [float(args.get("hour", "-60"))]
+	if c.get("sea", false) and not args.has("hour"): hours = [-40.0, -50.0, -30.0, 40.0, 50.0, -60.0, 30.0, 60.0]
+	var turn := 0.0
+	for h in hours:
+		turn = wrapf(float(trial.sun_lon) + deg_to_rad(float(h)) - float(trial.land_lon), -PI, PI)
+		if not c.get("sea", false): break
+		var probe := await _fly(c, turn, false, "")
+		if not probe.is_empty() and main.flight.vessel.afloat(): break
 	var run := await _fly(c, turn, args.get("video", "1") != "0", dir)
 	if run.is_empty(): return false
 	print("GROUNDSHOTS %s landed at hour %s°, %s" % [key, U.fixed(rad_to_deg(wrapf(float(run.land_lon) - float(run.sun_lon), -PI, PI)), 1), run.where])
 	var f: Spaceflight = main.flight
 	if key == "lm" and args.get("rover", "1") != "0": await _drive(f, dir)
 	if key == "skycrane" and args.get("rover", "1") != "0": await _drive_mars(f, dir)
+	if key == "apollocm": await _float(f, dir)
 	f.fly_cam.state.userAimed = true
 	for i in VIEWS.size():
 		var vw: Array = VIEWS[i]
@@ -143,6 +152,51 @@ func _drive_mars(f: Spaceflight, dir: String) -> void:
 	f.set_camera_mode("chase")
 	print("GROUNDSHOTS perseverance: %d frames filmed: %s" % [shot, f.rover_readout()])
 	f.driving = false
+
+# Afloat: the splash's aftermath filmed, then the bags righting it at 10×, and stills on the sea.
+func _float(f: Spaceflight, dir: String) -> void:
+	var v: Vessel = f.vessel
+	if not v.afloat():
+		printerr("GROUNDSHOTS FAIL the command module is not afloat")
+		return
+	var film: bool = args.get("video", "1") != "0"
+	var shot := 10000
+	f.fly_cam.state.userAimed = true
+	f.fly_cam.state.yaw = 2.3
+	f.fly_cam.state.pitch = 0.12
+	f.fly_cam.state.dist = 2.4
+	for k in (60 * 12 if args.get("quick", "0") != "1" else 30):
+		await _frame(1.0 / 60.0)
+		f.fly_cam.state.yaw += 0.0012
+		if film and k % 2 == 0:
+			await _save(dir.path_join("seq/%05d.jpg" % shot), true)
+			shot += 1
+	print("GROUNDSHOTS afloat: %s" % f.sea_readout())
+	for i in 3:
+		f.fly_cam.state.yaw = [0.4, 3.6, 5.2][i]
+		f.fly_cam.state.pitch = [0.08, 0.3, 0.6][i]
+		f.fly_cam.state.dist = [2.6, 4.5, 9.0][i]
+		for k in 30: await _frame(1.0 / 60.0)
+		await _save(dir.path_join("afloat_%d.png" % i), false)
+	if args.get("quick", "0") == "1": return
+	f.key_action("gear")
+	f.dev_warp = 10.0
+	f.fly_cam.state.yaw = 1.2
+	f.fly_cam.state.pitch = 0.15
+	f.fly_cam.state.dist = 3.4
+	for k in 60 * 40:
+		await _frame(1.0 / 60.0)
+		if film and k % 2 == 0:
+			await _save(dir.path_join("seq/%05d.jpg" % shot), true)
+			shot += 1
+	f.dev_warp = 0.0
+	print("GROUNDSHOTS righted: %s" % f.sea_readout())
+	for i in 3:
+		f.fly_cam.state.yaw = [0.9, 2.9, 4.6][i]
+		f.fly_cam.state.pitch = [0.1, 0.25, 0.04][i]
+		f.fly_cam.state.dist = [2.8, 5.0, 2.2][i]
+		for k in 30: await _frame(1.0 / 60.0)
+		await _save(dir.path_join("upright_%d.png" % i), false)
 
 # Fly the case's descent from its base, turned `turn` rad about the pole, to touchdown and 3 s past.
 func _fly(c: Dictionary, turn: float, film: bool, dir: String) -> Dictionary:

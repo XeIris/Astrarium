@@ -251,6 +251,8 @@ var catch_tower = null              # CatchTower this vessel can be caught by, o
 ## and the figure is the ground. Contact and landing guidance read height_above_ground; the air reads
 ## altitude, which is over the figure.
 var ground: SurfaceGround = null
+## The sea under a vehicle built to float, coming down on a world with oceans (SurfaceSea), else null.
+var sea: SurfaceSea = null
 ## The run's seed=, which a landing survey's roughness is drawn from.
 var ground_seed := 0
 var _ground_for: Body = null
@@ -587,10 +589,17 @@ func closing_rate(gv: DVec3) -> float:
 func request_ground(rr: DVec3) -> void:
 	_sync_ground()
 	if ground != null: ground.request(self, rr)
+	if sea != null: sea.request(self, rr)
 
 func release_ground() -> void:
 	if ground != null: ground.dispose()
 	ground = null
+	if sea != null: sea.dispose()
+	sea = null
+
+## Afloat: the sea's Floater has the vessel.
+func afloat() -> bool:
+	return sea != null and sea.floater != null
 
 # The ground belongs to the parent: a rebase drops it, and a launch site keeps the figure.
 func _sync_ground() -> void:
@@ -599,6 +608,7 @@ func _sync_ground() -> void:
 	_ground_for = parent
 	if parent != null and env != null and (launch_site == null or parent != _launch_parent):
 		ground = SurfaceGround.for_world(parent, env, ground_seed)
+		if vehicle != null: sea = SurfaceSea.for_world(parent, env, vehicle, ground_seed)
 
 ## Velocity relative to the moving air (the turning planet plus the wind), for drag,
 ## Mach, heating and the aerodynamic attitude.
@@ -1307,6 +1317,7 @@ func step(dt: float, opts: Dictionary = {}) -> float:
 	step_guard_hit = false
 	_sync_ground()
 	if ground != null and phase != PHASE.DESTROYED: ground.tick(self)
+	if sea != null and phase != PHASE.DESTROYED: sea.tick(self, dt)
 	if phase == PHASE.DESTROYED:
 		dt = _advance_world(dt, opts)
 		coord += dt
@@ -1778,6 +1789,19 @@ func contact(dt: float) -> void:
 		if outcome != "":
 			destroy(outcome)
 			return
+	# A vehicle built to float goes to the sea's own physics a few metres up; it is held there afterwards.
+	if sea != null and sea.adopted and sea.floater == null and phase != PHASE.PRELAUNCH and alt < SurfaceSea.HANDOFF:
+		var first = _first_attached()
+		sea.take(self, float(first.spec.L) if first != null else 0.0)
+		phase = PHASE.LANDED
+		throttle = 0.0
+		landed_at = { "met": met, "vVert": v.dot(DQuat.nrm(_a.copy_from(r))), "vHoriz": 0.0, "afloat": true }
+	if afloat():
+		DQuat.set_len(r, surface_r(r))
+		_c.set_v(0.0, -env.rotRate, 0.0).cross_vectors(_c, r)
+		v.copy_from(_c)
+		omega.set_v(0.0, 0.0, 0.0)
+		return
 	if alt > 0.0:
 		# Liftoff is detected here: at TWR 1.4 the vehicle is off the pad in one step.
 		if phase == PHASE.PRELAUNCH:

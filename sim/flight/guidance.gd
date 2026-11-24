@@ -102,6 +102,7 @@ class Autopilot extends RefCounted:
 	var q_guarding: bool = false
 	var shield_gone: bool = false
 	var crane_out: bool = false
+	var mains_out: bool = false
 	var _integ: float = 0.0
 	var _pitch_cmd = null        # the last commanded ascent pitch, rad (see _rate_limit_pitch)
 	var _meco_met: float = -1.0  # when the ascent cut off (for a tank dropped after MECO)
@@ -1920,8 +1921,11 @@ class Autopilot extends RefCounted:
 			# ~750 Pa), not on altitude.
 			var ch: Dictionary = plan_edl.chute if (plan_edl != null and plan_edl.get("chute") != null) else { "mach": 1.7, "deployQ": 750.0 }
 			var dq: float = ch.get("deployQ", 750.0)
-			# The q lower bound keeps it from firing in vacuum at the entry interface.
-			if t.mach < ch.mach and t.mach > 0.05 and t.q > dq * 0.25 and t.q < dq * 1.6:
+			# The q lower bound keeps it from firing in vacuum at the entry interface. A baroswitch
+			# (`alt`) fires on the way down through its height instead.
+			var fire: bool = (alt < float(ch.alt) and v_vert < 0.0) if ch.has("alt") \
+				else (t.mach < ch.mach and t.mach > 0.05 and t.q > dq * 0.25 and t.q < dq * 1.6)
+			if fire:
 				state_name = "chute"
 				var sh = null
 				for s in v.stages:
@@ -1936,8 +1940,21 @@ class Autopilot extends RefCounted:
 		if state_name == "chute":
 			# Inflation takes a couple of seconds, and the load during it is the
 			# largest of the whole descent.
-			v.chute_deploy = minf(1.0, v.chute_deploy + dt / 2.2)
+			v.chute_deploy = minf(1.0, v.chute_deploy + dt / float(v.chute_open.get("inflate", 2.2)) if v.chute_open != null else 1.0)
 			say("On the chute — %s km, %s m/s" % [U.fixed(alt / 1000.0, 2), U.fixed(speed, 0)])
+			# A capsule with mains: the drogues go and the mains take over at their height, and it
+			# stays on them to the sea (SurfaceSea takes it from there).
+			var mains = plan_edl.get("mains") if plan_edl != null else null
+			if mains != null:
+				if not mains_out and alt < float(mains.alt):
+					mains_out = true
+					v.chute_open = {"area": float(mains.area), "Cd": float(mains.Cd), "inflate": float(mains.get("inflate", 2.2))}
+					v.chute_deploy = 0.0
+					note("Main chutes — %s km, %s m/s" % [U.fixed(alt / 1000.0, 2), U.fixed(speed, 0)])
+				if v.phase == Vessel.PHASE.LANDED:
+					program = null
+					if not v.afloat(): note("Touchdown")
+				return Guidance.attitude_for(MODE.RETROGRADE, v)
 			# Release the backshell low and slow (~1.8 km, 100 m/s): the chute does the braking.
 			var bs: Dictionary = plan_edl.backshell if (plan_edl != null and plan_edl.get("backshell") != null) else { "alt": 1800.0, "v": 100.0 }
 			if (alt < bs.alt or speed < bs.v) and not shield_gone:

@@ -87,8 +87,14 @@ CHANGED_RULES = (
     # What runs on the ground, and the proof it runs nowhere else.
     (("sim/surface/*", "shaders/surface/*", "shaders/observatory/site_terrain.gdshader", "sim/showcase.gd", "sim/planet_pin.gd", "sim/climate_look.gd",
       "sim/planet_elevation.gd", "assets/planet-relief/*", "sim/flight/localview.gd", "sim/observatory/site_scene.gd"),
-     ("surfacecheck", "surfacepixelcheck*", "_soak_check-showcase", "_soak_check-surface", "groundcheck", "groundlookcheck")),
+     ("surfacecheck", "surfacepixelcheck*", "_soak_check-showcase", "_soak_check-surface", "groundcheck", "groundlookcheck", "seacheck")),
     (("shaders/surface/*", "tools/groundlookcheck.*", "sim/surface/surface_shadow.gd"), ("groundlookcheck",)),
+    # The sea: its FFT field and liquids, what floats on it, and the GPU's half of it.
+    (("sim/surface/ocean_field.gd", "sim/surface/surface_waves.gd", "sim/surface/liquid.gd", "sim/surface/floater.gd",
+      "sim/surface/capsule.gd", "tools/oceancheck.gd"), ("oceancheck", "seacheck", "oceanlookcheck")),
+    (("sim/surface/ocean_gpu.gd", "shaders/surface/ocean_fft.glsl", "shaders/surface/water.gdshader", "tools/oceanlookcheck.*"),
+     ("oceanlookcheck",)),
+    (("sim/surface/surface_sea.gd", "tools/seacheck.*"), ("seacheck",)),
     # The CPU's crust is held to the shader's; the pin and the showcase read it.
     (("sim/planet_relief.gd", "sim/planet_pin.gd", "sim/showcase.gd", "shaders/bodies/terrain.gdshaderinc",
       "shaders/bodies/terrain_noise.gdshaderinc", "shaders/bodies/rocky_surface.gdshader", "shaders/bodies/pin_marker.gdshader",
@@ -118,7 +124,7 @@ CHANGED_RULES = (
       "sim/flight/craftmodel.gd", "sim/flight/ionisation.gd", "sim/flight/lunar_gravity.gd",
       "tools/fixtures/flight_fixture.json"),
      ("flighttimecheck", "flightphysicscheck", "spinframecheck", "sharedflightcheck-*", "flight-descent-*",
-      "missioncheck-*", "scenariocheck", "groundcheck")),
+      "missioncheck-*", "scenariocheck", "groundcheck", "seacheck")),
     (("tools/groundcheck.*",), ("groundcheck",)),
     (("sim/surface/rover*.gd", "shaders/surface/track.gdshader", "tools/rovercheck.gd"), ("rovercheck", "groundcheck")),
     (("sim/flight/scenarios.gd", "tools/scenariocheck.gd"), ("scenariocheck",)),
@@ -322,6 +328,8 @@ def checks(suite, godot, output, repeat, export_preset):
         yield script("flighttimecheck", r"^FLIGHT TIME PASS \(0 failures\)$")
         # The LRV's physics against the Apollo record: sinkage, speed, slip, turning, breakout, dust.
         yield script("rovercheck", r"^ROVERCHECK DONE checks=[1-9]\d* failures=0$", timeout=300)
+        # The FFT sea against its spectrum and a direct sum; hulls against Archimedes and the Apollo record.
+        yield script("oceancheck", r"^OCEANCHECK DONE checks=[1-9]\d* failures=0$", timeout=400)
         yield script("orbitcheck", r"^ORBITCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("soicheck", r"^SOICHECK DONE checks=[1-9]\d* failures=0$")
         yield script("missionguidancecheck", r"^MISSIONGUIDANCECHECK DONE checks=[1-9]\d* failures=0$")
@@ -390,6 +398,8 @@ def checks(suite, godot, output, repeat, export_preset):
         yield mission_parity("shuttle_fates", PARITY_FRAMES)._replace(cost=60)
         # A landing on the Moon and on Mars stands on the ground that is drawn; Earth keeps its figure.
         yield headless_scene("groundcheck", r"^GROUNDCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)._replace(cost=40)
+        # Apollo's command module comes down on the sea it draws, floats on it and is righted.
+        yield headless_scene("seacheck", r"^SEACHECK DONE checks=[1-9]\d* failures=0$", timeout=900)._replace(cost=60)
         # Every developer scenario, jumped to and checked against its declared state.
         yield Check("scenariocheck", base + ["--headless", "res://tools/scenariocheck.tscn"],
                     r"^SCENARIOCHECK DONE scenarios=[1-9]\d* failures=0$", 900, cost=120)
@@ -423,6 +433,8 @@ def checks(suite, godot, output, repeat, export_preset):
         yield scene("coursecheck", r"^COURSE 40L 125S 0E$")
         # The drawn ground at a landing against its CPU half: the Sun's march and the LM's shadow, in the frame.
         yield scene("groundlookcheck", r"^GROUNDLOOKCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
+        # The GPU's FFT sea against the CPU's, texel for texel; it reads the RenderingDevice back.
+        yield scene("oceanlookcheck", r"^OCEANLOOKCHECK DONE checks=[1-9]\d* failures=0$", timeout=300)
         pin_gpu = scene("pincheck", r"^PINCHECK DONE checks=[1-9]\d* failures=0$", "gpu=1")
         yield ("pincheck-gpu", *pin_gpu[1:])
         for quality in ("medium", "low", "high"):

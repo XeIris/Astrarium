@@ -15,7 +15,7 @@ real flight is flown to from there.
 | `pad` | `Spaceflight.begin(mode=pad)` and the terminal count at T−10 s, in the local morning | every ascent |
 | `orbit` | a circular orbit, with stages dropped or jettisoned and propellant set | parking orbits, deorbit burns, the LM's descent |
 | `return` | Super Heavy after its boostback (`CatchTower.begin_return`); with `at`, part-way down relative to the tower | booster return and catch |
-| `descent` | `tools/flight_scenarios.json`'s descent starts (`flightcheck`'s f9booster and skycrane) | Falcon 9 booster, Mars EDL |
+| `descent` | `tools/flight_scenarios.json`'s descent starts (`flightcheck`'s f9booster and skycrane); Apollo 11's entry interface (NASA SP-4029) | Falcon 9 booster, Mars EDL, the command module's return |
 | `air` | an altitude, airspeed and flight-path angle on an orbit's track, the program's first guidance cycle, the attitude it asks for, and its filters as they were in flight | the Shuttle's and Starship's returns |
 
 The condition (`until`) is flown by `FlightScenarios.Jump`: the frame loop
@@ -136,6 +136,10 @@ here), which the later booster scenarios avoid.
 | `skycrane:parachute` | 6.19 km, 387 m/s air, edl/chute | 2.6 s | alt -11.8 m, speed -0.3 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |
 | `skycrane:powered_descent` | 1.79 km, 107 m/s air, edl/powered | 3.0 s | alt -6.0 m, speed +0.0 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |
 | `skycrane:sky_crane` | 0.02 km, 1 m/s air, edl/powered | 3.6 s | alt +0.0 m, speed -0.1 m/s, fpa -0.5°, mass -0.3 kg, t +0.1 s |
+| `apollocm:entry` | 121.92 km, 10561 m/s air, edl | 0.7 s | built directly |
+| `apollocm:drogues` | 7.31 km, 65 m/s air, edl/chute | 12.1 s | alt -2.2 m, speed +0.0 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |
+| `apollocm:mains` | 3.26 km, 49 m/s air, edl/chute | 13.1 s | alt -3.3 m, speed +0.0 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |
+| `apollocm:splashdown` | afloat, landed | 17.9 s | alt +0.0 m, speed +0.0 m/s, fpa +0.0°, mass +0.0 kg, t -0.1 s |
 
 ## Known limits
 

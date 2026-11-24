@@ -21,9 +21,9 @@ extends RefCounted
 const DT := 0.05
 const MAX_FRAMES := 400000
 
-const ORDER := ["saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "evapod", "ranger", "discovery", "endurance", "lander"]
+const ORDER := ["saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "apollocm", "evapod", "ranger", "discovery", "endurance", "lander"]
 const NAMES := {"saturnv": "Saturn V", "falcon9": "Falcon 9", "shuttle": "Shuttle", "starship": "Starship",
-	"lm": "Lunar Module", "skycrane": "Sky crane", "ranger": "Survey Shuttle", "discovery":"Jupiter Explorer",
+	"lm": "Lunar Module", "skycrane": "Sky crane", "apollocm": "Command module", "ranger": "Survey Shuttle", "discovery":"Jupiter Explorer",
 	"lander":"Cargo Lander","endurance":"Expedition Ring","evapod":"EVA Pod"}
 
 static var _list := {}
@@ -216,6 +216,14 @@ static func _build_list() -> Dictionary:
 		_sc("skycrane", "sky_crane", "Sky crane", "Landing", _skycrane(), {"ap": ["crane_out", true]},
 			{"agl": [5.0, 60.0], "program": "edl"}),
 	]
+	out.apollocm = [
+		_sc("apollocm", "entry", "Entry interface, 122 km", "Return", _apollo(), {}, {"alt": [120e3, 123e3], "program": "edl"}),
+		_sc("apollocm", "drogues", "Drogues, 7.3 km", "Return", _apollo(), {"state": "chute"},
+			{"alt": [6e3, 7.4e3], "program": "edl", "state": "chute"}),
+		_sc("apollocm", "mains", "Main chutes, 3.3 km", "Return", _apollo(), {"ap": ["mains_out", true]},
+			{"alt": [2.5e3, 3.3e3], "program": "edl", "state": "chute"}),
+		_sc("apollocm", "splashdown", "Splashdown", "Return", _apollo(), {"event": "Splashdown"}, {"alt": [-1.0, 16.0]}),
+	]
 	return out
 
 ## The orbiter alone in a 300 km, 51.6° orbit with its OMS propellant, as
@@ -270,6 +278,11 @@ static func _f9_booster() -> Dictionary:
 	return {"kind": "descent", "stages": [0], "prop": {"f9s1": 61650.0}, "alt": 70e3, "v_vert": -1000.0, "v_horiz": 200.0,
 		"program": "hoverslam"}
 
+## Apollo 11 at entry interface: 400,000 ft, 36,194 ft/s inertial, 6.48° down (NASA SP-4029), on a track
+## that comes down in the open Pacific.
+static func _apollo() -> Dictionary:
+	return {"kind": "descent", "alt": 121920.0, "v_inertial": 11032.0, "fpa": -6.48, "program": "edl", "inc": 0.0, "phase": 3.0}
+
 ## flightcheck's skycrane: 125 km over Mars at 5.8 km/s inertial, 15.5° down.
 static func _skycrane() -> Dictionary:
 	return {"kind": "descent", "alt": 125e3, "v_inertial": 5800.0, "fpa": -15.5, "program": "edl"}
@@ -299,7 +312,8 @@ static func build(main, sc: Dictionary) -> String:
 			v = f.begin(key, {"mode": "orbit", "alt": float(b.alt), "inc": float(b.get("inc", 0.0)),
 				"phase": float(b.get("phase", 0.0)), "body":b.get("body",Vehicles.get_vehicle(key).get("launchFrom","Earth"))})
 		"descent":
-			v = f.begin(key, {"mode": "orbit", "alt": float(b.alt), "phase": 0.0, "vehicle": _subset(key, b)})
+			v = f.begin(key, {"mode": "orbit", "alt": float(b.alt), "inc": float(b.get("inc", 0.0)), "phase": float(b.get("phase", 0.0)),
+				"vehicle": _subset(key, b)})
 			if v != null: _descent_state(v, b)
 		"air":
 			v = f.begin(key, {"mode": "orbit", "alt": float(b.alt), "inc": float(b.get("inc", 0.0)), "phase": 0.0})

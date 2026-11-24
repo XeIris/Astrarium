@@ -148,8 +148,10 @@ A spectrum, then wave trains, as `ocean.gdshader` sums them.
 - **Dispersion.** `ω² = (gk + σk³/ρ) tanh(kh)` ([Wikipedia](https://en.wikipedia.org/wiki/Dispersion_(water_waves)),
   and [Tessendorf 2004](https://jtessen.people.clemson.edu/reports/papers_files/coursenotes2004.pdf)'s (32)–(33)), solved by Newton for each train's
   wavenumber at the local depth.
-- **Drawn.** 24 Gerstner trains (Tessendorf's (29)–(30)) spread about the wind, with a frequency set fixed at the
-  start of a visit, so wind changes the amplitudes without a jump in phase. A slope past 1/6 breaks (Tessendorf §4.6), which is the foam.
+- **Drawn.** Where a RenderingDevice runs, the same spectrum drawn as Tessendorf's FFT ocean, in four cascades
+  ([the sea](ocean.md)). Without one, 24 Gerstner trains (Tessendorf's (29)–(30)) spread about the wind, with a
+  frequency set fixed at the start of a visit, so wind changes the amplitudes without a jump in phase; there a slope
+  past 1/6 breaks (Tessendorf §4.6), which is the foam.
 
 | Test | This model | Reference |
 | --- | --- | --- |

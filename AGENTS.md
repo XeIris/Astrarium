@@ -134,7 +134,8 @@ uses an integer hash for this reason (`TERRAIN_EXACT`); cloud decks, giants and 
 ## The surface
 
 `sim/surface/` runs only while someone stands on a world (`Showcase.stand`), a vessel comes down on a dry
-mapped one (`SurfaceGround`: the Moon, Mars), or a rover drives off one (`Rover`). Nothing of it is created, and it computes nothing, in the orrery,
+mapped one (`SurfaceGround`: the Moon, Mars), a vessel built to float comes down at sea (`SurfaceSea`), or a rover
+drives off one (`Rover`). Nothing of it is created, and it computes nothing, in the orrery,
 an Earth flight or the Observatory: `surfacecheck` holds `SurfaceStats` at zero through them and the object counts
 flat after a visit, and `groundcheck` holds a landing's to its flight. It reads the world's gravity, air, water and temperature, and writes
 nothing back: not to `Climate`, not to any body. Its scales come from the world, never from Earth's constants.
@@ -264,6 +265,8 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
   `tools/groundcheck.tscn`; how the site's ground draws (`shaders/surface/ground.gdshader`, `SurfaceShadow`):
   `tools/groundlookcheck.tscn`; the rover (`sim/surface/rover*.gd`): `tools/rovercheck.gd`, and the drive off a landed
   LM in `groundcheck`
+- the FFT sea, the liquids and what floats (`OceanField`, `Floater`, `Capsule`): `tools/oceancheck.gd`; the GPU's
+  half of the sea against the CPU's: `tools/oceanlookcheck.tscn`; a splashdown (`SurfaceSea`): `tools/seacheck.tscn`
 - how a world's look follows its climate: `tools/lookcheck.tscn`, and with `pixels=1` the frames
 - tidal disruption, natal kicks, the disc model, the climate or its draw: `tools/realismcheck.tscn`
 - the Observatory's sky, dates or sites: `tools/observatorycheck.gd`; how the mode meets the
