@@ -82,11 +82,13 @@ summer. Its orbital phase is chosen so that Ligeia Mare sees the Sun at noon whe
   flight's air table and the entry's glow carry its methane.
 - **Poles:** its thick, slow air carries heat poleward, stated as the crust's transport (0.87). That gives 94.5 K
   at the equator and 91.2 K at Ligeia, against Cassini CIRS's 93.7 K and about 91 K (Jennings et al. 2016).
-- **Ground:** with no measured map it stands on the crust its visual draws, at Titan's stated relief of 1 km
-  (Corlies et al. 2017: within about ±2 km of the geoid, mountains under 700 m). The whole of the crust's land
-  relief follows a stated one, its detail and mountain belts with its continents (`terrain.gdshaderinc` and
-  `PlanetRelief`, together), so Titan's crust spans 0.1–3.6 km over its seas, median 0.9 km. A survey's roughness
-  scales with it, and its equatorial dunes are carved about a landing ([terrain](surface.md#terrain)).
+- **Ground:** with no measured map it stands on the crust its visual draws, at Titan's stated relief of 0.5 km
+  (Lorenz et al. 2013's map: its highest gridded point 520 m over the 2575 km sphere, its lowest 1.7 km under;
+  Corlies et al. 2017's new mountains none over 700 m). The whole of the crust's land relief follows a stated one,
+  its detail and mountain belts with its continents (`terrain.gdshaderinc` and `PlanetRelief`, together). Titan
+  has no plates, but it has ridges and mountain chains thought compressional (Mitri et al. 2010): the crust's belts
+  stand for them at the stated relief's scale. A survey's roughness scales with it, its equatorial dunes are carved
+  about a landing, and the flight's far ground and the site past its near grid shade them ([terrain](surface.md#terrain)).
 - **Seas:** its three maria are stated where Cassini mapped them ([Titan's seas](ocean.md#titans-seas)), and the
   Titan Mare Explorer comes down on Ligeia.
 - **Sky:** the haze hides the Sun and the stars, and the ground is lit by its diffuse light
@@ -114,16 +116,16 @@ own air and ahead at 10 m/s, then lands with its feet on the drawn triangles to 
 
 `titancheck` (flight, headless):
 - Dragonfly comes down from the top of Titan's air, its chute opening at Mach 1.49.
-- It leaves the backshell and lands itself, upright, a foot on the drawn triangles, 2.55 km over the datum.
-- It stands among dunes: across them the drawn ground runs 120 m from crest to trough with crests 2,990 m apart,
+- It leaves the backshell and lands itself, upright, a foot on the drawn triangles, 1.70 km over the datum.
+- It stands among dunes: across them the drawn ground runs 143 m from crest to trough with crests 3,000 m apart,
   against the stated 120 m and 3 km.
-- It flies 76 m up and across them at 8.7 m/s, never under 71 m, then stands again.
+- It flies 76 m up and across them at 9.8 m/s, never under 72 m, then stands again.
 - Drawn and undrawn descents land identically.
 - The Survey Shuttle comes in from orbit and stops.
 - The Titan Mare Explorer comes down on Ligeia Mare and floats ([the sea](ocean.md#what-tests-it)).
 - Dragonfly's and TiME's descents under their chutes and the Shuttle's glide take hours, as Huygens' 2.5 under
   its chutes did, so they are flown at 20× here, and only their first minutes are scenarios to jump to. At 20× the
-  Shuttle touches down at 10.7 m/s and 0.5 m/s of sink, its flare scaled to its airspeed
+  Shuttle touches down at 15.4 m/s and 0.7 m/s of sink, its flare scaled to its airspeed
   ([the approach](orbiter-entry.md)).
 - Every ground and sea is let go.
 

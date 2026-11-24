@@ -296,6 +296,28 @@ the grid alone cannot show.
   triangles, then the far grid's, in 28 steps from 0.5 m growing by 1.5, softened over the Sun's disc. `SurfaceShadow`
   is the same march on the CPU. A vehicle's shadow is the Sun's shadow map, on only while a site is drawn
   (`LocalView.set_ground_shadows`: four splits to 600 m).
+- **Colour that does not tile.** Rock and soil are mixed by noise from 12 km patches down to metres, and the grain
+  (±15%) runs from 300 m down, the same on both grids so their seam does not show. It is gradient noise on the same
+  integer hash, each octave turned 37° and 2.07 times finer than the last so no two share a lattice's axes, on a
+  domain warped by a further 900 m of noise so its boundaries meander ([Quílez, "fbm"](https://iquilezles.org/articles/fbm)
+  and ["warp"](https://iquilezles.org/articles/warp)). Every octave fades out where it falls under two pixels, and the
+  thresholds widen as it does, so from far off the ground keeps the octaves it can resolve and the mean of the rest
+  rather than their aliases. Lower contrast hides repetition from altitude too
+  ([FlightGear's procedural texturing](https://wiki.flightgear.org/Procedural_texturing)). An airless regolith,
+  gardened even by impacts, varies at under half the contrast of dust and sand under air. Single-octave value noise
+  on axis-aligned 70 m cells, pushed through a sharp threshold, drew a grid of squares from a few kilometres up.
+- **Its colours on a mapped world** are the map's at the site, 5 × 5 texels about it at the albedo the globe draws
+  (`PlanetPin.map_colour`): the site, its rim and the flight's patch past it are one ground.
+- **Dunes** (Titan's) are carved on the near grid and shaded past it, on the same profile and meander
+  (`SurfaceRelief.dune_ridge` is the shader's gradient noise and hash in GDScript), darker sand on the crests as
+  Cassini saw it; from far off a pixel holds many dunes and sees their mean.
+- **Where the site meets the planet's patch.** The survey eases the far grid's outer 15% down to its lowest point,
+  where the patch lies, so it meets the patch as a slope (`SurfaceRelief._ramp_rim`; contact reads the eased grid).
+  There the site dissolves into the patch by an ordered dither, which then shows in its own light; and the whole
+  site dissolves in between 15 and 8 km over the ground on the way down, since above that the patch draws the same
+  world to the horizon in one light and one haze. In flight the patch wears the site's colours while it is drawn.
+  Under a haze like Titan's the engine's ambient carries part of the skylight, and the site's own term gives way
+  to it, or the site stands brighter than the patch beside it.
 
 What tests it (`groundlookcheck`, windowed): the LM lands under a 10° Sun, and 5760 pixels have their ground point
 found by marching their view rays over the site's triangles. Away from a shadow's edge, where the CPU's march hides
