@@ -223,11 +223,12 @@ rivers still carve with the climate's global mean rain, not the site's.
 
 ## The ground under a landing
 
-`sim/surface/surface_ground.gd`. A vessel coming down on a dry mapped world, the Moon or Mars, with no launch site
-there, owns a `SurfaceGround`, and what its gear touches is what is drawn. Contact, the LM's P63–P66, the EDL program
+`sim/surface/surface_ground.gd`. A vessel coming down on a dry world with no launch site there owns a
+`SurfaceGround`, and what its gear touches is what is drawn. Contact, the LM's P63–P66, the EDL program
 and the descent law read `Vessel.height_above_ground`; the air, the heating and orbit targets still read `altitude`,
-over the flight figure. A world with seas or launch sites (Earth) or without a measured grid (Io) keeps the figure as its
-ground, and its flights are unchanged.
+over the flight figure. A world with seas or launch sites (Earth) keeps the figure as its ground, and its flights are unchanged.
+A dry world without a measured grid (Titan, Io) stands on the crust its visual draws, as a pin reads it, until
+surveyed.
 
 1. **Measured, until surveyed.** Height over the figure less `PlanetElevation`'s cell at the vessel's latitude and
    longitude. The flight frame turns into the planet mesh's by `Vessel.body_angle`, the same longitude the pad uses.

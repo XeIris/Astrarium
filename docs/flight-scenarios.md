@@ -140,6 +140,9 @@ here), which the later booster scenarios avoid.
 | `apollocm:drogues` | 7.31 km, 65 m/s air, edl/chute | 12.1 s | alt -2.2 m, speed +0.0 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |
 | `apollocm:mains` | 3.26 km, 49 m/s air, edl/chute | 13.1 s | alt -3.3 m, speed +0.0 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |
 | `apollocm:splashdown` | afloat, landed | 17.9 s | alt +0.0 m, speed +0.0 m/s, fpa +0.0°, mass +0.0 kg, t -0.1 s |
+| `dragonfly:entry` | 600.00 km, 5987 m/s air, edl (Titan expedition) | 0.7 s | built directly |
+| `dragonfly:parachute` | 139.98 km, 294 m/s air, edl/chute | 9.8 s | alt -11.7 m, speed -0.2 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |
+| `ranger:titan_orbit` | 800.00 km, 1616 m/s air, glide (Titan expedition) | 0.0 s | built directly |
 
 ## Known limits
 

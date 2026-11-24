@@ -134,10 +134,21 @@ func _parity() -> void:
 		absf(out[0][0] - out[1][0]) < 1e-6 and d < 1e-6)
 
 func _ranger() -> void:
-	var err: String = await main.jump_scenario("ranger:titan_landing")
-	check("the Survey Shuttle comes in from Titan orbit and stops (%s)" % (err if err != "" else _first(_events(main.flight.vessel), "Wheel stop")),
-		err == "" and main.flight.vessel.phase != Vessel.PHASE.DESTROYED)
-	if err != "": return
-	var log_ := _events(main.flight.vessel)
+	var err: String = await main.jump_scenario("ranger:titan_orbit")
+	if err != "":
+		check("ranger:titan_orbit: jump (%s)" % err, false)
+		return
+	var f: Spaceflight = main.flight
+	main.set_drawn(false)
+	f.dev_warp = 20.0
+	var n := 0
+	while _first(_events(f.vessel), "Wheel stop") == "" and f.vessel.phase != Vessel.PHASE.DESTROYED and n < 40000:
+		main.step_flight(0.05)
+		n += 1
+	f.dev_warp = 0.0
+	main.set_drawn(true)
+	var log_ := _events(f.vessel)
+	check("the Survey Shuttle comes in from Titan orbit and stops (%s)" % _first(log_, "Wheel stop"),
+		_first(log_, "Wheel stop") != "" and f.vessel.phase != Vessel.PHASE.DESTROYED)
 	print("TITANCHECK note the Survey Shuttle: %s; %s" % [_first(log_, "Deorbit burn — ignition"), _first(log_, "Main gear touchdown")])
-	main.flight.teardown()
+	f.teardown()

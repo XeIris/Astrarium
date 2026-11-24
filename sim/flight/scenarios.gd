@@ -104,11 +104,10 @@ static func _build_list() -> Dictionary:
 			{"alt":[120e3,123e3],"airspeed":[7200.0,7900.0],"program":"glide","state":"entry"}),
 		_sc("ranger","flare","Survey Shuttle preflare","Landing",survey,{"state":"flare"},
 			{"alt":[500.0,650.0],"program":"glide","state":"flare"}),
-		# To Titan: above its 600 km of air, then the same deorbit and glide, through 1.5 bar.
+		# To Titan: above its 600 km of air, then the same deorbit and glide, through 1.5 bar. The glide and
+		# Dragonfly's descent under its chute take hours, too long to jump to; titancheck flies them at 20×.
 		_sc("ranger","titan_orbit","Survey Shuttle over Titan","Orbit",titan,{},
 			{"alt":[799e3,801e3],"phase":"orbit","attached":["ranger"]}),
-		_sc("ranger","titan_landing","Survey Shuttle down on Titan","Landing",titan,{"event":"Wheel stop"},
-			{"agl":[-5.0,5.0]}),
 	]
 	out.saturnv = [
 		_sc("saturnv", "pad", "Pad, T−10 s", "Ascent", _pad(), {}, {"phase": "prelaunch", "count": [9.0, 10.0]}),
@@ -234,8 +233,6 @@ static func _build_list() -> Dictionary:
 		_sc("dragonfly", "entry", "Titan entry, 600 km", "Landing", _dragonfly(), {}, {"alt": [590e3, 601e3], "program": "edl"}),
 		_sc("dragonfly", "parachute", "Parachute, Mach 1.5", "Landing", _dragonfly(), {"state": "chute"},
 			{"program": "edl", "state": "chute"}),
-		_sc("dragonfly", "released", "Out of the backshell", "Landing", _dragonfly(), {"event": "Released"}, {"agl": [0.0, 1300.0]}),
-		_sc("dragonfly", "landed", "Down on Titan", "Landing", _dragonfly(), {"event": "Dragonfly down"}, {"agl": [-5.0, 5.0]}),
 	]
 	return out
 
