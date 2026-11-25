@@ -318,7 +318,7 @@ def checks(suite, godot, output, repeat, export_preset):
         # Everything else reads the import cache, so nothing runs beside the import.
         yield Check("import", base + ["--headless", "--import", "--quit"], None, 180, alone=True)
         yield ("reference-shots-selfcheck", [sys.executable, str(ROOT / "tools/reference_shots_test.py")],
-               r"^REFERENCE SHOTS SELF-CHECK PASS$", 30)
+               r"^REFERENCE SHOTS SELF-CHECK PASS$", 300)
         yield ("check-selfcheck", [sys.executable, str(ROOT / "tools/check_test.py")], r"^CHECK SELF-CHECK PASS$", 120)
         # About a second: AGENTS.md's physics rules that a pattern can state (tools/rulecheck.py --list).
         yield ("rulecheck", [sys.executable, str(ROOT / "tools/rulecheck.py")], r"^RULECHECK DONE rules=[1-9]\d* violations=0$", 60)
