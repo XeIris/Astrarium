@@ -551,7 +551,9 @@ static func _build_vehicles() -> Dictionary:
 		# structural limit has to be above the nominal entry, not at it.
 		"limits": { "maxQ": 22e3, "maxG": 20.0, "qAlpha": 8e3, "heatLoad": 120e6 },
 		"stages": [
-			stage({ "key": "shell", "name": "Aeroshell", "dry": 600.0, "prop": 0.0,
+			# 385 kg of heat shield, 349 of backshell and parachute, and the 150 of ballast whose offset trims it: an
+			# MSL-like mission's 3152 kg at entry (Saranathan 2024, arXiv 2412.07960, table 3) to a kilogram.
+			stage({ "key": "shell", "name": "Aeroshell", "dry": 884.0, "prop": 0.0,
 				"engine": null, "count": 0, "L": 2.7, "D": 4.5, "sep": "jettison",
 				# MSL's PICA tiles, 31.75 mm (Edquist et al. 2014); ρ 265 kg/m³ and an effective
 				# heat of ablation of 50 MJ/kg, an estimate for a charring ablator at ~1 MW/m².
@@ -559,7 +561,7 @@ static func _build_vehicles() -> Dictionary:
 					"thickness": 0.03175, "rho": 265.0, "qstar": 5.0e7 },
 				# An offset centre of mass trims the capsule to a lifting attitude.
 				# L/D 0.24 is the flown value for the MSL aeroshell.
-				"lift": { "LD": 0.24 },
+				"lift": { "LD": 0.24 }, "ballast": 150.0,
 				# 21.5 m nominal diameter (NASA). Cd 0.62 is an estimate: on it the stack comes down at 76 m/s at
 				# 2.1 km against the press kit's 85 (docs/physics/sky-crane.md).
 				"chute": { "area": 363.0, "D0": 21.5, "deployMach": 1.7, "deployQ": 750.0, "Cd": 0.62 },
@@ -581,7 +583,12 @@ static func _build_vehicles() -> Dictionary:
 		],
 		"edl": {
 			"entry":      { "alt": 125000.0, "v": 5800.0, "fpa": -15.5 },
-			"chute":      { "mach": 1.7, "altMax": 11000.0 },
+			# Perseverance opened it at 420 m/s (press kit); its air at 11 km was not this model's, so not its Mach.
+			"chute":      { "mach": 1.7, "speed": 420.0, "altMax": 11000.0 },
+			# Above `alignV` (m/s) the lift is banked, at the angle that opens the parachute at Perseverance's entry + 240 s
+			# (a constant bank standing in for range control's modulation); below it, where the review of Mars
+			# entry guidance has range control end, heading alignment flies it mostly up.
+			"entryBank":  { "range": 49.0, "alignV": 1100.0, "align": 15.0 },
 			# Perseverance's press kit: the heat shield 20 s after the parachute, the backshell at 2.1 km.
 			"shieldJett": { "after": 20.0 },
 			# `drop`: Tianwen-1 lit its engine about 1 s after its backshell went (Huang et al. 2022).

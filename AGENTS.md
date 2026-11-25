@@ -263,7 +263,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - the showcase, a pin, or the crust on either side of the GPU: `tools/pincheck.tscn`, and with `gpu=1` the
   shader's height against the CPU's
 - what a landing stands on (`SurfaceGround`, contact, landing guidance, the drawn site in flight):
-  `tools/groundcheck.tscn`, which also holds the Sky Crane's rig (`SkyCraneRig`) and a landing's dust (`PlumeDust`);
+  `tools/groundcheck.tscn`, which also flies the Sky Crane (`SkyCraneRig`, its landing map, `CraneFlyaway`) and holds a landing's dust (`PlumeDust`);
   how the site's ground draws (`shaders/surface/ground.gdshader`, `SurfaceShadow`):
   `tools/groundlookcheck.tscn`; the rover (`sim/surface/rover*.gd`): `tools/rovercheck.gd`, and the drive off a landed
   LM in `groundcheck`

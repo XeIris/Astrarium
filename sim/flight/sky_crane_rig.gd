@@ -4,16 +4,12 @@ extends RefCounted
 # What the Sky Crane does with its pieces that the stack does not, drawn on the CraftModel's stages from the
 # vessel's state: the parachute over the backshell; the heat shield falling away ahead of it; the backshell left
 # hanging on the parachute as the descent stage drops out below (Separation, with the shell's own drag); the rover
-# going down the bridles by what the vessel has paid out; and, after touchdown, the cut, and the stage's climb,
-# pitch-over and crash some 650 m off, its smoke rising where it hits (PIA24425). The flyaway is drawn, not flown.
+# going down the bridles by what the vessel has paid out; and, after touchdown, the cut, the stage on its flyaway
+# (CraneFlyaway) and the smoke where it hits (PIA24425).
 # Craft frame, y up, m. docs/physics/sky-crane.md.
 
-## The flyaway's timeline, s after touchdown: the cut, the climb, the pitch-over, gone from view.
+## The bridles are cut this long after touchdown, s, and the crash's smoke rises and drifts for SMOKE_S.
 const CUT_S := 1.0
-const CLIMB_S := 2.0
-const GONE_S := 16.0
-## The crash: how far off, m, and how long its smoke rises and drifts, s.
-const CRASH_M := 650.0
 const SMOKE_S := 90.0
 
 var craft: CraftModel.Craft
@@ -25,12 +21,10 @@ var bridles: Array[MeshInstance3D] = []
 var umbilical: MeshInstance3D
 var canopy: Node3D = null
 var _shield_sep = null
-var _cable := 7.5
 var _wheels := 0.0
-var smoke: GPUParticles3D = null
+var smoke: MultiMeshInstance3D = null
 ## The rover has driven off on her own model: hers is no longer drawn here.
 var deployed := false
-var _flyaway_dir := Vector3(1.0, 0.0, 0.3).normalized()
 
 ## The rig for a craft with a descent stage over a datum rover, or null.
 static func attach(c: CraftModel.Craft) -> SkyCraneRig:
@@ -88,7 +82,8 @@ const SHIELD_CDA := 15.9
 
 ## Draw the moment. `s`: {shell, shield (attached), dt (simulated s), accel (the stack's non-gravitational
 ## acceleration, craft frame), air (Separation.step's), canopy (0..1 inflation, or < 0 with none out), bridle (m
-## paid out), flyaway (s since touchdown, or < 0)}.
+## paid out), down (s since touchdown, or < 0), away ({at, basis, hit, up, wind, age, day} of the descent stage on its flyaway, craft
+## frame, `hit` true once it has crashed there, `age` s ago, in this wind and daylight; empty before the cut)}.
 func update(s: Dictionary) -> void:
 	var bridle := float(s.get("bridle", 0.0))
 	rover.group.position.y = rover.base_y - bridle
@@ -103,31 +98,21 @@ func update(s: Dictionary) -> void:
 			# Out to its length first, then wide as the root of the drag area it gives.
 			var w := maxf(sqrt(clampf(open, 0.0, 1.0)), 0.06)
 			canopy.scale = Vector3(w, 1.0, w)
-	var fly := float(s.get("flyaway", -1.0))
-	# Landed on the cable, the vessel's reference comes down to her once it is cut; the stage does not.
-	var up0 := _cable - bridle if fly >= CUT_S else 0.0
-	var d_pos := Vector3(0.0, desc.base_y + up0, 0.0)
-	var d_basis := Basis()
-	if fly > CUT_S:
-		var tau := fly - CUT_S
-		var up := 1.5 * minf(tau, CLIMB_S) * minf(tau, CLIMB_S)
-		var across := 0.0
-		if tau > CLIMB_S:
-			var t2 := tau - CLIMB_S
-			up += 6.0 * t2 - 0.25 * t2 * t2
-			across = 3.0 * t2 * t2
-		d_pos += Vector3(0.0, up, 0.0) + _flyaway_dir * across
-		d_basis = Basis(_flyaway_dir.cross(Vector3.UP).normalized(), -minf(maxf(tau - CLIMB_S, 0.0) * 0.4, PI * 0.25))
-	desc.group.position = d_pos
-	desc.group.basis = d_basis
-	if fly > GONE_S:
-		desc.group.visible = false
-		# Nothing of the craft is left to draw once she has driven off.
-		if deployed: craft.group.visible = false
+	var since := float(s.get("down", -1.0))
+	var away: Dictionary = s.get("away", {})
+	desc.group.position = Vector3(0.0, desc.base_y, 0.0)
+	desc.group.basis = Basis()
+	if not away.is_empty():
+		desc.group.position = away.at
+		desc.group.basis = away.basis
+		if bool(away.hit):
+			desc.group.visible = false
+			# Nothing of the craft is left to draw once she has driven off.
+			if deployed: craft.group.visible = false
+			_burn_smoke(away.at, away.up, away.wind, float(away.age), float(away.day))
 	_fly_shield(s)
 	# Bridles: from the descent stage's spool to her deck, three and the umbilical.
-	var hang := bridle > 0.05 and fly < CUT_S
-	if hang: _cable = maxf(bridle, 0.0)
+	var hang := bridle > 0.05 and since < CUT_S
 	var deck_y := rover.group.position.y + 1.12
 	var spool := desc.group.transform * Vector3(0.0, 0.0, 0.0)
 	for i in 3:
@@ -136,7 +121,6 @@ func update(s: Dictionary) -> void:
 		var bottom := Vector3(cos(a) * 0.55, deck_y, sin(a) * 0.45)
 		_span(bridles[i], top, bottom, hang)
 	_span(umbilical, spool, Vector3(0.3, deck_y, -0.35), hang)
-	if fly > CUT_S + CLIMB_S + sqrt(CRASH_M / 3.0) and smoke == null: _crash()
 
 # The heat shield once it is let go: Separation, with its own drag against the stack's on the parachute.
 func _fly_shield(s: Dictionary) -> void:
@@ -169,68 +153,55 @@ func _span(m: MeshInstance3D, a: Vector3, b: Vector3, on: bool) -> void:
 	var x := y.cross(Vector3.FORWARD if absf(y.z) < 0.9 else Vector3.RIGHT).normalized()
 	m.transform = Transform3D(Basis(x, y * d.length(), x.cross(y)), (a + b) * 0.5)
 
-# Smoke where it hit: a dark column that rises, spreads and thins, beside the craft (which a deployed rover
-# hides) on its parent, in the craft's frame.
-func _crash() -> void:
+# Smoke where it hit, `age` s on: PUFFS of it let go over SMOKE_S, each rising, spreading and thinning, drifting with
+# the wind, all from the age alone. Beside the craft (which a deployed rover hides), on its parent.
+const PUFFS := 220
+const PUFF_LIFE := 70.0
+func _burn_smoke(at: Vector3, up: Vector3, wind: Vector3, age: float, day: float) -> void:
 	var holder := craft.group.get_parent()
 	if holder == null: return
-	smoke = GPUParticles3D.new()
-	smoke.name = "descent_stage_smoke"
-	smoke.amount = 160
-	smoke.lifetime = 30.0
-	smoke.preprocess = 2.0
-	smoke.one_shot = false
-	smoke.visibility_aabb = AABB(Vector3(-200, -20, -200), Vector3(400, 500, 400))
-	var pm := ParticleProcessMaterial.new()
-	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	pm.emission_sphere_radius = 6.0
-	pm.direction = Vector3.UP
-	pm.spread = 15.0
-	pm.initial_velocity_min = 3.0
-	pm.initial_velocity_max = 6.0
-	pm.gravity = Vector3(1.0, 0.2, 0.0)
-	pm.damping_min = 0.05
-	pm.damping_max = 0.1
-	var curve := CurveTexture.new()
-	var cv := Curve.new()
-	cv.add_point(Vector2(0.0, 0.3)); cv.add_point(Vector2(1.0, 1.0))
-	curve.curve = cv
-	pm.scale_curve = curve
-	pm.scale_min = 10.0
-	pm.scale_max = 16.0
-	var fade := GradientTexture1D.new()
-	var gr := Gradient.new()
-	gr.set_color(0, Color(0.22, 0.19, 0.16, 0.55))
-	gr.set_color(1, Color(0.35, 0.3, 0.26, 0.0))
-	fade.gradient = gr
-	pm.color_ramp = fade
-	smoke.process_material = pm
-	var quad := QuadMesh.new()
-	quad.size = Vector2(1.0, 1.0)
-	var mat := StandardMaterial3D.new()
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
-	mat.vertex_color_use_as_albedo = true
-	mat.albedo_texture = _puff()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	quad.material = mat
-	smoke.draw_pass_1 = quad
-	holder.add_child(smoke)
-	smoke.transform = craft.group.transform * Transform3D(Basis(), _flyaway_dir * CRASH_M)
-	smoke.emitting = true
-	var stop := holder.get_tree().create_timer(SMOKE_S) if holder.is_inside_tree() else null
-	if stop != null: stop.timeout.connect(func() -> void: if is_instance_valid(smoke): smoke.emitting = false)
-
-static var _puff_tex: ImageTexture = null
-static func _puff() -> ImageTexture:
-	if _puff_tex != null: return _puff_tex
-	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
-	for y in 64:
-		for x in 64:
-			var d := Vector2(x - 31.5, y - 31.5).length() / 32.0
-			img.set_pixel(x, y, Color(1, 1, 1, clampf(1.0 - d, 0.0, 1.0) ** 2))
-	_puff_tex = ImageTexture.create_from_image(img)
-	return _puff_tex
+	if smoke == null:
+		smoke = MultiMeshInstance3D.new()
+		smoke.name = "descent_stage_smoke"
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = true
+		mm.instance_count = PUFFS
+		var quad := QuadMesh.new()
+		var mat := StandardMaterial3D.new()
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		mat.billboard_keep_scale = true
+		mat.vertex_color_use_as_albedo = true
+		mat.albedo_texture = PlumeDust._puff()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		quad.material = mat
+		mm.mesh = quad
+		smoke.multimesh = mm
+		smoke.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		smoke.custom_aabb = AABB(Vector3(-2e3, -2e3, -2e3), Vector3(4e3, 4e3, 4e3))
+		holder.add_child(smoke)
+	smoke.transform = craft.group.transform * Transform3D(Basis(), at)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var n := 0
+	for k in PUFFS:
+		var jx := rng.randf_range(-1.0, 1.0); var jz := rng.randf_range(-1.0, 1.0); var ju := rng.randf_range(0.75, 1.25)
+		# Most of it at once, from the impact, then what the propellant left feeds.
+		var t := age - SMOKE_S * pow(float(k) / PUFFS, 1.8)
+		if t < 0.0 or t > PUFF_LIFE: continue
+		var f := t / PUFF_LIFE
+		var size := 8.0 + 1.1 * t * ju
+		var rise := 3.2 * ju * t * (1.0 - 0.35 * f)
+		var pos := up * (rise + size * 0.25) + wind * (0.25 * t) + Vector3(jx, 0.0, jz) * (3.0 + 0.25 * t)
+		smoke.multimesh.set_instance_transform(n, Transform3D(Basis.from_scale(Vector3.ONE * size), pos))
+		var c := Color(lerpf(0.16, 0.42, f), lerpf(0.13, 0.32, f), lerpf(0.1, 0.23, f)) * day
+		c.a = 0.34 * smoothstep(0.0, 0.03, f) * pow(1.0 - f, 1.4)
+		smoke.multimesh.set_instance_color(n, c)
+		n += 1
+	smoke.multimesh.visible_instance_count = n
+	smoke.visible = n > 0
 
 ## Let go of what it added outside the craft.
 func dispose() -> void:

@@ -423,7 +423,7 @@ static func _descent_state(v: Vessel, b: Dictionary) -> void:
 ## Turn the whole descent about the world's axis so it comes down `angle` rad past the subsolar point, in the
 ## direction the ground turns: positive is afternoon. The equatorial Sky Crane's entry comes down DOWNRANGE east
 ## of where it starts (measured from this build's flight, rotation included).
-const DOWNRANGE := 0.1906
+const DOWNRANGE := 0.2063
 static func _turn_to_sun(f: Spaceflight, v: Vessel, angle: float) -> void:
 	var sun := f.sun_direction(DVec3.new())
 	var turn := wrapf(atan2(sun.z, sun.x) + angle - atan2(v.r.z, v.r.x) - DOWNRANGE, -PI, PI)

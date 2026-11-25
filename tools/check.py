@@ -127,7 +127,7 @@ CHANGED_RULES = (
       "tools/fixtures/flight_fixture.json"),
      ("flighttimecheck", "flightphysicscheck", "spinframecheck", "sharedflightcheck-*", "flight-descent-*",
       "missioncheck-*", "scenariocheck", "groundcheck", "seacheck", "titancheck")),
-    (("tools/groundcheck.*", "sim/flight/sky_crane_rig.gd", "sim/flight/plume_dust.gd"), ("groundcheck",)),
+    (("tools/groundcheck.*", "sim/flight/sky_crane_rig.gd", "sim/flight/crane_flyaway.gd", "sim/flight/plume_dust.gd"), ("groundcheck",)),
     (("sim/surface/rover*.gd", "shaders/surface/track.gdshader", "tools/rovercheck.gd"), ("rovercheck", "groundcheck")),
     (("sim/surface/rotorcraft*.gd", "tools/rotorcheck.gd"), ("rotorcheck", "groundcheck", "titancheck")),
     (("sim/titan_moon.gd", "tools/titancheck.*"), ("titancheck", "presetcheck")),

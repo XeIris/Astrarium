@@ -31,7 +31,7 @@ lowered under it.
   - **The rover:** the same `RoverModel` that drives, built stowed.
   - **The sequence** is flown, not drawn over: parachute, heat shield, the backshell left hanging as the stage drops
     out, free fall, divert, vertical descent and the bridles ([its physics and sources](physics/sky-crane.md)). Only the
-    flyaway and its smoke are drawn.
+    crash's smoke is drawn.
 - **The rover model's** metals drew mirror-dark: the flight scene has no reflection probe, so metallic surfaces reflect
   only a dark ambient. The photographs show the metals light and nearly matte under the dust.
 - **The rover's wheels** were inside-out in places: winding is now set from each face's outward direction, and the
@@ -91,7 +91,7 @@ The renders behind this table are in this change's evidence.
 | PIA24428, the rover on the bridles | The stack, the bridles and the umbilical, the stowed mast and folded arm, the dust beneath | The descent stage's camera's fisheye framing, and the rover's harness and fine deck detail |
 | PIA24426, the first tracks | Two ruts with grouser imprints, berms and their shadows | Displacement in the geometry; the soil's compaction and colour change in the rut |
 | PIA24429, the wheel | 48 curved grousers, the spokes outboard | The wheel's real width (NASA gives no figure; the physics' 26 cm estimate is drawn) |
-| PIA24425, the crash plume | A dark column 650 m off, drifting | Its timing is a visual flyaway, not a flown trajectory |
+| PIA24425, the crash plume | A dark column 650 m off, drifting | Its smoke is drawn, not a dust cloud's physics |
 | Rocks in the frames | The soil's hue, greyed | Vesicular, rounded shapes. One angular mesh in many rotations is not yet enough. |
 | The sky's colour | The butterscotch day sky; a storm's closing pall | Blue sunsets (dust's forward scattering) |
 

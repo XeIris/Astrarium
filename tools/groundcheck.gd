@@ -87,7 +87,14 @@ func _edl() -> void:
 	main.set_drawn(false)
 	var low := 0.0
 	var at_light := -INF
-	var sep := -1.0
+	var sep_v := 0.0
+	var sep_m := 0.0
+	var chute_v := v.airspeed(v.r, v.v, DVec3.new()).length()
+	var chute_alt := v.altitude()
+	var chute_m := v.mass
+	var bank: float = v.bank if v.bank != null else 0.0
+	var shield_m := 0.0
+	var rocky := []
 	# The shell's plane, measured on the turning ground: where the stack was as the shell went, and which way it
 	# was going over it.
 	var was := Vector2.ZERO
@@ -102,8 +109,12 @@ func _edl() -> void:
 			before = was
 			was = Vector2(sp.x, sp.z)
 			if f.autopilot._sep_met >= 0.0: heading = (was - before).normalized()
+		if shield_m == 0.0 and v.stages[0].shield_off: shield_m = v.mass
+		if rocky.is_empty() and v.ground.adopted: rocky = _choices(v)
 		if f.autopilot != null and f.autopilot._sep_met >= 0.0 and shell.sep != null:
-			sep = f.autopilot._sep_met
+			if sep_m == 0.0:
+				sep_v = v.airspeed(v.r, v.v, DVec3.new()).length()
+				sep_m = v.mass
 			low = minf(low, shell.group.position.y)
 			if at_light == -INF and float(v.telemetry.get("thrust", 0.0)) > 0.0: at_light = shell.group.position.y
 	main.set_drawn(true)
@@ -130,7 +141,42 @@ func _edl() -> void:
 	check("down at %s m/s, %s m/s sideways, %s m out of the plane the shell falls in (MSL: 300, Perseverance: at most 600)" % [
 		U.fixed(absf(float(v.landed_at.vVert)), 2), U.fixed(float(v.landed_at.vHoriz), 2), U.fixed(off, 0)],
 		float(v.landed_at.vHoriz) < 0.3 and off > 280.0 and off < 620.0)
-	for i in 300: f.finish_frame(0.05, main.step_flight(0.05))
+	check("the parachute opens %s s after entry, %s m/s and %s km over the datum (Perseverance: 240, 420; 11 km over Jezero is about 8.4)" % [
+		U.fixed(at["Parachute deploy"], 0), U.fixed(chute_v, 0), U.fixed(chute_alt / 1000.0, 1)],
+		absf(at["Parachute deploy"] - 240.0) < 5.0 and absf(chute_alt - 8400.0) < 1300.0)
+	check("the backshell goes at %s m/s (Perseverance: 85)" % U.fixed(sep_v, 1), absf(sep_v - 85.0) < 8.0)
+	check("flown with its lift mostly up by then (bank %s°)" % U.fixed(rad_to_deg(bank), 0), absf(rad_to_deg(bank) - 15.0) < 0.5)
+	check("%s kg built, flown at %s without its ballast, %s without its heat shield, %s at powered descent (an MSL-like mission: 3152, 3002, 2617, 2268)" % [
+		U.fixed(_stack(v), 0), U.fixed(chute_m, 0), U.fixed(shield_m, 0), U.fixed(sep_m, 0)],
+		absf(_stack(v) - 3152.0) < 5.0 and absf(chute_m - 3002.0) < 8.0 and absf(shield_m - 2617.0) < 8.0 and absf(sep_m - 2268.0) < 5.0)
+	check("over %d places it would divert from, %d picks had metre rocks about them; %d of the flattest spots there did" % [rocky[0], rocky[1], rocky[2]],
+		rocky[1] <= 2 and rocky[2] >= 4)
+	# The spot she picked: no metre rock about it, on ground where many spots have one; and she is off it by no more
+	# than the map's position is.
+	var ap: Guidance.Autopilot = f.autopilot
+	var some := 0
+	var east := DQuat.nrm(DVec3.new(0.0, -1.0, 0.0).cross(DQuat.nrm(v.r.clone())))
+	for j in 60:
+		if not ap._rocks_at(ap.picked.clone().add_scaled_in(east, 40.0 * j - 1200.0)).is_empty(): some += 1
+	# Guidance has let go of it: placed at the planet's angle now.
+	SurfaceGround.from_mesh(ap._picked_mesh, v.body_angle(v.coord), ap.picked)
+	var miss := ap.picked.sub(v.r)
+	var up := DQuat.nrm(v.r.clone())
+	miss.add_scaled_in(up, -miss.dot(up))
+	check("the spot picked has %d metre rocks within %s m, where %d of 60 others have some" % [ap._rocks_at(ap.picked).size(),
+		U.fixed(Guidance.Autopilot.MAP_RADIUS, 0), some], ap._rocks_at(ap.picked).is_empty() and some > 12)
+	check("and she comes down %s m off it, her position on the map out by %s m (LVS: under 40)" % [U.fixed(miss.length(), 1),
+		U.fixed(ap.map_error.length(), 1)], ap.map_error.length() > 0.5 and absf(miss.length() - ap.map_error.length()) < 3.0 and ap.map_error.length() <= 40.0)
+	for i in 600: f.finish_frame(0.05, main.step_flight(0.05))
+	var fa: CraneFlyaway = f.flyaway
+	check("the descent stage flies off and comes down %s m away %s s after the cut, at %s m/s, %s kg of propellant left (Curiosity: 650 m, about 20 s)" % [
+		U.fixed(fa.flown_m, 0), U.fixed(fa.t, 1), U.fixed(v.ground_velocity(fa.r, fa.v, DVec3.new()).length(), 0), U.fixed(fa.prop, 0)],
+		fa.down and absf(fa.flown_m - 650.0) < 80.0 and absf(fa.t - 20.0) < 2.0 and fa.prop > 0.0)
+	var lies := fa.r.sub(v.r).length()
+	check("and it stays where it fell, %s m from her, its smoke with it (%s m off it)" % [U.fixed(lies, 0),
+		U.fixed(f.crane_rig.smoke.position.distance_to(f.craft.group.transform * f.crane_rig.desc.group.position), 2)],
+		absf(lies - fa.flown_m) < 3.0 and f.crane_rig.smoke.multimesh.visible_instance_count > 20
+		and f.crane_rig.smoke.position.distance_to(f.craft.group.transform * f.crane_rig.desc.group.position) < 0.5)
 	check("once the bridle is cut the vessel's reference is on the ground (%s m)" % U.fixed(v.height_above_ground(), 4),
 		absf(v.height_above_ground()) < 0.01 and absf(v.contact_altitude()) < 0.01)
 	f.teardown()
@@ -148,14 +194,16 @@ func _held_rate(f: Spaceflight) -> void:
 	var north := DQuat.nrm(up.clone().cross(east))
 	var best := 0.0
 	var along := east
+	# As fast a drift as makes the slope count.
+	var drift := 40.0
 	for k in 16:
 		var d := east.clone().scale_in(cos(TAU * k / 16.0)).add_scaled_in(north, sin(TAU * k / 16.0))
-		v.v.copy_from(kept).add_scaled_in(d, 6.0)
+		v.v.copy_from(kept).add_scaled_in(d, drift)
 		var diff := absf(v.closing_rate(v.ground_velocity(v.r, v.v, DVec3.new())) - v.v.dot(up))
 		if diff > best:
 			best = diff
 			along = d
-	v.v.copy_from(kept).add_scaled_in(along, 6.0)
+	v.v.copy_from(kept).add_scaled_in(along, drift)
 	var closing := v.closing_rate(v.ground_velocity(v.r, v.v, DVec3.new()))
 	var cmd: DVec3 = ap.descent_law(10.0, 0.75, 0.35, 1.8, 0.55, 32.0, 1e4)
 	var g: float = v.env.mu / v.r.length_sq()
@@ -164,6 +212,36 @@ func _held_rate(f: Spaceflight) -> void:
 		U.fixed(cmd.dot(up), 3), U.fixed(want, 3)], best > 0.1 and absf(cmd.dot(up) - want) < 0.3 * best / 1.8)
 	v.v.copy_from(kept)
 	ap.site = kept_site
+
+# The spots a divert picks from where the vessel is and 13 places about it: [places, picks with metre rocks, how many
+# of each place's one flattest candidate have them]. The vessel and its log are put back.
+func _choices(v: Vessel) -> Array:
+	var dv: Dictionary = v.vehicle.edl.divert
+	var kept := v.r.clone()
+	var events := v.events.size()
+	var up := DQuat.nrm(v.r.clone())
+	var east := DQuat.nrm(DVec3.new(0.0, -1.0, 0.0).cross(up))
+	var north := DQuat.nrm(up.clone().cross(east))
+	var out := [0, 0, 0]
+	for k in 14:
+		v.r.copy_from(kept).add_scaled_in(east, 350.0 * (k % 5 - 2)).add_scaled_in(north, 350.0 * (k / 5 - 1))
+		var ap := Guidance.Autopilot.new(v)
+		Guidance._up.copy_from(DQuat.nrm(v.r.clone()))
+		ap.site = Guidance._up.clone().scale_in(v.ground_r(v.r))
+		ap._plan_divert(dv, 10.0, 16.0, 0.75)
+		if ap.picked == null: continue
+		out[0] += 1
+		if not ap._rocks_at(ap.picked).is_empty(): out[1] += 1
+		if not ap._rocks_at(ap.flattest).is_empty(): out[2] += 1
+	v.r.copy_from(kept)
+	v.events.resize(events)
+	return out
+
+# The vehicle's whole mass as it enters, kg.
+func _stack(v: Vessel) -> float:
+	var m := 0.0
+	for st in v.stages: m += float(st.spec.dry) + float(st.spec.prop) + (float(st.spec.rcs.prop) if st.spec.get("rcs") != null else 0.0)
+	return m
 
 # How far the packed rover's and descent stage's vertices are over the heat shield and inside the backshell, m.
 func _packed(c: CraftModel.Craft) -> Array:

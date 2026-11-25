@@ -112,6 +112,7 @@ class StageState extends RefCounted:
 	var recession: float = 0.0    # an ablator's surface recession at the stagnation point, m
 	var ablated: float = 0.0      # the mass it has lost, kg
 	var shield_off := false       # the heat shield has been jettisoned
+	var ballast_off := false      # and the balance masses that trimmed it
 
 	func _init(s: Dictionary, i: int) -> void:
 		spec = s; index = i
@@ -708,7 +709,7 @@ func accel(rr: DVec3, vv: DVec3, out: DVec3, sample: Sample = null) -> DVec3:
 			# banks that lift to steer.
 			var bl = null
 			for s2 in stages:
-				if s2.attached and s2.spec.get("lift") != null:
+				if s2.attached and s2.spec.get("lift") != null and not s2.ballast_off:
 					bl = s2; break
 			if bl != null and drag > 0.0:
 				DQuat.nrm(_c.copy_from(rr))                    # local up
@@ -858,6 +859,16 @@ func _settle_bridle(dt: float) -> void:
 	bridle = maxf(float(sk.wheelsY), bridle - 2.0 * dt)
 	DQuat.set_len(r, ground_r(r) + bridle - float(sk.wheelsY))
 
+## Eject the balance masses: what is left flies at no angle of attack, so without lift.
+func eject_ballast() -> bool:
+	for st in stages:
+		if not st.attached or st.ballast_off or st.spec.get("ballast") == null: continue
+		st.ballast_off = true
+		st.ablated += float(st.spec.ballast)
+		log_event("Balance masses away" + _where())
+		return true
+	return false
+
 ## Jettison the heat shield of the lowest attached stage that has one with a stated mass.
 func jettison_shield() -> bool:
 	for st in stages:
@@ -866,7 +877,7 @@ func jettison_shield() -> bool:
 		if hs == null or hs.get("mass") == null: continue
 		st.shield_off = true
 		# All of it gone, what had ablated included.
-		st.ablated = float(hs.mass)
+		st.ablated = float(hs.mass) + (float(st.spec.get("ballast", 0.0)) if st.ballast_off else 0.0)
 		log_event("Heat shield away" + _where())
 		return true
 	return false

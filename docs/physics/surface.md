@@ -379,7 +379,8 @@ the grid alone cannot show.
   the eye to 60 cm at 220 m, and the field thins to nothing over its outer third. One mesh in many rotations and
   proportions, part-buried: a subdivided icosahedron, lumpy and shaded smooth, with a pitted normal map (the rounded,
   vesicular stones of PIA24424 and PIA24429). Its colour is the soil's, a third of the way to the rock's and greyed,
-  as loose stones wear the dust they sit in. They are drawn only: contact is the grid's.
+  as loose stones wear the dust they sit in. They are drawn only: contact is the grid's. A landing map reads the metre-sized ones
+  ([sky-crane.md](sky-crane.md#why-the-divert-is-out-of-plane)).
 - **Where the site meets the planet's patch.** The survey eases the far grid's outer 15% down to its lowest point,
   where the patch lies, so it meets the patch as a slope (`SurfaceRelief._ramp_rim`; contact reads the eased grid).
   There the site dissolves into the patch by an ordered dither, which then shows in its own light; and the whole

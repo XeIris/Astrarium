@@ -104,6 +104,11 @@ class Autopilot extends RefCounted:
 	var crane_out: bool = false
 	var _chute_met := -1.0       # when the parachute opened and the backshell went (proper time, s)
 	var _sep_met := -1.0
+	var map_error := Vector2.ZERO # how far out the position on the landing map is, m
+	var picked: DVec3 = null     # the spot picked on that map; `site` is that much off it
+	var flattest: DVec3 = null   # the smoothest candidate it had, rocks aside
+	var _site_mesh: DVec3 = null # both in the planet's own axes
+	var _picked_mesh: DVec3 = null
 	var _t_go := 0.0             # the divert's time to go, s; 0 once it is flown
 	var mains_out: bool = false
 	var _integ: float = 0.0
@@ -171,6 +176,7 @@ class Autopilot extends RefCounted:
 			if d is DVec3 and not turned.has(d):
 				DQuat.rotate(d, turn); turned.append(d)
 		site = null
+		_site_mesh = null
 
 	func update(dt: float) -> void:
 		if v.phase == Vessel.PHASE.DESTROYED:
@@ -891,6 +897,14 @@ class Autopilot extends RefCounted:
 	## Carry the landing site round with its body by ω × r, the same expression as `place_on_pad`.
 	func spin_site(dt: float) -> void:
 		if site == null: return
+		# A spot picked off the survey is fixed to the planet: placed at its angle now, with no step to lag by.
+		if _site_mesh != null:
+			var theta := v.body_angle(v.coord)
+			SurfaceGround.from_mesh(_site_mesh, theta, site)
+			DQuat.set_len(site, v.ground_r(site))
+			SurfaceGround.from_mesh(_picked_mesh, theta, picked)
+			DQuat.set_len(picked, v.ground_r(picked))
+			return
 		Guidance._a.set_v(0.0, -v.env.rotRate, 0.0).cross_vectors(Guidance._a, site)
 		site.add_scaled_in(Guidance._a, dt)
 		DQuat.set_len(site, v.ground_r(site))
@@ -1935,12 +1949,16 @@ class Autopilot extends RefCounted:
 			# Heat shield forward. Deploy on Mach and q, as a chute is qualified (MSL: Mach 1.7,
 			# ~750 Pa), not on altitude.
 			var ch: Dictionary = plan_edl.chute if (plan_edl != null and plan_edl.get("chute") != null) else { "mach": 1.7, "deployQ": 750.0 }
+			var eb = plan_edl.get("entryBank") if plan_edl != null else null
+			if eb != null: v.bank = deg_to_rad(float(eb.align) if speed < float(eb.alignV) else float(eb.range))
 			var dq: float = ch.get("deployQ", 750.0)
 			# The q lower bound keeps it from firing in vacuum at the entry interface. A baroswitch
 			# (`alt`) fires on the way down through its height instead; `machOnly` on the Mach number alone,
 			# for an air whose q at that Mach is nothing like Mars's.
 			var fire: bool = (alt < float(ch.alt) and v_vert < 0.0) if ch.has("alt") \
 				else (t.mach < ch.mach and t.mach > 0.05 and (ch.get("machOnly", false) or (t.q > dq * 0.25 and t.q < dq * 1.6)))
+			# `speed`: on the airspeed, under the same guard against firing in vacuum.
+			if ch.has("speed"): fire = speed < float(ch.speed) and t.q > dq * 0.25 and t.q < dq * 1.6
 			if fire:
 				state_name = "chute"
 				var sh = null
@@ -1950,6 +1968,7 @@ class Autopilot extends RefCounted:
 				v.chute_open = sh.spec.chute if sh != null else { "area": 200.0, "Cd": 0.62 }
 				v.chute_deploy = 0.0
 				_chute_met = v.met
+				v.eject_ballast()
 				v.request_ground(_chute_landing(alt))
 				note("Parachute deploy — Mach %s, %s km" % [U.fixed(t.mach, 2), U.fixed(alt / 1000.0, 1)])
 			return Guidance.attitude_for(MODE.RETROGRADE, v)
@@ -2058,28 +2077,72 @@ class Autopilot extends RefCounted:
 		var base := v.r.clone().add_scaled_in(along, vh * _t_go / 3.0)
 		# What the engines can spare sideways: 6 d / t² at the start, held to 0.45 of their acceleration.
 		var reach := minf(float(dv.max), 0.45 * a_max * _t_go * _t_go / 6.0)
-		var best := INF
-		var out_m := 0.0
+		var found := []
 		var b := float(dv.min)
 		while b <= maxf(reach, float(dv.min)) + 1e-6:
 			for s: float in [1.0, -1.0]:
 				for a_off: float in [0.0, 60.0, -60.0, 120.0, -120.0]:
 					if b > float(dv.min) and sqrt(b * b + a_off * a_off) > reach: continue
 					var p := base.clone().add_scaled_in(side, s * b).add_scaled_in(along, a_off)
-					var score := _roughness(p, along, side) + 1e-4 * absf(a_off) + 2e-4 * (b - float(dv.min))
-					if score < best:
-						best = score
-						out_m = b
-						site = DQuat.set_len(p, v.ground_r(p))
+					# On the ground: the survey's coordinates of a point above it are stretched by its height.
+					DQuat.set_len(p, v.ground_r(p))
+					found.append([_roughness(p, along, side) + 1e-4 * absf(a_off) + 2e-4 * (b - float(dv.min)), p, b])
 			b += 25.0
+		found.sort_custom(func(x: Array, y: Array) -> bool: return x[0] < y[0])
+		# The rocks a map from orbit shows, over the flattest of them. Both on a hazard's scale: the relief against
+		# SAFE_SLOPE across the map's reach, a rock against what she can stand over.
+		flattest = found[0][1]
+		var cache := {}
+		var best := INF
+		var out_m := 0.0
+		for c: Array in found.slice(0, MAP_SITES):
+			var score: float = c[0] / (2.0 * MAP_RADIUS * tan(SAFE_SLOPE))
+			for d: float in _rocks_at(c[1], cache): score += d / SAFE_ROCK
+			if score < best:
+				best = score
+				out_m = c[2]
+				site = (c[1] as DVec3).clone()
+		# Where she thinks she is on that map is out by this much, so she comes down that far from the spot she picked.
+		map_error = _position_error()
+		picked = site.clone()
+		site.add_scaled_in(along, map_error.x).add_scaled_in(side, map_error.y)
+		DQuat.set_len(site, v.ground_r(site))
+		var theta := v.body_angle(v.coord)
+		_site_mesh = SurfaceGround.to_mesh(site, theta, DVec3.new())
+		_picked_mesh = SurfaceGround.to_mesh(picked, theta, DVec3.new())
 		note("Divert — %s m, %s m out of the shell's plane" % [U.fixed(_site_off(), 0), U.fixed(out_m, 0)])
 
-	# How uneven the ground is about `p`, m: the range of its height over a 10 m cross.
+	## A landing map from orbit (HiRISE, 0.3 m a pixel) shows rocks from about a metre; the position on it is known to
+	## 40 m (JPL's requirement on the Lander Vision System), taken as three standard deviations on each axis.
+	const MAP_ROCK_D := 1.0
+	const MAP_ERROR_M := 40.0
+	## How many of the flattest candidates are looked over for rocks, and how far round each, m.
+	const MAP_SITES := 24
+	const MAP_RADIUS := 13.0
+	## What she can stand on and over: a 25° slope (an estimate, under the 30° a rocker-bogie is limited to) and her
+	## belly's 0.6 m (Rover.PERSEVERANCE's clearance).
+	const SAFE_SLOPE := deg_to_rad(25.0)
+	const SAFE_ROCK := 0.6
+
+	func _rocks_at(p: DVec3, cache := {}) -> PackedFloat64Array:
+		if v.ground == null or not v.ground.adopted: return PackedFloat64Array()
+		var sp := v.ground.site_point(v, p)
+		return SiteRocks.near(v.ground.relief, v.parent.name, -sp.x, sp.z, MAP_RADIUS, MAP_ROCK_D, cache)
+
+	# Drawn once from the survey's own seed, so the same descent makes the same error.
+	func _position_error() -> Vector2:
+		if v.ground == null or not v.ground.adopted: return Vector2.ZERO
+		var rng := RandomNumberGenerator.new()
+		rng.seed = hash([v.ground.relief.seed, "lvs"])
+		return (Vector2(rng.randfn(), rng.randfn()) * (MAP_ERROR_M / 3.0)).limit_length(MAP_ERROR_M)
+
+	# How uneven the ground is about `p`, m: the range of its height over a cross as wide as the map's reach.
 	func _roughness(p: DVec3, along: DVec3, side: DVec3) -> float:
 		if v.ground == null or not v.ground.adopted: return 0.0
 		var lo := INF
 		var hi := -INF
-		for o: Vector2 in [Vector2.ZERO, Vector2(5, 0), Vector2(-5, 0), Vector2(0, 5), Vector2(0, -5)]:
+		for o: Vector2 in [Vector2.ZERO, Vector2(5, 0), Vector2(-5, 0), Vector2(0, 5), Vector2(0, -5),
+				Vector2(MAP_RADIUS, 0), Vector2(-MAP_RADIUS, 0), Vector2(0, MAP_RADIUS), Vector2(0, -MAP_RADIUS)]:
 			var q := p.clone().add_scaled_in(along, o.x).add_scaled_in(side, o.y)
 			var z := v.ground_r(q) - v.surface_r(q)
 			lo = minf(lo, z); hi = maxf(hi, z)

@@ -139,6 +139,7 @@ var rover_keys := true
 ## A helicopter off the rover (Ingenuity off Perseverance): its physics on the same ground and clock, what
 ## draws it, and whether it has the keys and the camera.
 var heli: Rotorcraft = null
+var flyaway: CraneFlyaway = null   # the descent stage once the bridles are cut
 var crane_rig: SkyCraneRig = null  # the Sky Crane's bridles, heat shield and flyaway, drawn only
 var heli_model: RotorcraftModel = null
 var flying := false
@@ -368,6 +369,7 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 	craft = CraftModel.build_craft(veh)
 	local.craft_root.add_child(craft.group)
 	crane_rig = SkyCraneRig.attach(craft)
+	flyaway = null
 	local.place(local.craft_root, craft_pos)
 	# Frame the stack by its height: d = (H/2)/tan(fov·0.34), camera a third of the
 	# way up.
@@ -742,6 +744,7 @@ func teardown() -> void:
 		local.unplace(docking.craft.group)
 		docking.craft.group.queue_free()
 		docking=null
+	flyaway = null
 	if crane_rig != null:
 		crane_rig.dispose()
 		crane_rig = null
@@ -1066,7 +1069,7 @@ func run_program(p: String) -> void:
 	var ap = autopilot
 	ap.plan = null; ap.node = null; ap.site = null; ap.burning = false
 	ap.slamming = false; ap.entry_done = false; ap.q_guarding = false; ap.shield_gone = false; ap.crane_out = false
-	ap._sep_met = -1.0; ap._chute_met = -1.0; ap._t_go = 0.0; vessel.bridle = 0.0
+	ap._sep_met = -1.0; ap._chute_met = -1.0; ap._t_go = 0.0; ap.picked = null; ap._site_mesh = null; ap.map_error = Vector2.ZERO; vessel.bridle = 0.0
 	if p == "ascent" and vessel.phase == Vessel.PHASE.PRELAUNCH:
 		start_count()
 		return
@@ -1385,9 +1388,37 @@ func _draw_crane(sim_seconds: float, accel: Vector3, air: Dictionary) -> void:
 			shell_on = st.attached
 			shield_on = not st.shield_off
 	var down: bool = vessel.phase == Vessel.PHASE.LANDED and vessel.landed_at != null
+	var since := vessel.met - float(vessel.landed_at.met) if down else -1.0
+	_fly_away(sim_seconds, since)
+	var away := {}
+	if flyaway != null:
+		var to_craft := Basis(vessel.q.to_quaternion()).inverse()
+		var up := to_craft * DQuat.nrm(flyaway.r.clone()).to_v3()
+		var lean := up * cos(flyaway.tilt) + (to_craft * flyaway.dir.to_v3()) * sin(flyaway.tilt)
+		away = {"at": to_craft * flyaway.r.sub(vessel.r).to_v3(), "basis": Basis(Quaternion(Vector3.UP, lean.normalized())), "hit": flyaway.down,
+			"up": up, "age": since - SkyCraneRig.CUT_S - flyaway.t, "day": clampf(sun_direction(_a).dot(DQuat.nrm(_b.copy_from(flyaway.r))) * 3.0, 0.03, 1.0),
+			"wind": to_craft * Rocketry.wind_at(vessel.env.atm, vessel.r, vessel.surface_r(vessel.r), DVec3.new()).to_v3() if vessel.env.atm != null else Vector3.ZERO}
 	crane_rig.update({"shell": shell_on, "shield": shield_on, "dt": sim_seconds, "accel": accel, "air": air,
 		"canopy": vessel.chute_deploy if vessel.chute_open != null and shell_on else -1.0,
-		"bridle": vessel.bridle, "flyaway": vessel.met - float(vessel.landed_at.met) if down else -1.0})
+		"bridle": vessel.bridle, "down": since, "away": away})
+
+# The descent stage's flyaway from the cut, on the flight's clock; a cut passed while nothing was stepped here is
+# caught up.
+func _fly_away(sim_seconds: float, since: float) -> void:
+	if since < SkyCraneRig.CUT_S: return
+	var h := sim_seconds
+	if flyaway == null:
+		var desc = null
+		for st in vessel.stages:
+			if str(st.spec.key) == crane_rig.desc.key: desc = st
+		var sk: Dictionary = vessel.vehicle.edl.skycrane
+		var at := vessel.r.clone()
+		at.add_scaled_in(DQuat.nrm(vessel.r.clone()), float(sk.stageY) + float(sk.cable) - vessel.bridle)
+		flyaway = CraneFlyaway.start(vessel, desc, at, DVec3.from_v3(Basis(vessel.q.to_quaternion()) * Vector3(1.0, 0.0, 0.3)))
+		h = since - SkyCraneRig.CUT_S
+	var was_down := flyaway.down
+	flyaway.step(h, vessel)
+	if flyaway.down and not was_down: vessel.log_event("Descent stage impact — %s m away, %s s after the cut" % [U.fixed(flyaway.flown_m, 0), U.fixed(flyaway.t, 0)])
 
 ## Can the vehicle put its rover down here: landed, on a surveyed ground, carrying one.
 func can_deploy_rover() -> bool:
@@ -2264,7 +2295,9 @@ func _update_plumes(alt: float) -> void:
 		for s in vessel.stages:
 			if str(s.spec.key) == pl.stage_key: st = s
 		var on: bool = st != null and vessel.lit(st) and vessel.throttle > 0.0
-		pl.update(vessel.throttle if on else 0.0, pa, vessel.met, p0)
+		var thr := vessel.throttle if on else 0.0
+		if flyaway != null and crane_rig != null and pl.stage_key == crane_rig.desc.key: thr = flyaway.burn
+		pl.update(thr, pa, vessel.met, p0)
 	for b in sep_plumes:
 		var cs: CraftModel.CraftStage = b.stage
 		var thr := 0.0

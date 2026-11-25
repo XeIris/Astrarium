@@ -86,6 +86,38 @@ static func build(b: Body, relief: SurfaceRelief, patch_y: float, colour: Vector
 	r.follow(0.0, 0.0)
 	return r
 
+## A cell's rocks: [east, north, its three sizes, yaw, tilt, shade, its roll against thinning out, its diameter], from
+## the cell's own seed and the band's table.
+static func cell_rocks(seed_: int, ci: int, cj: int, ds: PackedFloat64Array, cum: PackedFloat64Array) -> Array:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([seed_, ci, cj, 977])
+	# The cell's count: its expectation, its fraction drawn.
+	var want := cum[-1] * CELL_M * CELL_M
+	var count := int(want) + (1 if rng.randf() < want - floorf(want) else 0)
+	var out := []
+	for i in count:
+		var pe := (ci + rng.randf()) * CELL_M
+		var pn := (cj + rng.randf()) * CELL_M
+		var d := ds[mini(cum.bsearch(rng.randf() * cum[-1]), ds.size() - 1)]
+		var sx := d * rng.randf_range(0.8, 1.2)
+		var sz := d * rng.randf_range(0.7, 1.1)
+		var sy := d * rng.randf_range(0.45, 0.75)
+		out.append([pe, pn, sx, sy, sz, rng.randf() * TAU, rng.randf_range(-0.3, 0.3), rng.randf_range(0.75, 1.1), rng.randf(), d])
+	return out
+
+## The diameters, m, of the rocks of `d_min` or more within `radius` of (east, north): what stands there, as it is
+## drawn from close by. Cells are kept in `cache`.
+static func near(relief: SurfaceRelief, body_name: String, e: float, n: float, radius: float, d_min: float, cache: Dictionary) -> PackedFloat64Array:
+	var out := PackedFloat64Array()
+	if not cache.has("table"): cache.table = table(float(K.get(body_name, K_DEFAULT)), INNER_D)
+	for cj in range(int(floor((n - radius) / CELL_M)), int(floor((n + radius) / CELL_M)) + 1):
+		for ci in range(int(floor((e - radius) / CELL_M)), int(floor((e + radius) / CELL_M)) + 1):
+			var key := Vector2i(ci, cj)
+			if not cache.has(key): cache[key] = cell_rocks(relief.seed, ci, cj, cache.table[0], cache.table[1])
+			for rock: Array in cache[key]:
+				if float(rock[9]) >= d_min and Vector2(float(rock[0]) - e, float(rock[1]) - n).length() <= radius: out.append(rock[9])
+	return out
+
 ## Lay the field out about (east, north), m, if the eye has moved far enough from where it last was.
 func follow(e: float, n: float) -> void:
 	var at := Vector2(e, n)
@@ -95,7 +127,6 @@ func follow(e: float, n: float) -> void:
 	var tints := PackedColorArray()
 	var reach := int(ceil(OUTER_M / CELL_M))
 	var ci := int(floor(e / CELL_M)); var cj := int(floor(n / CELL_M))
-	var rng := RandomNumberGenerator.new()
 	for dj in range(-reach, reach + 1):
 		for di in range(-reach, reach + 1):
 			var c0 := Vector2((ci + di) * CELL_M, (cj + dj) * CELL_M)
@@ -106,28 +137,17 @@ func follow(e: float, n: float) -> void:
 			var keep := 1.0 - smoothstep(OUTER_M * 0.65, OUTER_M, dist)
 			var ds: PackedFloat64Array = tab[0]
 			var cum: PackedFloat64Array = tab[1]
-			rng.seed = hash([_relief.seed, ci + di, cj + dj, 977])
-			# The cell's count: its expectation, its fraction drawn.
-			var want := cum[-1] * CELL_M * CELL_M
-			var count := int(want) + (1 if rng.randf() < want - floorf(want) else 0)
-			for i in count:
+			for rock: Array in cell_rocks(_relief.seed, ci + di, cj + dj, ds, cum):
 				if xforms.size() >= MAX: break
-				var pe := c0.x + rng.randf() * CELL_M
-				var pn := c0.y + rng.randf() * CELL_M
-				var d := ds[mini(cum.bsearch(rng.randf() * cum[-1]), ds.size() - 1)]
-				var sx := d * rng.randf_range(0.8, 1.2)
-				var sz := d * rng.randf_range(0.7, 1.1)
-				var sy := d * rng.randf_range(0.45, 0.75)
-				var yaw := rng.randf() * TAU
-				var tilt := rng.randf_range(-0.3, 0.3)
-				var shade := rng.randf_range(0.75, 1.1)
-				if rng.randf() > keep: continue
+				if float(rock[8]) > keep: continue
+				var pe: float = rock[0]; var pn: float = rock[1]
 				var g := SiteScene.drawn_height(_relief.grids, pe, pn, _patch_y, _relief.radius_m, false)
 				if is_nan(g) or (_relief.has_sea and g <= _relief.sea_m): continue
 				# Rocks are wider than tall, and sit part in the ground.
-				var basis := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, tilt) * Basis.from_scale(Vector3(sx, sy, sz) * 0.5)
-				xforms.append(Transform3D(basis, Vector3(-pe, g + sy * 0.15, pn)))
-				tints.append(Color(shade, shade, shade))
+				var size := Vector3(rock[2], rock[3], rock[4])
+				var basis := Basis(Vector3.UP, rock[5]) * Basis(Vector3.RIGHT, rock[6]) * Basis.from_scale(size * 0.5)
+				xforms.append(Transform3D(basis, Vector3(-pe, g + size.y * 0.15, pn)))
+				tints.append(Color(rock[7], rock[7], rock[7]))
 	var mm := node.multimesh
 	mm.instance_count = xforms.size()
 	for i in xforms.size():
