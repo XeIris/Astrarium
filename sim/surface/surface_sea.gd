@@ -91,10 +91,14 @@ func request(v: Vessel, rr: DVec3) -> void:
 func site_time(v: Vessel) -> float:
 	return v.coord - t0
 
-## Once per integration step, `dt` s of it.
-func tick(v: Vessel, dt: float) -> void:
+var _last_coord := NAN
+
+## Once per integration step.
+func tick(v: Vessel) -> void:
 	if pin == null: return
-	weather.step(dt)
+	# By the time the integrator accepted, not the step it was asked for.
+	if not is_nan(_last_coord): weather.step(maxf(v.coord - _last_coord, 0.0))
+	_last_coord = v.coord
 	if not adopted and v.coord >= adopt_at:
 		adopted = true
 	if floater == null: return
@@ -113,6 +117,7 @@ func tick(v: Vessel, dt: float) -> void:
 	if floater.wet and not was_wet and splash_t < 0.0:
 		splash_t = floater.t
 		splash_v = absf(vz)
+		_from = Vector2(floater.p[0], floater.p[2])
 	# Logged once the impact is over, with its peak.
 	if splash_t >= 0.0 and not _splash_logged and floater.t - splash_t > 1.0:
 		_splash_logged = true
@@ -131,7 +136,10 @@ func take(v: Vessel, chute_at_y: float) -> void:
 	floater.set_basis(body_b)
 	var centre: Vector3 = hull.centre()
 	var cg := body_b * centre
-	floater.p = PackedFloat64Array([at.x + cg.x, at.y + cg.y, at.z + cg.z])
+	# Its height is over the mean sea under it: the site's plane leaves the ball by metres where the survey was
+	# asked for kilometres off.
+	floater.p = PackedFloat64Array([at.x + cg.x, v.altitude() + cg.y, at.z + cg.z])
+	_from = Vector2(at.x, at.z)
 	var gv := v.ground_velocity(v.r, v.v, DVec3.new())
 	var sv := to_site * gv.to_v3()
 	floater.v = PackedFloat64Array([sv.x, sv.y, sv.z])
@@ -166,6 +174,12 @@ func site_axes(v: Vessel) -> Array:
 	var u := SurfaceGround.from_mesh(c, theta, DVec3.new())
 	var nn := SurfaceGround.from_mesh(north, theta, DVec3.new())
 	return [o, w, u, nn]
+
+var _from := Vector2.ZERO
+
+## How far the craft has drifted over the sea from where it came down, m.
+func drift() -> float:
+	return 0.0 if floater == null else Vector2(floater.p[0], floater.p[2]).distance_to(_from)
 
 ## Heel of the floating craft from upright, degrees; 0 before it floats.
 func heel() -> float:

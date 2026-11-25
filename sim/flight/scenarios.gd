@@ -8,8 +8,10 @@ extends RefCounted
 # that moment. Fidelity and the replay comparison: docs/flight-scenarios.md.
 #
 # Scenario keys:
-#   id, title, group       menu entry (group: Ascent, Orbit, Return, Booster, Landing)
-#   base                   {kind: pad|orbit|return|descent|air, ...}; see build()
+#   id, title, group       menu entry (group: Ascent, Orbit, Return, Booster, Landing, Weather)
+#   base                   {kind: pad|orbit|return|descent|air, ...}; see build(). A descent's
+#                          `sunAngle` (°) turns it to come down that far past noon
+#   weather                the site's weather stated over the world's own (SurfaceWeather.stated)
 #   until                  conditions that must all hold (see reached()); none = the base
 #   after                  seconds flown on once `until` holds
 #   dt                     the fast-forward's frame, where guidance is sensitive to it
@@ -220,6 +222,14 @@ static func _build_list() -> Dictionary:
 			{"agl": [300.0, 3000.0], "program": "edl", "state": "powered"}),
 		_sc("skycrane", "sky_crane", "Sky crane", "Landing", _skycrane(), {"ap": ["crane_out", true]},
 			{"agl": [5.0, 60.0], "program": "edl"}),
+		# Weather showcases: down in the Martian afternoon (25° and 15° past noon), the site's weather stated over
+		# the world's own.
+		_sc("skycrane", "dust_devils", "Dust devils, early afternoon", "Weather", _skycrane().merged({"sunAngle": 25.0}),
+			{"event": "Touchdown"}, {"agl": [5.0, 8.0]}).merged({"weather": {"devils": 4.0},
+			"brief": "Down on Mars at 13:40 local time with the afternoon's dust devils, four times as many as Jezero's usual sol brings."}),
+		_sc("skycrane", "dust_storm", "A regional dust storm", "Weather", _skycrane().merged({"sunAngle": 15.0}),
+			{"event": "Touchdown"}, {"agl": [5.0, 8.0]}).merged({"weather": {"storm": 0.9},
+			"brief": "Down on Mars under a regional dust storm: the dust it lifts dims the Sun and closes the horizon in."}),
 	]
 	out.apollocm = [
 		_sc("apollocm", "entry", "Entry interface, 122 km", "Return", _apollo(), {}, {"alt": [120e3, 123e3], "program": "edl"}),
@@ -345,6 +355,7 @@ static func build(main, sc: Dictionary) -> String:
 			if b.has("body"): opts.body = b.body
 			v = f.begin(key, opts)
 			if v != null: _descent_state(v, b)
+			if v != null and b.has("sunAngle"): _turn_to_sun(f, v, deg_to_rad(float(b.sunAngle)))
 		"air":
 			v = f.begin(key, {"mode": "orbit", "alt": float(b.alt), "inc": float(b.get("inc", 0.0)), "phase": 0.0})
 		_:
@@ -408,6 +419,19 @@ static func _descent_state(v: Vessel, b: Dictionary) -> void:
 	v.q.set_from_unit_vectors(Vessel.BODY_FWD, DQuat.nrm(air.scale_in(-1.0)))
 	v.omega.set_v(0.0, 0.0, 0.0)
 	v.phase = Vessel.PHASE.DESCENT
+
+## Turn the whole descent about the world's axis so it comes down `angle` rad past the subsolar point, in the
+## direction the ground turns: positive is afternoon. The equatorial Sky Crane's entry comes down DOWNRANGE east
+## of where it starts (measured from this build's flight, rotation included).
+const DOWNRANGE := 0.2063
+static func _turn_to_sun(f: Spaceflight, v: Vessel, angle: float) -> void:
+	var sun := f.sun_direction(DVec3.new())
+	var turn := wrapf(atan2(sun.z, sun.x) + angle - atan2(v.r.z, v.r.x) - DOWNRANGE, -PI, PI)
+	var dq := DQuat.new()
+	dq.set_from_axis_angle(DVec3.new(0.0, -1.0, 0.0), turn)
+	for d: DVec3 in [v.r, v.v, v.omega]: DQuat.rotate(d, dq)
+	v.q.premultiply(dq).normalize_in()
+	if v.on_rebase.is_valid(): v.on_rebase.call(dq)
 
 ## The vessel `alt` over a mesh latitude and east longitude (degrees) at its start, as SurfaceGround reads places.
 static func _place_over(v: Vessel, b: Dictionary) -> void:

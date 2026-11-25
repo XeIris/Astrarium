@@ -604,6 +604,46 @@ static func grid_fin(size := 1.5) -> Node3D:
 		b.position = Vector3(0, size * 0.21, i * size * 0.15); g.add_child(b)
 	return g
 
+## A disk-gap-band parachute along +Y from its confluence point (the origin), Perseverance's: the disk, the gap
+## and the cylindrical band of Viking's proportions (0.726, 0.042 and 0.121 of the nominal diameter `D0`), inflated
+## to 0.68 D0 across, on suspension lines 1.7 D0 long. Orange and white by gore and ring; the real one's pattern is
+## a code in its gores, not copied. The inflated shape is a drawn proportion.
+static func disk_gap_band(D0: float) -> Node3D:
+	var white := _mat("nylon_white", 0xe9e4d8, 0.9, 0.0).duplicate() as StandardMaterial3D
+	var orange := _mat("nylon_orange", 0xc8581f, 0.9, 0.0).duplicate() as StandardMaterial3D
+	for m: StandardMaterial3D in [white, orange]: m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var cord := _mat("cord", 0xcfc8b8, 0.95, 0.0)
+	var g := _grp()
+	const GORES := 40
+	var rp := 0.34 * D0
+	var lines_l := 1.7 * D0
+	var y_band0 := sqrt(maxf(lines_l * lines_l - rp * rp, 0.0))
+	var y_band1 := y_band0 + 0.121 * D0
+	var y_disk := y_band1 + 0.042 * D0
+	var dome := 0.17 * D0
+	var geo := [Geo.new(), Geo.new()]
+	var quad := func(which: int, p: Array) -> void:
+		var b: int = geo[which].pos.size()
+		for q: Vector3 in p:
+			geo[which].pos.append(q); geo[which].nrm.append(Vector3.ZERO)
+		geo[which].idx.append_array([b, b + 1, b + 2, b, b + 2, b + 3])
+	var ring := func(r: float, y: float, k: float) -> Vector3:
+		var a := TAU * k / GORES
+		return Vector3(r * cos(a), y, r * sin(a))
+	for k in GORES:
+		quad.call((k / 2) % 2, [ring.call(rp, y_band0, k), ring.call(rp, y_band0, k + 1), ring.call(rp, y_band1, k + 1), ring.call(rp, y_band1, k)])
+		for j in 5:
+			# From the vent (7% of the diameter) out to the skirt.
+			var s0 := lerpf(0.07, 1.0, j / 5.0); var s1 := lerpf(0.07, 1.0, (j + 1) / 5.0)
+			var y0 := y_disk + dome * (1.0 - s0 * s0); var y1 := y_disk + dome * (1.0 - s1 * s1)
+			quad.call(1 if (k / 2 + j) % 2 == 0 else 0, [ring.call(rp * s0, y0, k), ring.call(rp * s0, y0, k + 1), ring.call(rp * s1, y1, k + 1), ring.call(rp * s1, y1, k)])
+	for i in 2:
+		_compute_normals(geo[i])
+		g.add_child(_mesh(geo[i], [white, orange][i]))
+	for k in range(0, GORES, 2):
+		g.add_child(beam(Vector3.ZERO, ring.call(rp, y_band0, float(k)), 0.02, cord, 4))
+	return g
+
 ## A strut between two points. Structure is most of what makes a vehicle of
 ## parts read as one object rather than as parts.
 static func beam(p1: Vector3, p2: Vector3, r: float, material: Material = null, seg := 6) -> MeshInstance3D:
@@ -1524,18 +1564,20 @@ static func build_aeroshell(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	# Heat shield apex down (sphere_cone guarantees it), shoulder on y = 0.
 	var hs := sphere_cone(D, nose_r, 70, M.ablator, 36)
 	hs.position.y = D * 0.30
+	hs.name = "heatshield"
 	g.add_child(hs)
 	# Backshell: a shallower cone closing the top, in white thermal blanket.
-	var bs := _mesh(_cylinder(D * 0.19, D / 2.0, D * 0.36, 36, 1, true), M.white)
-	bs.position.y = D * 0.30 + D * 0.18; g.add_child(bs)
+	# Tall enough to hold the rover and the descent stage stacked on it.
+	var bs := _mesh(_cylinder(D * 0.19, D / 2.0, D * 0.5, 36, 1, true), M.white)
+	bs.position.y = D * 0.30 + D * 0.25; bs.name = "backshell"; g.add_child(bs)
 	# The joint ring between the two halves — they separate here.
 	var ring := _mesh(_torus(D / 2.0 * 1.005, D * 0.012, 6, 36), M.dirty)
 	ring.rotation.x = PI / 2.0; ring.position.y = D * 0.30; g.add_child(ring)
 	# Parachute cone and its cover, on the axis.
 	var pc := _mesh(_cylinder(D * 0.155, D * 0.19, D * 0.10, 24), M.white)
-	pc.position.y = D * 0.30 + D * 0.36 + D * 0.05; g.add_child(pc)
-	var lid_profile := PackedVector2Array([Vector2(D * 0.155, D * 0.76),
-		Vector2(D * 0.150, D * 0.80), Vector2(D * 0.115, D * 0.84), Vector2(0, D * 0.86)])
+	pc.position.y = D * 0.30 + D * 0.5 + D * 0.05; g.add_child(pc)
+	var lid_profile := PackedVector2Array([Vector2(D * 0.155, D * 0.90),
+		Vector2(D * 0.150, D * 0.94), Vector2(D * 0.115, D * 0.98), Vector2(0, D * 1.0)])
 	g.add_child(_mesh(_lathe(lid_profile, 24), M.dirty))
 	# Cruise-stage RCS quads and the tungsten balance masses whose offset CoM gives the
 	# capsule its L/D of 0.24.
@@ -1546,124 +1588,125 @@ static func build_aeroshell(spec: Dictionary, parts: Dictionary) -> Dictionary:
 		q.rotation.y = -a; g.add_child(q)
 	return {"group": g, "parts": parts}
 
-## THE SKY CRANE: an eight-engine deck that lowers the rover on three bridles. The
-## engines are canted out so the plumes miss the rover and don't dig a crater.
+## THE SKY CRANE, Mars 2020's descent stage, from its photographs and NASA's renders: an open aluminium frame
+## under a silver deck, three large propellant spheres and two smaller pressurant spheres in crinkled silver
+## multilayer insulation, eight MLEs in canted pairs on four outrigger pods, the landing radar's six antennas on a
+## plate underneath, and the bridle-umbilical device at the centre the rover hangs from. Stage frame: origin at
+## the bridle plane under the frame's centre, y up. The bridles themselves are SkyCraneRig's, since they pay out.
 static func build_sky_crane(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	var g := _grp()
-	var D: float = spec.D                              # 3.2 m
-	var deck_y := 1.05
-	# Octagonal deck, ribbed underneath the way a real truss deck is.
-	var deck := _mesh(_cylinder(D / 2.0, D / 2.0 * 0.94, 0.42, 8), M.alu)
-	deck.position.y = deck_y; deck.rotation.y = PI / 8.0; g.add_child(deck)
+	var mli := _mli_material()
+	# Bare machined aluminium for the frame, darker than the blankets on it (the stage in JPL's assembly photographs).
+	var frame := StandardMaterial3D.new()
+	frame.albedo_color = Color(0.42, 0.42, 0.42)
+	frame.metallic = 0.3
+	frame.roughness = 0.5
+	var frame_y := 0.1
+	var deck_y := 0.42
+	# The lower ring and the deck, an irregular octagon, joined by struts: an open frame, not a slab.
+	for ring_y in [frame_y, deck_y]:
+		var r := _mesh(_cylinder(0.85, 0.85, 0.08 if ring_y == frame_y else 0.05, 8), frame)
+		r.position.y = ring_y; r.rotation.y = PI / 8.0; g.add_child(r)
 	for i in 8:
-		var a := i / 8.0 * TAU
-		var rib := _mesh(_box(D * 0.44, 0.10, 0.09), M.dirty)
-		rib.position = Vector3(cos(a) * D * 0.24, deck_y - 0.24, sin(a) * D * 0.24)
-		rib.rotation.y = -a; g.add_child(rib)
-	# Four spherical hydrazine tanks on top — most of the stage's dry volume.
-	for i in 4:
-		var a := i / 4.0 * TAU + PI / 4.0
-		var t := _mesh(_sphere(0.42, 16, 12), M.gold)
-		t.position = Vector3(cos(a) * D * 0.26, deck_y + 0.52, sin(a) * D * 0.26)
-		g.add_child(t)
-	# Avionics box and the descent-stage antenna.
-	var av := _mesh(_box(0.62, 0.34, 0.52), M.dirty)
-	av.position = Vector3(0, deck_y + 0.42, 0); g.add_child(av)
-	# Eight MLEs in four canted pairs. Each pair is a pivot so differential
-	# throttle — which is how this stage actually steers — has something to show.
-	for i in 4:
-		var a := i / 4.0 * TAU + PI / 4.0
-		var cant := _grp()
-		cant.position = Vector3(cos(a) * D * 0.44, deck_y - 0.20, sin(a) * D * 0.44)
-		cant.rotation = Vector3(sin(a) * 0.26, -a, -cos(a) * 0.26)
-		var p := _grp()                                # the driven pivot
-		cant.add_child(p)
-		for dx in [-0.22, 0.22]:
-			var b := bell(0.28, 40)
-			b.position.x = dx; b.scale = Vector3(1.15, 1.15, 1.15); p.add_child(b)
-		g.add_child(cant); parts.gimbals.append(p)
-	# The bridle: three cables and the descent-rate limiter they spool from. This
-	# is the part that makes it a crane rather than a lander.
+		var a := (i + 0.5) / 8.0 * TAU
+		var strut := _mesh(_cylinder(0.03, 0.03, deck_y - frame_y, 6), frame)
+		strut.position = Vector3(cos(a) * 0.8, (frame_y + deck_y) * 0.5, sin(a) * 0.8)
+		g.add_child(strut)
+		# Diagonal bracing between the rings.
+		var b2 := (i + 1.5) / 8.0 * TAU
+		var p0 := Vector3(cos(a) * 0.8, frame_y, sin(a) * 0.8)
+		var p1 := Vector3(cos(b2) * 0.8, deck_y, sin(b2) * 0.8)
+		g.add_child(_rod(p0, p1, 0.018, frame))
+	# Propellant spheres round the deck and the two pressurant spheres between them, in MLI.
 	for i in 3:
-		var a := i / 3.0 * TAU
-		var c := _mesh(_cylinder(0.018, 0.018, 1.5, 5), M.dirty)
-		c.basis = Basis(Vector3.UP, -a) * Basis(Vector3.RIGHT, 0.16)
-		# Cable origin is the spool end; the cylinder primitive is centered.
-		c.position = Vector3(cos(a) * D * 0.20, deck_y - 0.85, -sin(a) * D * 0.20) + c.basis * Vector3(0, -0.75, 0)
-		g.add_child(c)
+		var a := i / 3.0 * TAU + PI / 6.0
+		var t := _mesh(_sphere(0.42, 20, 14), mli)
+		t.position = Vector3(cos(a) * 0.5, deck_y + 0.12, sin(a) * 0.5); g.add_child(t)
+	for i in 2:
+		var a := i * PI + PI / 2.0 + PI / 6.0
+		var t := _mesh(_sphere(0.26, 16, 12), mli)
+		t.position = Vector3(cos(a) * 0.66, deck_y + 0.05, sin(a) * 0.66); g.add_child(t)
+	# Avionics and the descent-stage antenna on the deck.
+	for it in [[Vector3(0.0, deck_y + 0.14, 0.0), Vector3(0.5, 0.22, 0.42)], [Vector3(-0.35, deck_y + 0.09, 0.55), Vector3(0.3, 0.12, 0.25)]]:
+		var bx := _mesh(_box(it[1].x, it[1].y, it[1].z), M.gold)
+		bx.position = it[0]; g.add_child(bx)
+	var ant := _mesh(_cylinder(0.035, 0.035, 0.5, 8), M.white)
+	ant.position = Vector3(0.2, deck_y + 0.45, -0.2); g.add_child(ant)
+	# The landing radar (Terminal Descent Sensor): six antennas on a tilted plate under one side.
+	var radar := _grp()
+	radar.position = Vector3(0.0, frame_y - 0.06, -0.55); radar.rotation.x = 0.35
+	for i in 6:
+		var ra := _mesh(_box(0.16, 0.03, 0.16), M.black)
+		ra.position = Vector3((i % 3 - 1) * 0.22, 0.0, (i / 3) * 0.22 - 0.11); radar.add_child(ra)
+	g.add_child(radar)
+	# The bridle-umbilical device: the spool and its descent-rate limiter, under the centre.
+	var bud := _mesh(_cylinder(0.2, 0.2, 0.22, 16), M.dirty)
+	bud.position.y = frame_y - 0.02; g.add_child(bud)
+	# Eight MLEs in four canted pairs on outrigger pods at the frame's corners, canted out so the plumes miss the rover. Each
+	# pair is a pivot (differential throttle, which is how this stage steers, has something to show).
+	for i in 4:
+		var a := i / 4.0 * TAU + PI / 4.0
+		var pod_at := Vector3(cos(a) * 1.15, frame_y + 0.1, sin(a) * 1.15)
+		g.add_child(_rod(Vector3(cos(a) * 0.8, frame_y + 0.04, sin(a) * 0.8), pod_at, 0.045, frame))
+		g.add_child(_rod(Vector3(cos(a) * 0.8, deck_y, sin(a) * 0.8), pod_at + Vector3(0, 0.1, 0), 0.03, frame))
+		# The pod: the pair's valves and lines under a blanket, a little wider than the two bells.
+		var pod := _mesh(_box(0.5, 0.14, 0.24), mli)
+		pod.position = pod_at + Vector3(0, 0.08, 0); pod.rotation.y = -a; g.add_child(pod)
+		var cant := _grp()
+		cant.position = pod_at
+		cant.rotation = Vector3(sin(a) * 0.35, -a, -cos(a) * 0.35)
+		var pv := _grp()                               # the driven pivot
+		cant.add_child(pv)
+		for dx in [-0.17, 0.17]:
+			var bl := bell(0.2, 40)
+			bl.position.x = dx; bl.scale = Vector3(1.1, 1.1, 1.1); pv.add_child(bl)
+		g.add_child(cant); parts.gimbals.append(pv)
 	return {"group": g, "parts": parts}
 
-## CURIOSITY: rocker-bogie, six driven wheels on a passive linkage. No legs; the
-## wheels are the landing gear.
+# Crinkled silver multilayer insulation: metallic, with a noise normal map for the wrinkles, mapped triplanar.
+static var _mli: StandardMaterial3D = null
+static func _mli_material() -> StandardMaterial3D:
+	if _mli != null: return _mli
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.78, 0.78, 0.76)
+	m.metallic = 0.85
+	m.roughness = 0.3
+	var nt := NoiseTexture2D.new()
+	var fn := FastNoiseLite.new()
+	fn.noise_type = FastNoiseLite.TYPE_CELLULAR
+	fn.frequency = 0.03
+	nt.noise = fn
+	nt.width = 256; nt.height = 256
+	nt.seamless = true
+	nt.as_normal_map = true
+	nt.bump_strength = 6.0
+	m.normal_enabled = true
+	m.normal_texture = nt
+	m.normal_scale = 0.8
+	m.uv1_triplanar = true
+	m.uv1_scale = Vector3(2.5, 2.5, 2.5)
+	_mli = m
+	return m
+
+# A rod from a to b.
+static func _rod(a: Vector3, b: Vector3, r: float, mat: Material) -> MeshInstance3D:
+	var d := b - a
+	var m := _mesh(_cylinder(r, r, d.length(), 6), mat)
+	m.position = (a + b) * 0.5
+	var y := d.normalized()
+	var x := y.cross(Vector3.FORWARD if absf(y.z) < 0.9 else Vector3.RIGHT).normalized()
+	m.basis = Basis(x, y, x.cross(y))
+	return m
+
+## PERSEVERANCE, as she came down: RoverModel's build (the one that drives), mast folded along the deck, in the
+## stage frame (origin under the wheels, y up). Her wheels are the landing gear.
 static func build_rover(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	var g := _grp()
-	var wr := 0.2625; var y0 := wr                     # 0.525 m wheels
-	var body_y := y0 + 0.62
-	# Warm electronics box, 3.0 × 2.7 × 0.8 m: w/h are the X and Z half-extents.
-	var body := loft([
-		{"y": -0.34, "w": 0.95, "h": 1.16, "n": 3.2},
-		{"y": -0.26, "w": 1.12, "h": 1.34, "n": 3.8},
-		{"y": 0.26, "w": 1.12, "h": 1.34, "n": 3.8},
-		{"y": 0.34, "w": 0.98, "h": 1.18, "n": 3.2},
-	], M.alu, 20)
-	body.position.y = body_y; g.add_child(body)
-	# RTG at the back, canted up, with its cooling fins — the one part of this
-	# rover that is visibly hot.
-	var rtg := _mesh(_cylinder(0.27, 0.27, 0.62, 14), M.black)
-	rtg.position = Vector3(-1.42, body_y + 0.34, 0)
-	rtg.rotation = Vector3(0, 0, PI / 2.0 - 0.30); g.add_child(rtg)
-	var fins := _grp()
-	for i in 8:
-		var a := i / 8.0 * TAU
-		var fm := _mesh(_box(0.56, 0.22, 0.022), M.dirty)
-		fm.position = Vector3(0, sin(a) * 0.26, cos(a) * 0.26)
-		fm.rotation.x = -a; fins.add_child(fm)
-	fins.position = Vector3(-1.42, body_y + 0.34, 0); fins.rotation.z = -0.30; g.add_child(fins)
-	# Remote sensing mast: camera head, and it is 2 m up because that is roughly
-	# eye height — the images are meant to look like standing there.
-	var mast := _mesh(_cylinder(0.055, 0.07, 1.15, 8), M.dirty)
-	mast.position = Vector3(0.72, body_y + 0.92, 0.30); g.add_child(mast)
-	var head := _mesh(_box(0.56, 0.20, 0.20), M.dirty)
-	head.position = Vector3(0.72, body_y + 1.55, 0.30); g.add_child(head)
-	for dx in [-0.20, 0.20]:
-		var eye := _mesh(_cylinder(0.055, 0.055, 0.08, 12), M.glass)
-		eye.position = Vector3(0.72 + dx, body_y + 1.55, 0.41); eye.rotation.x = PI / 2.0; g.add_child(eye)
-	var chemcam := _mesh(_cylinder(0.12, 0.12, 0.16, 12), M.dirty)
-	chemcam.position = Vector3(0.72, body_y + 1.76, 0.30); g.add_child(chemcam)
-	# High-gain antenna and the robotic arm, stowed against the front.
-	var hga := _mesh(_box(0.30, 0.30, 0.05), M.dirty)
-	hga.position = Vector3(-0.55, body_y + 0.55, -0.55); hga.rotation = Vector3(0.5, 0.6, 0); g.add_child(hga)
-	var arm := _mesh(_cylinder(0.07, 0.07, 1.05, 8), M.alu)
-	arm.position = Vector3(1.18, body_y - 0.18, 0); arm.rotation.z = 1.15; g.add_child(arm)
-	# rocker-bogie. The rocker runs the length of each side; the bogie is
-	# the short rear link that carries two of the three wheels.
-	for sz in [1.0, -1.0]:
-		var side := _grp()
-		side.position.z = sz * 0.72
-		var rocker := _mesh(_cylinder(0.045, 0.045, 1.55, 6), M.dirty)
-		rocker.position = Vector3(0.20, body_y - 0.16, 0); rocker.rotation.z = PI / 2.0 - 0.30
-		side.add_child(rocker)
-		var bogie := _mesh(_cylinder(0.04, 0.04, 0.95, 6), M.dirty)
-		bogie.position = Vector3(-0.75, y0 + 0.30, 0); bogie.rotation.z = PI / 2.0 + 0.22
-		side.add_child(bogie)
-		for xd in [[1.05, 0.0], [-0.30, 0.0], [-1.18, 0.0]]:
-			var x: float = xd[0]
-			var leg := _mesh(_cylinder(0.035, 0.035, 0.52, 6), M.dirty)
-			leg.position = Vector3(x, y0 + 0.26 + xd[1], 0); side.add_child(leg)
-			# Wheel: a drum with cleats, because the grousers are what you see.
-			var w := _mesh(_cylinder(wr, wr, 0.40, 16, 1, true), M.dirty)
-			w.rotation.x = PI / 2.0; w.position = Vector3(x, y0, 0); side.add_child(w)
-			for k in 10:
-				var a := k / 10.0 * TAU
-				var cl := _mesh(_box(0.022, 0.05, 0.38), M.alu)
-				cl.position = Vector3(x + cos(a) * wr * 0.99, y0 + sin(a) * wr * 0.99, 0)
-				cl.rotation.z = -a; side.add_child(cl)
-			# Hub face, so a wheel is a wheel and not an open tube.
-			for zf in [-1.0, 1.0]:
-				var hub := _mesh(_circle(wr * 0.98, 16), M.dirty)
-				hub.position = Vector3(x, y0, zf * 0.20); hub.rotation.y = 0.0 if zf > 0 else PI
-				side.add_child(hub)
-		g.add_child(side)
+	var rm := RoverModel.build(Rover.PERSEVERANCE, true)
+	rm.group.position.y = float(Rover.PERSEVERANCE.com_height)
+	rm.stow(1.0)
+	g.add_child(rm.group)
+	g.set_meta("rover_model", rm)
 	return {"group": g, "parts": parts}
 
 static func build_ion_bus(spec: Dictionary, parts: Dictionary) -> Dictionary:
@@ -2084,7 +2127,7 @@ class Craft extends RefCounted:
 	## flap (float or Array, rad), finTwist (Array, rad), gearStage, accel (the stack's
 	## non-gravitational acceleration, m/s², a Vector3 in the craft frame or a float
 	## along +Y, which separated stages fall behind at), simDt (simulated seconds this
-	## frame, which separated stages fly on; dt when absent), release (Callable(stage,
+	## frame, which separated stages fly on; dt when absent), air (Separation.step's), release (Callable(stage,
 	## sep): takes the pieces of a stage with a fate, `look.fall`, once Separation is
 	## done with them; without it they stay drawn for Separation.SHOWN), chute: {key: {t,
 	## gone, dir, gs}} for a drag chute out (drive_chute)}.
@@ -2106,7 +2149,7 @@ class Craft extends RefCounted:
 				var left := float(s.get("simDt", dt))
 				while left > 0.0 and go:
 					var h := minf(left, Separation.STEP)
-					go = Separation.step(st.sep, h, group.basis, a_stack)
+					go = Separation.step(st.sep, h, group.basis, a_stack, s.get("air", {}))
 					left -= h
 				if go and release is Callable and (release as Callable).is_valid() \
 						and st.spec.get("look", {}).has("fall") and float(st.sep.t) >= Separation.handoff_time(st.sep):

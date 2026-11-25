@@ -65,6 +65,17 @@ var sun_tint := Color.WHITE
 var sun_extinction := Vector3.ONE
 ## Under a haze like Titan's, its diffuse daylight on the craft (_set_ambient), linear irradiance; else zero.
 var _haze_fill := Vector3.ZERO
+## Dust a storm has lifted over what the sky model already holds: an optical depth, set by the site's weather
+## (SurfaceWeather), and its colour, linear. Zero in clear air.
+var dust_extra := 0.0
+var dust_tint := Color(0.6, 0.42, 0.28)
+## Most of a storm's dust is in its lowest few km (MGS TES and MCS profiles: a well-mixed layer about 10 km
+## deep, with the lifted dust densest near the ground): this deep, as an exponential fog, m.
+const DUST_LAYER_M := 3000.0
+
+## What of the haze's fill the engine's ambient puts on every surface, in the ground shaders' skylight units.
+func haze_ambient() -> float:
+	return (_haze_fill.x + _haze_fill.y + _haze_fill.z) / 3.0 / PI
 ## Sine of the Sun's height over the horizon the vehicle actually has, which is below the local
 ## horizontal by the dip. Past the limb it goes negative.
 var sun_over_limb := 1.0
@@ -291,6 +302,16 @@ func _init(p: RenderPipeline) -> void:
 
 	place(ground, DVec3.new())
 	place(sky, DVec3.new())
+
+# A world's stated dune field on the ground patch, about the eye's latitude (the pole is −Y in this frame).
+func _set_dunes(d, east: DVec3, up: DVec3, north: DVec3, anchor) -> void:
+	if d == null or (d as Dictionary).is_empty():
+		ground_mat.set_shader_parameter("uDunes", Vector4.ZERO)
+		return
+	var b := deg_to_rad(float(d.bearing))
+	ground_mat.set_shader_parameter("uDunes", Vector4(float(d.width), float(d.spacing), deg_to_rad(float(d.band)),
+		asin(clampf(-up.y, -1.0, 1.0))))
+	ground_mat.set_shader_parameter("uDuneAcross", Vector2(cos(b), -sin(b)))
 
 # A world's stated seas on the ground patch: `maria` is [[unit centre (flight frame), angular radius rad], …].
 func _set_maria(maria: Array, east: DVec3, up: DVec3, north: DVec3) -> void:
@@ -551,6 +572,20 @@ func update(o: Dictionary) -> Dictionary:
 	pipe.env_local.volumetric_fog_albedo = Color(0.82, 0.88, 0.95)
 	pipe.env_local.volumetric_fog_anisotropy = 0.55
 	pipe.env_local.volumetric_fog_sky_affect = 0.0
+	# Lifted dust closes the view in every direction, the sky with it.
+	# Thinning upward with the layer it is mixed through, so the view opens as a vehicle climbs out of it.
+	var dust_here := dust_extra * exp(-maxf(float(o.altitude), 0.0) / DUST_LAYER_M)
+	var dusty := dust_here > 0.02 and atm != null
+	pipe.env_local.fog_enabled = dusty
+	if dusty:
+		pipe.env_local.fog_mode = Environment.FOG_MODE_EXPONENTIAL
+		pipe.env_local.fog_density = dust_here / DUST_LAYER_M
+		pipe.env_local.fog_light_color = dust_tint.linear_to_srgb()
+		# Lit by the day that reaches it: dark under a night sky.
+		pipe.env_local.fog_light_energy = (0.6 + 0.5 * exp(-dust_here)) * clampf(sun_over_limb * 3.0, 0.01, 1.0)
+		pipe.env_local.fog_sun_scatter = 0.25
+		pipe.env_local.fog_sky_affect = 1.0
+		pipe.env_local.fog_aerial_perspective = 0.0
 	if atm != null and _reflection_body != str(env.name):
 		_reflection_body = str(env.name)
 		reflection_material.rayleigh_color = Color.hex((int(atm.tint) << 8) | 0xff)
@@ -617,6 +652,7 @@ func update(o: Dictionary) -> Dictionary:
 	var east := DQuat.nrm(DVec3.new().cross_vectors(up, o.northWorld))
 	var north := DQuat.nrm(DVec3.new().cross_vectors(east, up))
 	_set_maria(o.get("maria", []), east, up, north)
+	_set_dunes(o.get("dunes"), east, up, north, o.get("anchorWorld"))
 	ground_mat.set_shader_parameter("uGeoReady", 0.0)
 	var pad = o.get("padWorld")
 	# The planet-fixed point the ground's detail is laid out about: the pad
@@ -631,10 +667,12 @@ func update(o: Dictionary) -> Dictionary:
 			_earth_requested = true
 			PlanetMaps.load_planet_map("Earth", func(m: Dictionary) -> void:
 				_earth_color = m.color
-				_earth_land = m.mask
-				ground_mat.set_shader_parameter("uEarthColor", m.color)
-				ground_mat.set_shader_parameter("uEarthLand", m.mask))
+				_earth_land = m.mask)
 		if _earth_color != null and _earth_land != null:
+			# Every frame: a dry world's flight puts its own map in the same material (_dry_map).
+			ground_mat.set_shader_parameter("uEarthColor", _earth_color)
+			ground_mat.set_shader_parameter("uEarthLand", _earth_land)
+			ground_mat.set_shader_parameter("uDryMap", 0.0)
 			var site_up := DQuat.nrm((pad as DVec3).clone())
 			var pole := DVec3.new(0.0, -1.0, 0.0)
 			var site_north := DQuat.nrm(pole.clone().add_scaled_in(site_up, -pole.dot(site_up)))
@@ -654,7 +692,11 @@ func update(o: Dictionary) -> Dictionary:
 			ground_mat.set_shader_parameter("uGeoFrame", Basis(gx, gy, gz))
 			_hold_planet_map(env.body, site_up.to_v3(), lat, lon, o.get("frame", Basis()))
 			ground_mat.set_shader_parameter("uPadLocal", Vector2((pad as DVec3).dot(east), (pad as DVec3).dot(north)))
+			ground_mat.set_shader_parameter("uMapScale", 1.0)
 			ground_mat.set_shader_parameter("uGeoReady", 1.0)
+	elif env.name != "Earth" and o.get("geoTheta") != null and PlanetMaps.has_map(str(env.name)) \
+			and int(PlanetMaps.SOURCES[str(env.name)].kind) == 2:
+		_dry_map(str(env.name), float(o.geoTheta), east, up, north)
 	var sw: DVec3 = o.sunDirWorld
 	var sun_l := Vector3(sw.dot(east), sw.dot(up), sw.dot(north)).normalized()
 	if haze_w > 0.0:
@@ -716,6 +758,35 @@ static func planet_day(y: float) -> float:
 ## the pad's direction `pad_up` in the parent frame, north on −Y, which `frame`
 ## turns into orrery axes. Seen from past the ground patch, the vehicle is then over
 ## the ground it launched from, turning at the real rate.
+# A mapped dry world (Mars, the Moon, Io) under any vessel: the patch takes the map's colour, as Earth's does
+# under a pad, scaled to the world's albedo as the globe is (PlanetMaps' `scale`), all of it land. The frame
+# turns the patch's (east, up, north) into the map's, through the mesh frame at the body's angle `theta`.
+var _dry_name := ""
+var _dry_color: Texture2D = null
+var _dry_land: Texture2D = null
+
+func _dry_map(body_name: String, theta: float, east: DVec3, up: DVec3, north: DVec3) -> void:
+	if _dry_name != body_name:
+		_dry_name = body_name
+		_dry_color = null
+		PlanetMaps.load_planet_map(body_name, func(m: Dictionary) -> void:
+			if _dry_name == body_name: _dry_color = m.color)
+	if _dry_color == null: return
+	if _dry_land == null:
+		var img := Image.create(1, 1, false, Image.FORMAT_L8)
+		img.fill(Color.WHITE)
+		_dry_land = ImageTexture.create_from_image(img)
+	var to_geo := func(v: DVec3) -> Vector3:
+		var m := SurfaceGround.to_mesh(v, theta, DVec3.new())
+		return Vector3(m.x, m.y, -m.z)
+	ground_mat.set_shader_parameter("uDryMap", 1.0)
+	ground_mat.set_shader_parameter("uEarthColor", _dry_color)
+	ground_mat.set_shader_parameter("uEarthLand", _dry_land)
+	ground_mat.set_shader_parameter("uGeoFrame", Basis(to_geo.call(east), to_geo.call(up), to_geo.call(north)))
+	ground_mat.set_shader_parameter("uPadLocal", Vector2(1.0e9, 1.0e9))
+	ground_mat.set_shader_parameter("uMapScale", float(PlanetMaps.SOURCES[body_name].scale))
+	ground_mat.set_shader_parameter("uGeoReady", 1.0)
+
 func _hold_planet_map(body, pad_up: Vector3, lat: float, lon: float, frame: Basis) -> void:
 	if body == null: return
 	var viz = (body as Body).viz
@@ -894,15 +965,20 @@ func _update_sun(o: Dictionary, env: Dictionary, atm, h: float, sun_l: Vector3) 
 	if haze_w > 0.0:
 		deep = haze_depth(atm, h)
 		tau = tau.lerp(deep, haze_w)
+	# Lifted dust takes the Sun along the whole slant path, blue a little more than red (Mars' dust: Lemmon et
+	# al. 2004's 0.88 µm and 0.44 µm depths differ by about a fifth).
+	var dust := Vector3(0.9, 1.0, 1.1) * (dust_extra * exp(-h / DUST_LAYER_M) if atm != null else 0.0)
+	var seen := tau + dust
 	_airmass = m
-	sun_mat.set_shader_parameter("uTau", tau)
+	sun_mat.set_shader_parameter("uTau", seen)
 	sun_mat.set_shader_parameter("uAirMass", m)
 	sun_mat.set_shader_parameter("uAureole", aerosol)
-	var T := Vector3(exp(-tau.x * m), exp(-tau.y * m), exp(-tau.z * m))
+	var T := Vector3(exp(-seen.x * m), exp(-seen.y * m), exp(-seen.z * m))
 	# Overhead Kasten & Young's fit is a hair under 1.
 	var excess := maxf(m - 1.0, 0.0)
 	sun_extinction = Vector3(exp(-tau.x * excess), exp(-tau.y * excess), exp(-tau.z * excess))
 	if haze_w > 0.0: sun_extinction = sun_extinction.lerp(T, haze_w)
+	sun_extinction *= Vector3(exp(-dust.x * m), exp(-dust.y * m), exp(-dust.z * m))
 	sun_over_limb = sin(minf(elev + dip, PI / 2.0))
 	_sun_entering = _sun_rgb * T * 2400.0 * pow(teff / 5772.0, 4.0) * vis \
 		* (ang_r * ang_r) / (0.00465 * 0.00465)

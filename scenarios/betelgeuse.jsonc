@@ -1,0 +1,28 @@
+{
+  "format": 1,
+  "name": "Betelgeuse",
+  "group": "real-stars",
+  "blurb": "A red supergiant of 16.5 solar masses and 764 solar radii — put it where the Sun is and its surface would reach past the asteroid belt, swallowing Mercury, Venus, Earth and Mars. Jupiter and Saturn are drawn here at their real orbital distances, to scale, so you can see that Jupiter’s orbit is the first one that clears it. Its interior is the onion: an iron-free carbon–oxygen core under helium and hydrogen shells, and almost all of that enormous volume is emptier than a laboratory vacuum.",
+  "sky": { "env": "disc", "roll": 2.9, "tilt": 0.3 },
+  "sceneScale": 2.2,
+  "bodyScale": 1,
+  "trueScale": true,
+  "camRadius": 34,
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.4,
+  "maxStep": 0.002,
+  "bodies": [
+    { "type": "star", "name": "Betelgeuse", "catalog": "betelgeuse", "pos": [0, 0, 0], "vel": [0, 0, 0] },
+    {
+      "type": "gas-giant", "name": "Jupiter's orbit", "mass": 0.00095459, "radiusKm": 69911,
+      "palette": "jupiter", "pos": [4.792280351797012, 0, 2.0261436350319086],
+      "vel": [-4.357238488874669, 0, 10.3058381633437]
+    },
+    {
+      "type": "gas-giant", "name": "Saturn's orbit", "mass": 0.0002858, "radiusKm": 58232, "palette": "saturn",
+      "rings": true, "pos": [-9.528751928156268, 0, 0.39655477762629143],
+      "vel": [-0.34364288233860085, 0, -8.257340378753321]
+    },
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "name": "Binary Black Hole Orbit",
+  "group": "black-holes",
+  "blurb": "A wide binary of 36 and 29 solar masses, lensing the sky behind them.",
+  "sky": { "env": "halo", "roll": 2.6, "tilt": 0.22 },
+  "sceneScale": 60,
+  "bodyScale": 1,
+  "camRadius": 72,
+  "lensing": true,
+  "timeScale": 0.15,
+  "maxStep": 5e-05,
+  "bodies": [
+    {
+      "type": "bh", "name": "BH-A", "mass": 36, "pos": [-0.20076923076923078, 0, 0],
+      "vel": [0, 0, -33.69107985384927]
+    },
+    {
+      "type": "bh", "name": "BH-B", "mass": 29, "pos": [0.24923076923076923, 0, 0],
+      "vel": [0, 0, 41.823409473743915]
+    },
+  ]
+}

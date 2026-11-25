@@ -85,11 +85,15 @@ func _init(gravity: float, sea_depth: float, liq: Dictionary, wind_ms: float, be
 	slope_var.resize(CASCADES)
 	_fill()
 
+const REPEAT_TILE := 1.5
+
+func _tile() -> float:
+	return clampf(PEAK_TILES * TAU / maxf(peak_k, 1e-6), L_MIN, L_MAX)
+
 # The longest tile from the peak; the rest from it, each band starting where the last ended.
 func _lay_out() -> void:
-	var lp := TAU / maxf(peak_k, 1e-6)
-	var l0 := clampf(PEAK_TILES * lp, L_MIN, L_MAX)
-	var at := l0
+	for a in [L, n, k_lo, k_hi]: a.clear()
+	var at := _tile()
 	var lo := 0.0
 	for c in CASCADES:
 		at /= float(RATIOS[c])
@@ -98,6 +102,10 @@ func _lay_out() -> void:
 		var hi := BAND * PI * nn / at
 		k_lo.append(lo); k_hi.append(hi)
 		lo = hi
+
+## Every wave's ω is a whole number of turns in this long, s: the sea repeats after two hours and a quarter, and
+## the GPU's float32 phase is taken from a time that never grows past it. It moves ω by 4e-4 rad/s at most.
+const PERIOD := 8192.0
 
 ## ω of a wave of wavenumber k on this sea: gravity and the liquid's surface tension, over its depth.
 func dispersion(k: float) -> float:
@@ -116,7 +124,7 @@ func group_speed(k: float) -> float:
 ## angle θ from the wind, for a wave at ω.
 static func spreading(theta: float, w: float, wp: float) -> float:
 	var r := w / wp
-	var beta := 2.61 * pow(r, 1.3) if r < 0.95 else (2.28 * pow(r, -1.3) if r < 1.6 else 1.24)
+	var beta := 2.61 * pow(r, 1.3) if r < 0.95 else (2.28 * pow(r, -1.3) if r < 1.6 else pow(10.0, -0.4 + 0.8393 * exp(-0.567 * log(r * r))))
 	if r < 0.56: beta = 2.61 * pow(0.56, 1.3)
 	var c := cosh(beta * theta)
 	return beta / (2.0 * tanh(beta * PI)) / (c * c)
@@ -134,6 +142,9 @@ func set_wind(wind_ms: float, bearing_rad: float) -> void:
 	wind = maxf(wind_ms, SurfaceWaves.MIN_WIND)
 	bearing = bearing_rad
 	peak_omega = SurfaceWaves.peak_omega(wind, g, fetch)
+	peak_k = SurfaceWaves.wavenumber(peak_omega, g, depth, float(liquid.rho), float(liquid.sigma))
+	# A wind that has outgrown the longest tile by this much needs longer ones: its peak would be cut off.
+	if _tile() > REPEAT_TILE * L[0]: _lay_out()
 	_fill()
 	t_snap = -INF
 
@@ -164,7 +175,7 @@ func _fill() -> void:
 					a = sqrt(0.25 * e)
 				h0r[c][i] = _xr[c][i] * a
 				h0i[c][i] = _xi[c][i] * a
-				omega[c][i] = dispersion(k)
+				omega[c][i] = roundf(dispersion(k) * PERIOD / TAU) * TAU / PERIOD
 		variance[c] = var_c
 		slope_var[c] = sl_c
 		if c < PHYSICS:

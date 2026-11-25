@@ -1,0 +1,47 @@
+// WHERE STARS COME FROM. A core collapses once heavier than its Jeans mass,
+// M_J ≈ 2 M☉ (T/10 K)^1.5 (n/10⁴ cm⁻³)^-0.5, and its angular momentum leaves a disc.
+// The protostar is still contracting (PHASES in sim/structure.gd). The collapse
+// itself isn't simulated: the disc is analytic test particles (sim/painter.gd),
+// showing the arrangement a collapse leaves.
+// The cloud is the sky (H II, reflection nebulosity and dust turned up), not the
+// painter's shell nebula, which reads as a soap bubble for infalling gas.
+// Σ ∝ r^-1, the minimum-mass solar nebula's profile, from the dust
+// sublimation radius out to where the cloud is still falling in.
+// The Hayashi track: nearly fixed at ~4000 K while the radius shrinks.
+// Two bodies that have already swept their own lanes clear — the first
+// planets, at the distances where the disc is dense enough to build one.
+{
+  "format": 1,
+  "name": "The birth of a star",
+  "group": "learning",
+  "blurb": "A protostar in a star-forming region, with the disc it cannot avoid having. What collapsed was rotating, and rotation cannot be thrown away, so the infalling gas lands on a disc instead of on the star — which is where the planets come from, and why every planet in our solar system goes round the same way. The star at the centre is not fusing anything yet: it shines on the heat of its own collapse, and it is larger and redder now than it will ever be again. The nebulosity is the sky, not an object: the H II and reflection components of sim/sky.js turned up, because that is genuinely where young stars are. The cloud core immediately around it is NOT drawn — the painter models optically thin shells, which is right for a thrown-off envelope and wrong for an infalling one.",
+  "sky": { "dust": 2.3, "env": { "disc": 0.35, "starburst": 1 }, "hii": 5.4, "reflection": 3.4, "roll": 0.8, "starDensity": 2, "tilt": 0.44 },
+  "sceneScale": 0.9,
+  "bodyScale": 0.8,
+  "camRadius": 32,
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 2,
+  "maxStep": 0.002,
+  "paint": [
+    {
+      "body": "Protostar", "color": "#c8956a", "inner": 0.35, "kind": "belt", "outer": 26,
+      "surfaceDensity": -1
+    },
+  ],
+  "bodies": [
+    {
+      "type": "star", "name": "Protostar", "mass": 1, "phase": "protostar", "radiusSun": 3.5, "teff": 4100,
+      "luminosity": 1.6, "color": "#ffb070", "glow": "#ff6a28", "pos": [0, 0, 0], "vel": [0, 0, 0]
+    },
+    {
+      "type": "gas-giant", "name": "Protoplanet", "mass": 0.0003, "internalHeat": 4, "palette": "jupiter",
+      "pos": [3.9771793738793404, 0, 3.3499319736359934], "vel": [-1.7750510219623108, 0, 2.107414827432869]
+    },
+    {
+      "type": "planet", "name": "Planetesimal", "mass": 2e-06, "radiusKm": 4000, "crater": 0.9, "hot": true,
+      "regolith": "#8a7a6a", "pos": [-10.761100996009764, 0, -5.31024531953823],
+      "vel": [0.8026432987088477, 0, -1.6265398454185598]
+    },
+  ]
+}

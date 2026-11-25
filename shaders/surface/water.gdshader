@@ -104,10 +104,11 @@ void fragment() {
 	float dist = length((INV_VIEW_MATRIX * vec4(VERTEX, 0.0)).xyz);
 	// A pixel's footprint on the water, m; grazing views stretch it.
 	float foot = dist * 0.0014 / max(viewDir.y, 0.04);
-	vec4 d0 = texture(uDeriv0, at / uTile.x);
-	vec4 d1 = texture(uDeriv1, at / uTile.y);
-	vec4 d2 = texture(uDeriv2, at / uTile.z);
-	vec4 d3 = texture(uDeriv3, at / uTile.w);
+	// The lattice point is the texel's centre, as `fetch` reads it.
+	vec4 d0 = texture(uDeriv0, at / uTile.x + 0.5 / uCells.x);
+	vec4 d1 = texture(uDeriv1, at / uTile.y + 0.5 / uCells.y);
+	vec4 d2 = texture(uDeriv2, at / uTile.z + 0.5 / uCells.z);
+	vec4 d3 = texture(uDeriv3, at / uTile.w + 0.5 / uCells.w);
 	vec4 w = vec4(carried(uTile.x, uCells.x, foot), carried(uTile.y, uCells.y, foot),
 		carried(uTile.z, uCells.z, foot), carried(uTile.w, uCells.w, foot));
 	if (uFrozen > 0.5) w = vec4(0.0);
