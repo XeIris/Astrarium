@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "name": "Vega — a star seen pole-on",
+  "group": "real-stars",
+  "blurb": "Vega spins at 236 km/s, 88% of the speed at which it would fly apart, and we happen to look almost straight down its rotation axis. That is why it was the photometric zero point for a century and why the calibration was quietly wrong: we were measuring its hot pole. The bulge and the pole-to-equator temperature gradient here are not artistic — the measured rotation predicts an equatorial radius 1.192 times the polar against 1.193 observed, and von Zeipel gravity darkening then gives a 10 260 K pole over an 8 610 K equator against 10 070 / 8 910 measured. (Vega also has a debris disc, but it runs from 86 to 200 AU — twenty thousand times the width of the star — so there is no single zoom that shows you both.)",
+  "sky": { "env": "disc", "roll": 0.5, "tilt": 0.28 },
+  "sceneScale": 182,
+  "bodyScale": 1,
+  "trueScale": true,
+  "camRadius": 9,
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.2,
+  "maxStep": 0.001,
+  "bodies": [
+    { "type": "star", "name": "Vega", "catalog": "vega", "pos": [0, 0, 0], "vel": [0, 0, 0] },
+  ]
+}

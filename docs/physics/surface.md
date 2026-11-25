@@ -229,6 +229,46 @@ the observed one is near 60°. Mars's comes out 11° wide of its reference. Mars
 the one constant was pinned to Earth. It is left visible rather than fitted. In thinner air still the scaling has no
 limit of its own, so it stops at 8% of the speed of sound (an estimate).
 
+### Dust
+
+A dry world's storms lift dust instead of making rain. `now().dust_tau` is the air's optical depth at visible
+wavelengths: Mars' 0.6 between storms, an estimate inside what the rovers record outside storms. It rises by up to 3
+as `(lift)²` once a system overhead is past 0.35 of its strength, and then `kind` is "dust". The 3 is an estimate:
+Jezero's regional storm of January 2022 peaked near 2
+([Lemmon et al. 2022](https://doi.org/10.1029/2022GL100126)), and 2018's global storm passed 8 at Gale.
+Other dry worlds' dust is not modelled.
+
+In flight over a drawn site, the depth over the clear sky's (LocalView's `dust_extra`) does two things:
+
+- **The Sun:** it takes the Sun along its slant path, its light, its disc and its flare, blue a fifth more than red.
+- **The view:** it closes in as exponential fog, lit by the day that reaches it.
+
+Both thin upward as e^(−h/3 km).
+
+A showcase may state a storm or the devils' rate over the world's own (`SurfaceWeather.stated`, the scenarios'
+`weather`). The flight does not step the synoptic weather; its storms are where the visit's setup left them. They are
+baroclinic systems on the storm track, so a site in the tropics (Jezero, 18° N) meets none of its own: the regional
+storms that cross them are not modelled.
+
+### Dust devils
+
+`dust_devils.gd`. Convective vortices about the eye, within 2.5 km, drawn only:
+
+- **When:** born at 6.5 dusty devils per km² per sol, packed into the quarter-sol of strong heating. None while the
+  Sun is under 15°, then rising linearly to full at 90° (`heating`). The rate is from Jezero: about four vortices
+  passed Perseverance a sol, over a quarter of them dusty. One dusty pass a sol, over the 0.15 km² a devil sweeps
+  within 30 m of a point in a mean life (510 s) in some 5 m/s of wind, is 6.5 per km². At most 24 are up at once.
+- **Size and life:** 2–15 min; 8–60 m across, log-uniform; 150–900 m tall. A swirl of 14 m/s at the core's edge.
+- **Motion:** they drift with the wind, wander a little and spin up and die away. They are born upwind by half a life's
+  drift, and one carried off fades out past the field's edge.
+- **Look:** a column of soft puffs, densest at the foot and flaring upward, a little darker than the bright sky
+  behind it. That is how a devil stands out kilometres off in Spirit's and Perseverance's sequences.
+
+The encounters are [Newman et al. 2022](https://doi.org/10.1126/sciadv.abn3783)'s, from MEDA's first 216 sols. The sizes
+and lives are estimates within what Mars rovers and orbiters have measured. Arriving in an afternoon already under way, the population is run
+forward first, so its devils are already up. `surfacecheck` holds them to none at night, about the stated rate by
+day, and drift with the wind.
+
 Not modelled: fronts as moving lines (a system is a Gaussian), convection's own weather beyond its share of spells,
 seasons, monsoons, orography's rain shadow at a site, Venus's slow rotation regime beyond its Hadley width. The
 rivers still carve with the climate's global mean rain, not the site's.
@@ -254,7 +294,10 @@ and no survey is carved: a craft built to float comes down on `SurfaceSea`.
    which only happens undrawn: it takes 0.25–1.3 s.
 4. **Read off the drawn triangles.** `SiteScene.drawn_height` is `terrain_mesh`'s vertex rule and its cell split,
    curvature drop included. The site's datum is the flight figure under the pin, so its frame is planet-fixed and
-   Spaceflight places the same site in the local pass. Past the far grid the measured cell takes over again.
+   Spaceflight places the same site in the local pass. Past the far grid the measured cell takes over again, eased in
+  over the grid's rim, which is drawn sloping down to the planet's patch.
+5. **Done with.** A vessel flown twice the far grid's half-width off a survey it has been over, or asking for a landing
+   outside it, gets another. On the far side of the world the site's plane means nothing, and the ground is measured.
 
 In the held-rate part of a descent, the rate is held against the ground (`Vessel.closing_rate`, the change in
 height along the ground velocity), as a radar altimeter measures it. Held inertially, a Sky Crane drifting at
@@ -272,9 +315,29 @@ What tests it (`groundcheck`):
 | Earth | no ground model, nothing of the surface runs |
 
 Not modelled, or estimated:
-- **The datum.** On Mars, MOLA measures height above the areoid, and the flight figure is an ellipsoid. Their
-  difference is not modelled.
+- **The datum.** On Mars, MOLA measures height above the areoid, and the flight figure is the mean sphere (only Earth's
+  is an ellipsoid). Their difference, some 20 km between pole and equator, is not modelled: heights are right, the radius
+  they stand on is not.
+- **The survey's own place.** Its roughness and rocks are seeded by its pin, so a descent whose parachute opens a
+  frame earlier stands on other ground of the same kind.
 - **Legs on a slope.** A vehicle stands along the radius, and contact is at its footprint's centre.
+
+### A landing's dust
+
+`sim/flight/plume_dust.gd`, drawn only. Where the lit stage's jet meets the drawn ground, its pressure is the thrust
+over the disc it has spread to. The spread is a half-angle of 0.9 rad in vacuum, where the jet expands freely, and
+0.7 in air. Past 5 Pa it lifts soil, at full rate from 100 Pa. The grains leave radially from the impingement:
+
+- **In vacuum:** flat and fast, 300–900 m/s at 1–3° up, on ballistic paths. That is the sheet under Apollo's LM: a
+  cone 1–3° over the horizontal (Lane & Metzger 2012), at 300–2000 m/s by Apollo-era pitting estimates, fine dust
+  faster still. The drawn speeds are the larger grains' end.
+- **In air:** 5–18 m/s, slowed to the wind in about half a second, drifting up in the jet's turbulence and spreading
+  into a cloud, as the descent stage's camera saw under Perseverance (PIA24428).
+
+The onset and spreads are estimates, set so the LM's 24 kN hover starts it near 30 m, where Apollo 11's crew first
+called dust, and not from 60 m. The Sky Crane's 8.5 kN starts it at 28 m, not from 50. `groundcheck` holds those four,
+and that the cloud goes with the site's wind. A frame
+flown undrawn for more than 2 s clears it.
 
 ## The ground close up
 
@@ -311,6 +374,25 @@ the grid alone cannot show.
 - **Dunes** (Titan's) are carved on the near grid and shaded past it, on the same profile and meander
   (`SurfaceRelief.dune_ridge` is the shader's gradient noise and hash in GDScript), darker sand on the crests as
   Cassini saw it; from far off a pixel holds many dunes and sees their mean.
+- **Colour that follows the ground.** The ground against its surroundings 1.2 km about it, on both grids' own
+  triangles: under air the lows collect the darker fines and sand (to 22% darker 70 m down) and the highs are
+  weathered rock (7% lighter); on an airless world steep slopes are fresher, brighter material (to 25%), as mass
+  wasting keeps exposing it.
+- **Fresh craters,** on an airless world: of the twelve largest the survey stamped, about one in three, drawn from
+  the site's seed, has a bright blanket of immature regolith to 2.5 radii (55% brighter) and broken rays to about
+  12 radii, fading as they go (estimates: Tycho's run to some 35 of its radii). Under air rays are erased fast and
+  are not drawn.
+- **Rocks** (`SiteRocks`), on a lifeless dry world, after Golombek & Rapp's (1997) model of the Viking sites and
+  their terrestrial analogues: the area covered by rocks of diameter D or more is F(D) = k e^(−qD), q = 1.79 + 0.152/k,
+  so the number per square metre is the integral of −dF/dD over a rock's πD²/4. k is Mars's modal 8%, and estimates
+  of 3% for the Moon (Shoemaker & Morris 1970 found the Surveyor sites' fragments alike) and 5% for Titan, where
+  Huygens landed among rounded cobbles. They are laid out about the eye on a 25 m lattice, each cell's rocks from
+  its own seed, so a rock is where it was when the field is laid out again; the smallest drawn grows from 15 cm at
+  the eye to 60 cm at 220 m, and the field thins to nothing over its outer third. One mesh in many rotations and
+  proportions, part-buried: a subdivided icosahedron, lumpy and shaded smooth, with a pitted normal map (the rounded,
+  vesicular stones of PIA24424 and PIA24429). Its colour is the soil's, a third of the way to the rock's and greyed,
+  as loose stones wear the dust they sit in. They are drawn only: contact is the grid's. A landing map reads the metre-sized ones
+  ([sky-crane.md](sky-crane.md#why-the-divert-is-out-of-plane)).
 - **Where the site meets the planet's patch.** The survey eases the far grid's outer 15% down to its lowest point,
   where the patch lies, so it meets the patch as a slope (`SurfaceRelief._ramp_rim`; contact reads the eased grid).
   There the site dissolves into the patch by an ordered dither, which then shows in its own light; and the whole
@@ -327,7 +409,7 @@ as dimly as shadow. The LM's shadow falls, dark, on sunlit ground where the Sun'
 Without the amplitude's normalisation the shading octaves together were twice as steep as the measured roughness,
 and under that Sun black facets covered much of the lit ground.
 
-Not modelled: rocks, the relief below the grid in contact or silhouette, light scattered from sunlit ground into
+Not modelled: rocks in contact, the relief below the grid in contact or silhouette, light scattered from sunlit ground into
 shadow (on the Moon, the hemisphere fill stands in for it).
 
 ## What it costs

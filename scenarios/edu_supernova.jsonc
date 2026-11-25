@@ -1,0 +1,26 @@
+// A STAR ABOUT TO EXPLODE: 20 M☉ at the pre-collapse stop, an Earth-sized iron
+// core under onion shells. end_state_of() decides the remnant (a black hole at
+// 20 M☉, a neutron star below). The lesson triggers the collapse; nothing is scripted.
+{
+  "format": 1,
+  "name": "A star about to explode",
+  "group": "learning",
+  "blurb": "Twenty solar masses at the last stop before the end. Silicon burning in the core takes about a day and builds an iron core — and iron is where nuclear binding energy peaks, so burning it costs energy instead of releasing it. When that core passes its own Chandrasekhar mass it falls in inside a quarter of a second, and what is left over depends only on how heavy it was. The scenario knows which; it is not told.",
+  "sky": { "env": ["starburst", "disc"], "roll": 1.4, "tilt": 0.5 },
+  "sceneScale": 1.6,
+  "bodyScale": 1,
+  "trueScale": true,
+  "camRadius": 44,
+  "focus": "Doomed",
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.25,
+  "maxStep": 0.002,
+  "bodies": [
+    {
+      "type": "star", "name": "Doomed", "mass": 20, "phase": "preSN", "radiusSun": 1213.4161708103957,
+      "teff": 3600, "luminosity": 3005.9999999999977, "color": "#ff8a50", "glow": "#ff5a20", "pos": [0, 0, 0],
+      "vel": [0, 0, 0]
+    },
+  ]
+}

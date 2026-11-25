@@ -14,7 +14,6 @@ const CRAFT_ASSETS := {
 	"shuttle": DIR + "shuttle.glb",
 	"starship": DIR + "starship.glb",
 	"lm": DIR + "lm.glb",
-	"skycrane": DIR + "skycrane.glb",
 	"ioncruiser": DIR + "ioncruiser.glb",
 	"hailmary": DIR + "hailmary.glb",
 	"beetle": DIR + "beetle.glb",

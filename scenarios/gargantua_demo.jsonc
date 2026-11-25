@@ -1,0 +1,22 @@
+{
+  "format": 1,
+  "name": "Gargantua analogue",
+  "blurb": "An isolated 100 million solar mass black hole at spin 0.998. The Expedition Ring developer scenario shows a prescribed equatorial Kerr orbit and its clock ratio to infinity. The close orbit uses an analytic demonstration rather than the ordinary pair integrator.",
+  "sky": { "env": "core", "roll": 1.9, "tilt": 0.22 },
+  "sceneScale": 1,
+  "bodyScale": 1,
+  "trueScale": true,
+  "camRadius": 12,
+  "focus": "Gargantua",
+  "lensing": true,
+  "mesh": false,
+  "discOuter": 8,
+  "timeScale": 1e-05,
+  "maxStep": 0.0001,
+  "bodies": [
+    {
+      "type": "bh", "name": "Gargantua", "mass": 100000000, "obliquity": 0, "spinFrac": 0.998,
+      "pos": [0, 0, 0], "vel": [0, 0, 0]
+    },
+  ]
+}

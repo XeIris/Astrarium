@@ -43,6 +43,8 @@ uniform sampler2D uEarthColor : source_color, filter_linear_mipmap_anisotropic, 
 uniform sampler2D uEarthLand : filter_linear_mipmap_anisotropic, repeat_enable;
 // The map's colour against the world's albedo (PlanetMaps' `scale`): Earth's is 1.
 uniform float uMapScale = 1.0;
+// 1 on a dry world's own map: no coasts, no plants.
+uniform float uDryMap = 0.0;
 // Seas the crust does not draw (StatedSeas): each cap's centre from the planet's centre in this patch's frame
 // (x east, y up, z north) and its angular radius; and the liquid's colour.
 uniform vec4 uMaria[8];
@@ -152,6 +154,8 @@ void fragment() {
 			+ (fbm(gp * (1.0 / 420.0) + vec2(9.2, 1.3)) - 0.5) * 0.30 * (1.0 - smoothstep(60.0, 300.0, fp));
 		float k = clamp(texel * 0.5, 0.035, 0.5);
 		float land = smoothstep(0.5 - k, 0.5 + k, mask + wig * (1.0 - smoothstep(0.6, 2.0, texel)));
+		// A dry world's map is all land, whatever the coast's noise does near one texel a pixel.
+		land = max(land, uDryMap);
 		// Keep the actual reclaimed/graded launch parcel above water.
 		land = max(land, 1.0 - smoothstep(700.0, 1800.0, distance(vWorld.xz, uPadLocal)));
 		// LAND: the map's colour broken up below a texel (brightness and dryness at two
@@ -165,8 +169,9 @@ void fragment() {
 		float dry = smoothstep(0.52, 0.74, fbm(gp * (1.0 / 3800.0) + vec2(12.0, 3.0)));
 		float wood = k2 > 0.0 ? smoothstep(0.50, 0.72, fbm(gp * (1.0 / 1900.0) + vec2(2.0, 19.0))) * k2 : 0.0;
 		vec3 landCol = mapped * lum;
-		landCol = mix(landCol, landCol * vec3(1.18, 1.06, 0.80) + vec3(0.015, 0.012, 0.0), dry * 0.55);
-		landCol = mix(landCol, landCol * vec3(0.72, 0.84, 0.66), wood * 0.6);
+		// Dry grass and woodland are Earth's.
+		landCol = mix(landCol, landCol * vec3(1.18, 1.06, 0.80) + vec3(0.015, 0.012, 0.0), dry * 0.55 * (1.0 - uDryMap));
+		landCol = mix(landCol, landCol * vec3(0.72, 0.84, 0.66), wood * 0.6 * (1.0 - uDryMap));
 		// Within a few kilometres of the pad, land cover at a scale the map knows
 		// nothing about takes over (land_cover).
 		float from_pad = distance(vWorld.xz, uPadLocal);

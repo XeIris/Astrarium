@@ -124,45 +124,53 @@ func _dragonfly() -> void:
 	check("and stands again (%s m/s)" % U.fixed(h.vel.length(), 3), h.on_ground and not h.crashed and h.vel.length() < 0.1)
 	f.teardown()
 
-# The drawn ground across the dunes under it, through the landing: their spacing from the rises through the
-# mean, their height from crest to trough, against the stated field. And how far over the datum it came down.
+# The drawn ground across the dunes, inside the part of the near grid that is not eased into the far one: its height
+# from crest to trough, and how well it goes with the stated field's ridges, whose own spacing is counted over 60 km.
+# And how far over the datum it came down.
 func _dunes(f: Spaceflight, h: Rotorcraft) -> void:
 	var spec: Dictionary = f.vessel.parent.spec.dunes
 	var b := deg_to_rad(float(spec.bearing))
 	# Across the crests, east and north, as the ground reads them.
 	var across := Vector2(cos(b), -sin(b))
-	var heights := PackedFloat64Array()
-	var dl := 10.0
-	for i in range(-290, 291):
-		var p := Vector2(-h.pos.x, h.pos.z) + across * (i * dl)
-		heights.append(h.ground.height(p.x, p.y))
-	# Less a straight line through it, so the long relief under them does not count.
-	var n := heights.size()
+	var half_w := 0.5 * float(spec.width) / float(spec.spacing)
+	var near_half := float(f.vessel.ground.relief.grids[0].half)
+	var x := PackedFloat64Array(); var y := PackedFloat64Array()
+	var reach := int(0.9 * near_half / 10.0)
+	for i in range(-reach, reach + 1):
+		var p := across * (i * 10.0)
+		y.append(h.ground.height(p.x, p.y))
+		x.append(float(spec.height) * SurfaceRelief.dune_ridge(p, across, float(spec.spacing), half_w))
+	# Less a straight line through each, so the long relief under them does not count.
+	var dy := _detrended(y); var dx := _detrended(x)
+	var sxy := 0.0; var sxx := 0.0; var syy := 0.0
+	for i in dy.size():
+		sxy += dx[i] * dy[i]; sxx += dx[i] * dx[i]; syy += dy[i] * dy[i]
+	var fit := sxy / sxx
+	var corr := sxy / sqrt(sxx * syy)
+	var crests := 0
+	var was := false
+	for i in 6000:
+		var on := SurfaceRelief.dune_ridge(across * (i * 10.0), across, float(spec.spacing), half_w) > 0.5
+		if on and not was: crests += 1
+		was = on
+	var spacing := 60000.0 / maxf(crests, 1.0)
+	var ll := SurfaceGround.lat_lon(SurfaceGround.to_mesh(f.vessel.r, f.vessel.body_angle(f.vessel.coord), DVec3.new()))
+	check("Dragonfly stands among Titan's dunes: the ground %s of the stated %s m of ridge, correlation %s; %s m apart against %s; %s m over the datum at %s° N" % [
+		U.fixed(fit, 2), spec.height, U.fixed(corr, 2), U.fixed(spacing, 0), spec.spacing, U.fixed(f.vessel.altitude(), 0), U.fixed(rad_to_deg(ll[0]), 1)],
+		absf(fit - 1.0) < 0.4 and corr > 0.7 and absf(spacing / float(spec.spacing) - 1.0) < 0.1
+		# Corlies et al. 2017's map keeps Titan within about 2 km of its geoid; the crust's belts stand higher than the
+		# 520 m of Lorenz et al. 2013's gridded map, which docs/physics/rotorcraft.md owns.
+		and absf(f.vessel.altitude()) < 2000.0)
+
+static func _detrended(v: PackedFloat64Array) -> PackedFloat64Array:
+	var n := v.size()
 	var sx := 0.0; var sy := 0.0; var sxx := 0.0; var sxy := 0.0
 	for i in n:
-		sx += i; sy += heights[i]; sxx += i * i; sxy += i * heights[i]
+		sx += i; sy += v[i]; sxx += i * i; sxy += i * v[i]
 	var slope := (n * sxy - sx * sy) / (n * sxx - sx * sx)
-	var icpt := (sy - slope * sx) / n
-	var resid := PackedFloat64Array()
-	for i in n: resid.append(heights[i] - icpt - slope * i)
-	var lo := INF; var hi := -INF
-	for v in resid:
-		lo = minf(lo, v); hi = maxf(hi, v)
-	# The crests: the highest point within half a dune's width either side, in the top half of the range.
-	var reach := int(0.5 * float(spec.width) / dl)
-	var crests := []
-	for i in range(reach, n - reach):
-		if resid[i] < lo + 0.5 * (hi - lo): continue
-		var top := true
-		for k in range(i - reach, i + reach + 1):
-			if resid[k] > resid[i]: top = false
-		if top: crests.append(i)
-	var spacing: float = (crests[-1] - crests[0]) * dl / float(crests.size() - 1) if crests.size() > 1 else 0.0
-	var ll := SurfaceGround.lat_lon(SurfaceGround.to_mesh(f.vessel.r, f.vessel.body_angle(f.vessel.coord), DVec3.new()))
-	check("Dragonfly stands among Titan's dunes: %s m crest to trough, %s m apart, against %s m and %s m stated; %s m over the datum at %s° N" % [
-		U.fixed(hi - lo, 0), U.fixed(spacing, 0), spec.height, spec.spacing, U.fixed(f.vessel.altitude(), 0), U.fixed(rad_to_deg(ll[0]), 1)],
-		hi - lo > 0.6 * float(spec.height) and hi - lo < 2.0 * float(spec.height) and absf(spacing / float(spec.spacing) - 1.0) < 0.25
-		and absf(f.vessel.altitude()) < 4000.0 * float(f.vessel.parent.spec.landRelief))
+	var out := PackedFloat64Array()
+	for i in n: out.append(v[i] - (sy - slope * sx) / n - slope * i)
+	return out
 
 func _parity() -> void:
 	var out := []
@@ -230,6 +238,16 @@ func _time() -> void:
 	var d: float = (at[1] as Vector3).distance_to(Vector3(gf.p[0], gf.p[1], gf.p[2]))
 	check("drawn and undrawn come down on the sea alike (%s s apart, %s m)" % [U.fixed(absf(float(at[0]) - g.vessel.coord), 3), U.expo(d, 1)],
 		absf(float(at[0]) - g.vessel.coord) < 1e-6 and d < 1e-6)
+	# Where it is drawn, against the datum sphere under it: kilometres from the survey's pin, whose tangent plane is
+	# metres above the sea there.
+	for i in 3: main.animate(1.0 / 60.0)
+	var R := g.vessel.surface_r(g.vessel.r)
+	var cg: Vector3 = g.craft.group.basis * TimeCapsule.centre()
+	var h := g.craft_pos.add(DVec3.new(cg.x, R + cg.y, cg.z)).length() - R
+	var off := Vector2(gf.p[0], gf.p[2]).length()
+	check("drawn on the sea %s km from the pin (its centre of mass %s m over the mean sea, the Floater's %s m; the pin's plane is %s m up there)" % [
+		U.fixed(off / 1000.0, 1), U.fixed(h, 2), U.fixed(gf.p[1], 2), U.fixed(off * off / (2.0 * R), 1)],
+		absf(h - gf.p[1]) < 0.1 and absf(gf.p[1]) < 3.0)
 	g.teardown()
 
 func _ranger() -> void:

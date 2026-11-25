@@ -67,6 +67,12 @@ func _draw_once() -> void:
 	for c in OceanField.CASCADES:
 		mat.set_shader_parameter("uDisp%d" % c, gpu.disp[c])
 		mat.set_shader_parameter("uDeriv%d" % c, gpu.deriv[c])
+	# A deep bed: without one the shader takes the ground for dry land and draws nothing.
+	var bed := Image.create(4, 4, false, Image.FORMAT_RF)
+	bed.fill(Color(-4000.0, 0.0, 0.0))
+	mat.set_shader_parameter("uHeights", ImageTexture.create_from_image(bed))
+	mat.set_shader_parameter("uTile", Vector4(f.L[0], f.L[1], f.L[2], f.L[3]))
+	mat.set_shader_parameter("uCells", Vector4(f.n[0], f.n[1], f.n[2], f.n[3]))
 	var cam := Camera3D.new()
 	cam.position = Vector3(0, 6, 0)
 	cam.rotation = Vector3(-0.3, 0, 0)
@@ -75,7 +81,8 @@ func _draw_once() -> void:
 	var env := WorldEnvironment.new()
 	env.environment = Environment.new()
 	env.environment.background_mode = Environment.BG_COLOR
-	env.environment.background_color = Color(0.4, 0.55, 0.8)
+	# Nothing the sea could draw, so what is not this colour is water.
+	env.environment.background_color = Color(1.0, 0.0, 1.0)
 	add_child(env)
 	var mi := MeshInstance3D.new()
 	var pm := PlaneMesh.new()
@@ -91,8 +98,11 @@ func _draw_once() -> void:
 	RenderingServer.force_draw(false)
 	var img := get_viewport().get_texture().get_image()
 	var lit := 0
+	var seen := 0
 	for y in range(img.get_height() / 2, img.get_height(), 16):
 		for x in range(0, img.get_width(), 16):
-			if img.get_pixel(x, y).get_luminance() > 0.02: lit += 1
-	check("the water shader draws (%d lit samples below the horizon)" % lit, lit > 10)
+			var c := img.get_pixel(x, y)
+			seen += 1
+			if c.get_luminance() > 0.01 and absf(1.0 - c.r) + c.g + absf(1.0 - c.b) > 0.4: lit += 1
+	check("the water shader draws (%d of %d samples below the horizon are lit water)" % [lit, seen], lit > 0.5 * seen)
 	gpu.dispose()

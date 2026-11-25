@@ -209,6 +209,47 @@ func weather() -> void:
 	wm.setup(mars_b, mars_b.climate, 0.3, 0.1, 5)
 	wm.step(86400.0)
 	check("a dry world has wind and no rain", float(wm.now().rain_mm_h) == 0.0 and float(wm.now().wind) > 0.0)
+	# Its storms lift dust: Mars' clear 0.6 rises by a few with a storm overhead, and a weak one lifts none.
+	wm.stated = {"storm": 0.2}
+	var calm := float(wm.now().dust_tau)
+	wm.stated = {"storm": 1.0}
+	var storm: Dictionary = wm.now()
+	wm.stated = {}
+	check("Mars' air between storms holds τ %.2f of dust, a storm overhead %.2f (%s)" % [calm, float(storm.dust_tau), storm.kind],
+		near(calm, 0.6, 1e-9) and near(float(storm.dust_tau), 3.6, 1e-9) and storm.kind == "dust" and float(storm.rain_mm_h) == 0.0)
+	# Dust devils: none without the Sun's heating, about the stated rate with it, and they drift with the wind.
+	var dd := DustDevils.new(7)
+	for i in 600: dd.step(10.0, -0.2, Vector2(5.0, 0.0), Vector2.ZERO, 88775.0)
+	var night := dd.devils.size()
+	var born := 0
+	var drift := true
+	var dd2 := DustDevils.new(7)
+	for i in 600:
+		var before := {}
+		for d in dd2.devils: before[d.id] = d.at
+		dd2.step(10.0, deg_to_rad(60.0), Vector2(5.0, 0.0), Vector2.ZERO, 88775.0)
+		for d in dd2.devils:
+			if not before.has(d.id): born += 1
+			elif (d.at as Vector2).x - (before[d.id] as Vector2).x < 50.0 - 8.0 * 1.5: drift = false
+	var want := DustDevils.RATE_KM2_SOL * PI * pow(DustDevils.FIELD_M / 1000.0, 2.0) * DustDevils.heating(deg_to_rad(60.0)) * 6000.0 / (0.25 * 88775.0)
+	check("no dust devils at night (%d)" % night, night == 0)
+	check("by day about the stated rate (%d born over 100 min, %.0f expected; at most %d alive at once)" % [born, want, DustDevils.MAX],
+		born >= int(want * 0.6) and born <= int(want * 1.6) + 3)
+	# In a dust storm's 18 m/s the field keeps its devils, and one leaves faded out, not at full strength.
+	var dd3 := DustDevils.new(7)
+	var alive := 0
+	var worst := 0.0
+	for i in 600:
+		var strength := {}
+		for d in dd3.devils: strength[d.id] = dd3.strength(d)
+		dd3.step(2.0, deg_to_rad(60.0), Vector2(18.0, 0.0), Vector2.ZERO, 88775.0)
+		alive += dd3.devils.size()
+		var ids := dd3.devils.map(func(d): return d.id)
+		for k in strength:
+			if not ids.has(k): worst = maxf(worst, strength[k])
+	check("in 18 m/s the field still holds %s at once, and none goes at over %s of its strength" % [U.fixed(alive / 600.0, 1), U.fixed(worst, 2)],
+		alive / 600.0 > 1.0 and worst < 0.1)
+	check("and they go with the wind", drift)
 	var moon_b: Body = stage.state.body_named("Moon")
 	var wn := SurfaceWeather.new()
 	wn.setup(moon_b, moon_b.climate, 0.3, 0.1, 5)

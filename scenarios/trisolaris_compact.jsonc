@@ -1,0 +1,41 @@
+// A more compact P-type hierarchy with brighter illumination. Written as states: the
+// outer orbit's 12° inclination has no degree value that reproduces it exactly.
+{
+  "format": 1,
+  "name": "Trisolaris - Compact Haven",
+  "group": "trisolaris",
+  "blurb": "A compact, bright hierarchy: Trisolaris circles Alpha and Beta at 1.35 AU while Gamma sweeps the 15 AU outer orbit. Three suns and stronger encounters change the sunlight reaching the world.",
+  "sky": { "env": "disc", "roll": 0.65, "tilt": 0.5 },
+  "sceneScale": 4,
+  "bodyScale": 0.55,
+  "camRadius": 20,
+  "focus": "Alpha",
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.35,
+  "maxStep": 0.0004,
+  "surface": true,
+  "climate": { "T0": 288, "mixedLayer": 12 },
+  "bodies": [
+    {
+      "type": "star", "name": "Alpha", "mass": 1.15, "teff": 6378.59867433178,
+      "luminosity": 1.7490062499999994, "pos": [3.13973416644256, -1.319824823186882, -6.2092876024020836],
+      "vel": [1.2365448357661426, 0.06751590900575583, -6.660808431860674]
+    },
+    {
+      "type": "star", "name": "Beta", "mass": 0.75, "teff": 4856.943824636598, "luminosity": 0.31640625,
+      "pos": [3.3797341664425598, -1.319824823186882, -6.2092876024020836],
+      "vel": [1.2365448357661426, 0.06751590900575583, 11.01792095407549]
+    },
+    {
+      "type": "star", "name": "Gamma", "mass": 1.55, "teff": 7896.1153961157725,
+      "luminosity": 5.7720062500000004, "pos": [-3.9648416900992824, 1.6178523377609968, 7.611396820920493],
+      "vel": [-1.5157670307033404, -0.08276156752171812, -0.3893625624703092]
+    },
+    {
+      "type": "world", "name": "Trisolaris", "mass": 3e-06, "dayLength": 97.4, "home": true,
+      "obliquity": 23.49126960036375, "pos": [1.587471008547823, -1.319824823186882, -6.2092876024020836],
+      "vel": [1.2365448357661417, 0.06751590900575583, -5.642512357604473]
+    },
+  ]
+}

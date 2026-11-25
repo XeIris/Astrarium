@@ -50,9 +50,10 @@ func _run() -> void:
 	check("the surveyed site is drawn", site != null and site.built)
 	if site == null: return
 	f.fly_cam.state.userAimed = true
-	f.fly_cam.state.yaw = 2.4
 	f.fly_cam.state.pitch = 0.35
 	f.fly_cam.state.dist = 9.0
+	var yaw := await _shaded_yaw(f, site)
+	f.fly_cam.state.yaw = yaw
 	for k in 30: await _frame()
 	# Drawn now, not whenever the window manager next lets an unfocused window draw.
 	RenderingServer.force_draw(true, 1.0 / 60.0)
@@ -141,6 +142,35 @@ func _run() -> void:
 	var ground_vis := SurfaceShadow.visibility(grids, -(foot as Vector3).x, (foot as Vector3).z, (foot as Vector3).y, sun, ang, R, top)
 	check("where it falls the ground is in the Sun (%s), and the frame is dark there: %s against %s lit" % [U.fixed(ground_vis, 2),
 		U.fixed(spot, 3), U.fixed(lit_med, 3)], ground_vis > 0.9 and spot < 0.5 * lit_med)
+
+# The camera's yaw of sixteen that has the most ground in shadow before it, by the CPU's march on a coarse lattice:
+# where the terrain's shadows fall is the survey's, not this check's, to say.
+func _shaded_yaw(f: Spaceflight, site: SurfaceSite) -> float:
+	var best := 2.4
+	var most := -1
+	for k in 16:
+		f.fly_cam.state.yaw = TAU * k / 16.0
+		for i in 3: await _frame()
+		var cam: Camera3D = f.local.camera
+		var inv := site.group.global_transform.affine_inverse()
+		var sun: Vector3 = site._mat.get_shader_parameter("uSunDir")
+		var ang := float(site._mat.get_shader_parameter("uSunAng"))
+		var R: float = site.relief.radius_m
+		var top := float(site._mat.get_shader_parameter("uTop"))
+		var craft: Vector3 = inv * f.craft.group.global_position
+		var size := Vector2(cam.get_viewport().get_visible_rect().size)
+		var o: Vector3 = inv * cam.global_position
+		var dark := 0
+		for y in 16:
+			for x in 24:
+				var px := Vector2((x + 0.5) / 24.0, 0.12 + 0.88 * (y + 0.5) / 16.0) * size
+				var hit = _hit(site.relief.grids, o, (inv.basis * cam.project_ray_normal(px)).normalized(), R)
+				if hit == null or (hit as Vector3).distance_to(craft) < 12.0 or _toward(hit, craft, sun) < 8.0: continue
+				if SurfaceShadow.visibility(site.relief.grids, -hit.x, hit.z, hit.y, sun, ang, R, top) <= 0.05: dark += 1
+		if dark > most:
+			most = dark
+			best = f.fly_cam.state.yaw
+	return best
 
 # The first point where `d` from `o` meets the ground's triangles, in the site's frame, or null.
 func _hit(grids: Array, o: Vector3, d: Vector3, R: float):
