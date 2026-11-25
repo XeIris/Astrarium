@@ -1,0 +1,46 @@
+// THE HABITABLE ZONE: three identical planets at 0.55, 1.00 and 1.90 AU. Nothing is
+// set; each derives its insolation (insolation_at) and its ice and biomes follow.
+// S = L / r²,  T_eq = 278.6 K · (L/r²)^¼ · (1−A)^¼
+// 0.55 AU  3.31 S⊕  344 K  runaway
+// 1.00 AU  1.00 S⊕  255 K  288 K with the greenhouse
+// 1.90 AU  0.28 S⊕  185 K  frozen
+// Exaggerated: at true scale three Earths over 1.35 AU are three points.
+{
+  "format": 1,
+  "name": "The habitable zone",
+  "group": "learning",
+  "blurb": "Three identical planets at 0.55, 1.0 and 1.9 AU from the same star. Identical: same mass, same radius, same albedo, same atmosphere. Nothing about how they look is set anywhere — each one computes the sunlight falling on it from where it actually is, turns that into a surface temperature, and its ice caps, its deserts and its vegetation follow. One of them is a furnace, one is frozen, and the one in between is not special in any way except its distance.",
+  "sky": { "env": "disc", "roll": 0.7, "tilt": 0.36 },
+  "sceneScale": 8,
+  "bodyScale": 3,
+  "camRadius": 22,
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.25,
+  "maxStep": 0.001,
+  "bodies": [
+    {
+      "type": "star", "name": "Sun", "mass": 1, "radiusSun": 1, "teff": 5772, "luminosity": 1,
+      "color": "#fff2cc", "glow": "#ffaa33", "pos": [0, 0, 0], "vel": [0, 0, 0]
+    },
+    {
+      "type": "planet", "name": "Scorched", "mass": 3.0035e-06, "radiusKm": 6371, "albedo": 0.306,
+      "atmosphere": true, "biota": 1, "cloudCover": 0.44, "land": 0.29, "obliquity": 23.44, "pAr": 0.009471,
+      "pCH4": 1.9672e-06, "pCO2": 0.00042588, "pN2": 0.79173, "pO2": 0.21243, "pSO2": 0, "season": 11,
+      "pos": [0.5065835467015869, 0, 0.21418008826975782], "vel": [-3.2992477358816705, 0, 7.8034547141706]
+    },
+    {
+      "type": "planet", "name": "Temperate", "mass": 3.0035e-06, "radiusKm": 6371, "albedo": 0.306,
+      "atmosphere": true, "biota": 1, "cloudCover": 0.44, "land": 0.29, "obliquity": 23.44, "pAr": 0.009471,
+      "pCH4": 1.9672e-06, "pCO2": 0.00042588, "pN2": 0.79173, "pO2": 0.21243, "pSO2": 0, "season": 11,
+      "pos": [-0.8568887533689473, 0, 0.5155013718214642], "vel": [-3.2389906452595443, 0, -5.383990825055202]
+    },
+    {
+      "type": "planet", "name": "Frozen", "mass": 3.0035e-06, "radiusKm": 6371, "albedo": 0.306,
+      "atmosphere": true, "biota": 1, "cloudCover": 0.44, "land": 0.29, "obliquity": 23.44, "pAr": 0.009471,
+      "pCH4": 1.9672e-06, "pCO2": 0.00042588, "pN2": 0.79173, "pO2": 0.21243, "pSO2": 0, "season": 11,
+      "pos": [-0.21308980117660425, 0, -1.8880129069035823],
+      "vel": [4.529543406438943, 0, -0.5112250559143896]
+    },
+  ]
+}

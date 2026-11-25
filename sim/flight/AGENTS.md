@@ -85,7 +85,7 @@ to the procedural builds too.
   A survey is adopted a fixed flight time after it is asked for, never when the
   worker happens to finish, or drawn and undrawn flights diverge
   ([the ground under a landing](../../docs/physics/surface.md#the-ground-under-a-landing)).
-- A vehicle with `floats` over a world with oceans owns a `SurfaceSea` instead: asked
+- A vehicle with `floats` over a world with oceans, or with stated seas (Titan's), owns a `SurfaceSea` instead: asked
   for when its chute opens and stood on a fixed flight time later, it takes the vessel
   15 m above the mean sea, which stays landed, and the sea's Floater has the craft
   afterwards. The sea's figure is the mean sea, so `ground_r` is unchanged

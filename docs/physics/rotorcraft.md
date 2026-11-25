@@ -17,8 +17,11 @@ Blade-element momentum theory with uniform inflow on an untwisted blade:
   the climb speed over the tip speed and μ the speed across the disc over the tip speed.
 - **Coaxial pairs:** each pair shares one disc, its inflow set by the pair's total thrust.
 - **Power:** C_P = κκ_c C_T λ_i + C_T λ_c + (σC_d0/8)(1 + 4.65μ²), with κ = 1.15 for a real rotor's induced
-  losses and κ_c = 1.28 for a coaxial pair's lower rotor in the upper's wake (Leishman & Syal 2008). The profile
-  term grows with advance ratio as Leishman gives.
+  losses. A coaxial pair's induced power is 1.28 times that of its two rotors alone (Leishman & Syal 2008); sharing one
+  disc already costs √2, so κ_c = 1.28/√2 = 0.905. The profile term grows with advance ratio as Leishman gives.
+- **Axial flow:** λ_c is positive climbing (air down through the disc), so a climb costs the power that raises the
+  weight and a descent gives some back. Vortex-ring states are not modelled.
+- **Time:** the flight's, at any frame rate: what a frame leaves of a fixed step is carried to the next.
 
 The two craft control their rotors differently:
 - **Ingenuity** holds its rotors at 2537 rpm and makes its thrust with collective, which stops at 24°. It steers
@@ -75,18 +78,30 @@ Its descent:
 ## Titan
 
 `sim/titan_moon.gd`, the Titan expedition preset: Titan on a circular orbit in Saturn's equatorial plane (NASA's
-factsheet), not an ephemeris.
+factsheet), not an ephemeris, on 1 July 2023, the Titan Mare Explorer's planned arrival in Titan's late northern
+summer. Its orbital phase is chosen so that Ligeia Mare sees the Sun at noon when TiME comes down.
 - **Surface:** 93.65 K and 1.467 bar, stated from Huygens (Fulchignoni et al. 2005).
 - **Methane:** its climate column is all nitrogen, because the gas fits know methane only at Earth's trace. The
   flight's air table and the entry's glow carry its methane.
-- **Ground:** with no measured map it stands on the crust its visual draws. The crust's relief is 3.2 km on every
-  world, and a survey's roughness scales as 1/g, so Titan's ground here is far rougher than its real dunes and
-  plains.
-- **Seas:** not drawn yet.
+- **Poles:** its thick, slow air carries heat poleward, stated as the crust's transport (0.87). That gives 94.5 K
+  at the equator and 91.2 K at Ligeia, against Cassini CIRS's 93.7 K and about 91 K (Jennings et al. 2016).
+- **Ground:** with no measured map it stands on the crust its visual draws, at Titan's stated relief of 0.5 km
+  (Lorenz et al. 2013's map: its highest gridded point 520 m over the 2575 km sphere, its lowest 1.7 km under;
+  Corlies et al. 2017's new mountains none over 700 m). The whole of the crust's land relief follows a stated one,
+  its detail and mountain belts with its continents (`terrain.gdshaderinc` and `PlanetRelief`, together). Titan
+  has no plates, but it has ridges and mountain chains thought compressional (Mitri et al. 2010): the crust's belts
+  stand for them at the stated relief's scale. A survey's roughness scales with it, its equatorial dunes are carved
+  about a landing, and the flight's far ground and the site past its near grid shade them ([terrain](surface.md#terrain)).
+  The globe seen from orbit draws none: Titan's haze hides its surface there in visible light, and Cassini saw the
+  dune belt only through near-infrared windows and by radar.
+- **Seas:** its three maria are stated where Cassini mapped them ([Titan's seas](ocean.md#titans-seas)), and the
+  Titan Mare Explorer comes down on Ligeia.
+- **Sky:** the haze hides the Sun and the stars, and the ground is lit by its diffuse light
+  ([Mars and Titan](sky.md#mars-and-titan)).
 
-The Survey Shuttle comes in from 800 km over Titan. Without a landing site, its deorbit burn aims its perigee
-where the air reaches 1e-4 kg/m³, never above half the air's top: about 75 km on Earth, and inside Titan's
-extended air rather than at half its 600 km.
+The Survey Shuttle comes in from 800 km over Titan. Without a landing site, its deorbit burn aims its perigee at half
+the air's top (Earth's 70 km). Where that is near vacuum, as at half Titan's 600 km, it aims where the air reaches
+1e-4 kg/m³ instead. Over a mare Dragonfly's own landing stays up: its feet do not float.
 
 ## What tests it
 
@@ -94,28 +109,38 @@ extended air rather than at half its 600 km.
 
 | Test | This model | Reference |
 | --- | --- | --- |
-| Ingenuity's induced power | 130.4 W | κκ_c T^1.5/√(2ρA), exact |
-| Ingenuity hovering at 0.0165 kg/m³ | 340 W at the battery (232 W at the shafts), collective 10.3° | NASA: about 350 W in flight |
+| Ingenuity's induced power | 92.2 W | 1.15 × 1.28 × its two rotors' alone, exact |
+| Ingenuity climbing at 2 m/s | 7 W over its hover's 194 | the weight raised is 13 W; the inflow falls as it climbs |
+| Ingenuity hovering at 0.0165 kg/m³ | 289 W at the battery (194 W at the shafts), collective 10.3° | NASA: about 350 W in flight |
 | Its tip Mach | 0.70 at 2537 rpm | about 0.7 |
-| Dragonfly hovering on Titan | 10.9 kW at the shafts, figure of merit 0.47, 723 rpm | a small rotor's 0.5–0.75 (Leishman) |
-| A 420 kg Dragonfly at 10 m/s | 3.1 kW at the shafts and against drag | Lorenz et al. 2018: a little over 2 kW for their 420 kg concept |
-| Each, on a plane | rests, climbs, holds its height, reaches 10 m/s, turns right a quarter turn, lands | |
+| Dragonfly hovering on Titan | 6.27 kW at the shafts, 647 rpm, figure of merit 0.83 | a rotor's 0.5–0.75 (Leishman), up to √2/1.28 more against a pair's one disc |
+| Dragonfly climbing at 3 m/s | 9.03 kW | the weight raised is 3.54 kW |
+| A 420 kg Dragonfly at 10 m/s | 3.46 kW at the shafts and against drag | Lorenz et al. 2018: a little over 2 kW for their 420 kg concept |
+| Each, at 20, 60, 144 and 500 Hz | the same 5 s flown, to a fixed step | |
+| Each, on a plane | rests, climbs, holds its height, reaches 10 m/s, turns right (Dragonfly by its rotors' torque alone, 17°/s), lands; stops where the ground ends | |
 
 `groundcheck` sets Ingenuity down beside Perseverance after the Sky Crane landing. It flies up 8 m on the site's
 own air and ahead at 10 m/s, then lands with its feet on the drawn triangles to 6 mm.
 
 `titancheck` (flight, headless):
 - Dragonfly comes down from the top of Titan's air, its chute opening at Mach 1.49.
-- It leaves the backshell and lands itself on less steep ground, tilted 4°, a foot on the drawn triangles.
-- It flies 73 m up and 9 m/s across the hills, never under 68 m, then stands again.
+- It leaves the backshell and lands itself, upright, a foot on the drawn triangles, 1.70 km over the datum. That
+  is a summit of the crust's belts, over three times the 520 m of the highest gridded point of Lorenz et al.'s map, and
+  inside the 2 km or so Corlies et al. keep it to, which is what the check holds: the belts are too high for Titan.
+- It stands among dunes: across them the drawn ground carries 0.85 of the stated 120 m ridges (correlation 0.84, the
+  rest its own relief), and the field's crests are 3,000 m apart, as stated.
+- It flies 76 m up and across them at 9.8 m/s, never under 72 m, then stands again.
 - Drawn and undrawn descents land identically.
 - The Survey Shuttle comes in from orbit and stops.
-- Dragonfly's descent under its chute and the Shuttle's glide take hours, as Huygens' 2.5 under its chutes
-  did, so they are flown at 20× here and are not scenarios to jump to. At 20× the Shuttle's flare settles
-  differently: it touches down at 7.6 m/s against 20.4 m/s at 1×.
-- Every ground is let go.
+- The Titan Mare Explorer comes down on Ligeia Mare and floats ([the sea](ocean.md#what-tests-it)).
+- Dragonfly's and TiME's descents under their chutes and the Shuttle's glide take hours, as Huygens' 2.5 under
+  its chutes did, so they are flown at 20× here, and only their first minutes are scenarios to jump to. At 20× the
+  Shuttle touches down at 15.4 m/s and 0.7 m/s of sink, its flare scaled to its airspeed
+  ([the approach](orbiter-entry.md)).
+- Every ground and sea is let go.
 
-Mutations: Glauert's factor of two, and the yaw split's sign.
+Mutations: Glauert's factor of two, the yaw split's sign, a stated relief that leaves the crust's mountains at
+Earth's, and dunes laid across their bearing.
 
 Not modelled: blade twist and taper, the rotors' own dynamics (flapping, the time to change speed or pitch),
 ground effect, the wind, Ingenuity's solar charging, and the sols between flights.

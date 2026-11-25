@@ -1,0 +1,41 @@
+// KEPLER'S LAWS, AS AN EXPERIMENT
+// Circle and Ellipse: both a = 1.5 AU, one circular, one e = 0.72 (0.42–2.58 AU).
+// Same period (third law); started together at apoapsis, they return together.
+// Far: a = 1.5 × 4^(1/3) = 2.3811 AU, so a³ is 4× and the period exactly 2×.
+// On the ellipse, periapsis speed is (1+e)/(1−e) = 6.1× apoapsis (second law).
+{
+  "format": 1,
+  "name": "Kepler's laws",
+  "group": "learning",
+  "blurb": "Three planets round one star. Circle and Ellipse have the SAME semi-major axis — 1.5 AU — and wildly different shapes, and they keep arriving back together, because the period depends on the semi-major axis and on nothing else. Far sits at 2.381 AU, where a³ is exactly four times theirs, so it takes exactly two of their years to go round once: count the laps. On the ellipse the planet moves 6.1 times faster at its closest point than at its furthest, which is the second law — the trail bunches up where it is slow.",
+  "sky": { "env": "disc", "roll": 1.1, "tilt": 0.3 },
+  "sceneScale": 22,
+  "bodyScale": 0.35,
+  "camRadius": 62,
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.6,
+  "maxStep": 0.001,
+  "bodies": [
+    {
+      "type": "star", "name": "Sun", "mass": 1, "color": "#fff2cc", "glow": "#ffaa33", "pos": [0, 0, 0],
+      "vel": [0, 0, 0]
+    },
+    {
+      "type": "planet", "name": "Circle", "mass": 3e-06, "radiusKm": 6371, "albedo": 0.22, "crater": 0.4,
+      "hot": true, "obliquity": 11.459155902616464, "regolith": "#8fa3b8", "pos": [1.5, 0, 0],
+      "vel": [0, 0, 5.130199320647456]
+    },
+    {
+      "type": "planet", "name": "Ellipse", "mass": 3e-06, "radiusKm": 6371, "albedo": 0.22, "crater": 0.4,
+      "hot": true, "obliquity": 11.459155902616464, "regolith": "#b8896a", "pos": [2.58, 0, 0],
+      "vel": [0, 0, 2.0698984105337788]
+    },
+    {
+      "type": "planet", "name": "Far", "mass": 3e-06, "radiusKm": 6371, "albedo": 0.22, "crater": 0.4,
+      "hot": true, "obliquity": 11.459155902616464, "regolith": "#7f8f7a",
+      "pos": [-2.381101577952299, 0, 2.916008425883995e-16],
+      "vel": [-4.986568148490777e-16, 0, -4.071841899201157]
+    },
+  ]
+}

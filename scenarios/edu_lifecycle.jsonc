@@ -1,0 +1,36 @@
+// ONE STAR, WHOLE LIFE: nothing else in the scene, so the phase slider has the
+// frame. Each stop is a real point on the track, recomputed by structure_of(); the
+// star swells 130× by the AGB.
+// 0.9 to 130 R☉ is 144:1, so the camera reframes as the star grows (edit_body glides).
+// Deliberately unmeasured: a stated radius/teff/luminosity would hold the star
+// fixed against the phase.
+{
+  "format": 1,
+  "name": "One star, whole life",
+  "group": "learning",
+  "blurb": "A single solar-mass star, with the cross-section panel open and its phase slider free. Every stop on it is a real point on the evolutionary track — the radius, the temperature, the colour and the interior layers are all recomputed from the model, not cross-faded between pictures. Drag it right and watch the star leave the main sequence, swell 25-fold into a red giant, and then 130-fold again; the inner planet is at Mercury's distance to show what that means for anything in the way.",
+  "sky": { "env": "disc", "roll": 0.3, "tilt": 0.4 },
+  "sceneScale": 26,
+  "bodyScale": 1,
+  "trueScale": true,
+  "camRadius": 1.1,
+  "focus": "Sol",
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.4,
+  "maxStep": 0.001,
+  "bodies": [
+    { "type": "star", "name": "Sol", "mass": 1, "phase": "zams", "pos": [0, 0, 0], "vel": [0, 0, 0] },
+    {
+      "type": "planet", "name": "Inner world", "mass": 1.66e-07, "radiusKm": 2439.7, "albedo": 0.12,
+      "crater": 0.95, "hot": true, "regolith": "#8b8279", "pos": [0.33962445145157427, 0, 0.18553768343982657],
+      "vel": [-4.8422315232682225, 0, 8.863645349031465]
+    },
+    {
+      "type": "planet", "name": "Earth-like", "mass": 3.0035e-06, "radiusKm": 6371, "albedo": 0.306,
+      "atmosphere": true, "cloudCover": 0.44, "hot": true, "land": 0.29, "obliquity": 23.44, "pAr": 0.009471,
+      "pCH4": 1.9672e-06, "pCO2": 0.00042588, "pN2": 0.79173, "pO2": 0.21243, "pSO2": 0,
+      "pos": [-0.9667981925794611, 0, -0.2555411020268312], "vel": [1.6056120976354655, 0, -6.07457219862305]
+    },
+  ]
+}

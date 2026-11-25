@@ -96,8 +96,10 @@ if case == "duplicate": print("capture done")
                              ("coursetest.sh", [str(self.output), "kepler"]),
                              ("flightshots.sh", [str(self.output), "sv_launch", "godot"])):
             with self.subTest(script=script):
+                # Past the wrapper's own limits, which are what must end it: three metadata commands of 15 s, the
+                # shot list's Node of 30 s (a cold start on a loaded Windows runner passes 15), and the capture's 2 s.
                 child = subprocess.run(["sh", str(ROOT / "tools" / script), *args], env=env,
-                                       text=True, capture_output=True, timeout=15)
+                                       text=True, capture_output=True, timeout=90)
                 self.assertNotEqual(child.returncode, 0, child.stdout + child.stderr)
                 report = json.loads((self.output / "reference-report.json").read_text())
                 self.assertFalse(report["complete"])

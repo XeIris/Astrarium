@@ -5,13 +5,15 @@ extends Node
 # morning sun, which shows relief; the last of the descent as a frame sequence for a video, and stills
 # after touchdown. The command module comes down in the sea, at the first hour of its list that puts it there.
 # Windowed: it judges nothing, it draws.
-#   Godot --path . --resolution 1280x720 res://tools/groundshots.tscn -- out=/abs/dir [only=lm|skycrane|apollocm|dragonfly] [video=0] [hour=-60]
+#   Godot --path . --resolution 1280x720 res://tools/groundshots.tscn -- out=/abs/dir [only=lm|skycrane|apollocm|dragonfly|time] [video=0] [hour=-60]
 
 const CASES := {
 	"lm": {"base": "lm:powered_descent", "world": "Moon", "film_below": 260.0},
 	"skycrane": {"base": "skycrane:entry", "world": "Mars", "film_below": 400.0},
 	"apollocm": {"base": "apollocm:entry", "world": "Earth", "film_below": 90.0, "sea": true},
 	"dragonfly": {"base": "dragonfly:entry", "world": "Titan", "film_below": 0.0, "warp": 20.0},
+	# Aimed at Ligeia Mare, so not turned to an hour: it comes down in the light Ligeia has.
+	"time": {"base": "time:entry", "world": "Titan", "film_below": 60.0, "warp": 20.0, "fixed": true, "sea": true},
 }
 # Stills after touchdown: [yaw, pitch, distance in vehicle lengths].
 const VIEWS := [[2.4, 0.10, 3.0], [0.6, 0.22, 5.0], [4.0, 0.05, 2.2], [1.5, 0.55, 14.0]]
@@ -50,6 +52,7 @@ func _case(key: String, c: Dictionary) -> bool:
 	if trial.is_empty(): return false
 	var hours: Array = [float(args.get("hour", "-60"))]
 	if c.get("sea", false) and not args.has("hour"): hours = [-40.0, -50.0, -30.0, 40.0, 50.0, -60.0, 30.0, 60.0]
+	if c.get("fixed", false): hours = []
 	var turn := 0.0
 	for h in hours:
 		turn = wrapf(float(trial.sun_lon) + deg_to_rad(float(h)) - float(trial.land_lon), -PI, PI)
@@ -64,6 +67,7 @@ func _case(key: String, c: Dictionary) -> bool:
 	if key == "skycrane" and args.get("rover", "1") != "0": await _drive_mars(f, dir)
 	if key == "apollocm": await _float(f, dir)
 	if key == "dragonfly": await _fly_dragonfly(f, dir)
+	if key == "time": await _float_time(f, dir)
 	f.fly_cam.state.userAimed = true
 	for i in VIEWS.size():
 		var vw: Array = VIEWS[i]
@@ -270,6 +274,31 @@ func _float(f: Spaceflight, dir: String) -> void:
 		f.fly_cam.state.dist = [2.8, 5.0, 2.2][i]
 		for k in 30: await _frame(1.0 / 60.0)
 		await _save(dir.path_join("upright_%d.png" % i), false)
+
+# TiME afloat on Ligeia: the splash's aftermath and its rocking filmed, then stills low over the methane.
+func _float_time(f: Spaceflight, dir: String) -> void:
+	if not f.vessel.afloat():
+		printerr("GROUNDSHOTS FAIL TiME is not afloat")
+		return
+	var film: bool = args.get("video", "1") != "0"
+	var shot := 10000
+	f.fly_cam.state.userAimed = true
+	f.fly_cam.state.yaw = 2.3
+	f.fly_cam.state.pitch = 0.1
+	f.fly_cam.state.dist = 3.0
+	for k in (60 * 20 if args.get("quick", "0") != "1" else 30):
+		await _frame(1.0 / 60.0)
+		f.fly_cam.state.yaw += 0.0015
+		if film and k % 2 == 0:
+			await _save(dir.path_join("seq/%05d.jpg" % shot), true)
+			shot += 1
+	print("GROUNDSHOTS afloat: %s" % f.sea_readout())
+	for i in 4:
+		f.fly_cam.state.yaw = [0.4, 3.6, 5.2, 1.8][i]
+		f.fly_cam.state.pitch = [0.06, 0.25, 0.5, 0.02][i]
+		f.fly_cam.state.dist = [3.2, 6.0, 14.0, 2.6][i]
+		for k in 30: await _frame(1.0 / 60.0)
+		await _save(dir.path_join("afloat_%d.png" % i), false)
 
 # Fly the case's descent from its base, turned `turn` rad about the pole, to touchdown and 3 s past.
 func _fly(c: Dictionary, turn: float, film: bool, dir: String) -> Dictionary:

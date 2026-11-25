@@ -126,10 +126,9 @@ func update(dt: float, sim_years: float) -> void:
 
 # The planet's patch past the grids wears the site's colours, in the sky's light.
 func _paint_env() -> void:
-	var pal := site._palette()
-	var tint := site._fill_tint()
-	env.ground = _tinted(int(pal.soil), tint)
-	env.rock = _tinted(int(pal.a), tint)
+	var h := site.patch_hex()
+	env.ground = h.ground
+	env.rock = h.rock
 	env.sea = 0x10304f
 
 static func _tinted(hex: int, tint: Vector3) -> int:

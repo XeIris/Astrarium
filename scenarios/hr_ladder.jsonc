@@ -1,0 +1,72 @@
+// same exact circular-balance construction as Starcat.star_ring()
+{
+  "format": 1,
+  "name": "The Main Sequence, end to end",
+  "group": "real-stars",
+  "blurb": "Eleven stars from 0.1 to 60 solar masses, every one of them burning hydrogen in its core — the same process, over a factor of 600 in mass. Everything else changes: the red dwarf at one end is 3000 K and will last ten trillion years; the O star at the other is 45 000 K, four hundred thousand times brighter, and will be gone in three million. Sizes are exaggerated here rather than true, because this is the one comparison where readability beats honesty; hit \"Sizes: Real\" to see what it actually looks like.",
+  "sky": { "env": "globular", "roll": 0.9, "tilt": 0.36 },
+  "sceneScale": 1,
+  "bodyScale": 0.9,
+  "camRadius": 46,
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.5,
+  "maxStep": 0.002,
+  "bodies": [
+    {
+      "type": "star", "name": "0.1 M☉", "mass": 0.1, "phase": "ms-mid", "radiusSun": 0.15848931924611134,
+      "teff": 2671.5190871535833, "luminosity": 0.001152730637342727, "pos": [26, 0, 0],
+      "vel": [0, 0, 10.194523564805374]
+    },
+    {
+      "type": "star", "name": "0.2 M☉", "mass": 0.2, "phase": "ms-mid", "radiusSun": 0.27594593229224296,
+      "teff": 3016.0499561565643, "luminosity": 0.005676711537024091,
+      "pos": [21.87259185361071, 0, 14.056661253845537], "vel": [-4.212680552837953, 0, 6.55505889185883]
+    },
+    {
+      "type": "star", "name": "0.4 M☉", "mass": 0.4, "phase": "ms-mid", "radiusSun": 0.4804497735925725,
+      "teff": 3405.0130436178533, "luminosity": 0.027955406779911367,
+      "pos": [10.800790338049048, 0, 23.650431879217475], "vel": [-6.252716081881115, 0, 2.855519754930579]
+    },
+    {
+      "type": "star", "name": "0.7 M☉", "mass": 0.7, "phase": "ms-mid", "radiusSun": 0.7517586466500455,
+      "teff": 4659.9917350818, "luminosity": 0.24009999999999995,
+      "pos": [-3.7001857951054102, 0, 25.735357488904253], "vel": [-6.431208043582464, 0, -0.9246681208330357]
+    },
+    {
+      "type": "star", "name": "1 M☉", "mass": 1, "phase": "ms-mid", "radiusSun": 1, "teff": 5772,
+      "luminosity": 1, "pos": [-17.026379082577414, 0, 19.649488933210716],
+      "vel": [-4.873725169277342, 0, -4.223106899038091]
+    },
+    {
+      "type": "star", "name": "1.5 M☉", "mass": 1.5, "phase": "ms-mid", "radiusSun": 1.2600042722366593,
+      "teff": 7713.14636525974, "luminosity": 5.0625, "pos": [-24.94681731397693, 0, 7.325046477877182],
+      "vel": [-1.8733745600632479, 0, -6.380127832867157]
+    },
+    {
+      "type": "star", "name": "2.5 M☉", "mass": 2.5, "phase": "ms-mid", "radiusSun": 1.6858766864041692,
+      "teff": 10780.600100406464, "luminosity": 34.587411908091646,
+      "pos": [-24.946817313976936, 0, -7.325046477877164], "vel": [1.9951324285975096, 0, -6.794797051968665]
+    },
+    {
+      "type": "star", "name": "4 M☉", "mass": 4, "phase": "ms-mid", "radiusSun": 2.2038102317532213,
+      "teff": 14225.702634417203, "luminosity": 179.2, "pos": [-17.026379082577414, 0, -19.649488933210712],
+      "vel": [5.940876940682021, 0, -5.147799172732315]
+    },
+    {
+      "type": "star", "name": "9 M☉", "mass": 9, "phase": "ms-mid", "radiusSun": 3.498792850272771,
+      "teff": 22954.160390185134, "luminosity": 3061.7999999999997,
+      "pos": [-3.700185795105416, 0, -25.73535748890425], "vel": [8.738866344893486, 0, -1.2564592945188744]
+    },
+    {
+      "type": "star", "name": "20 M☉", "mass": 20, "phase": "ms-mid", "radiusSun": 5.515528049138163,
+      "teff": 36769.87937267542, "luminosity": 50099.99999999996,
+      "pos": [10.800790338049058, 0, -23.650431879217475], "vel": [9.034656598237262, 0, 4.125989419228351]
+    },
+    {
+      "type": "star", "name": "60 M☉", "mass": 60, "phase": "ms-mid", "radiusSun": 10.316828536478848,
+      "teff": 49202.51415466715, "luminosity": 561999.9999999998,
+      "pos": [21.8725918536107, 0, -14.056661253845554], "vel": [3.3347543793396897, 0, 5.188979100665416]
+    },
+  ]
+}

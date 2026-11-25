@@ -55,7 +55,7 @@ The headless return check flew a 250 km orbit through a paid deorbit burn,
 atmospheric entry, banking reversals, glide, preflare and rollout. Touchdown was
 0.73 m/s sink at 79.1 m/s ground speed, and wheel stop followed after 1.86 km.
 Orbit, entry-interface and preflare scenarios also pass played-flight replay.
-Development and asset gates cover all fourteen authored models (28 parity poses).
+Development and asset gates cover all thirteen authored models (26 parity poses).
 The Ranger-specific sweep checks ground contact, attachment, cockpit sightlines,
 camera frames, finish maps and repeated entry in both build paths.
 

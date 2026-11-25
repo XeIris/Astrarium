@@ -2,7 +2,8 @@ extends Node
 
 # TITAN CHECK: Titan in the Titan expedition, and what comes down on it (docs/physics/rotorcraft.md#titan).
 # Dragonfly flies its entry, opens its chute at Huygens' Mach 1.5, leaves its backshell and lands itself on the
-# drawn ground; it is then flown up, across and down. The Survey Shuttle comes in from orbit and rolls to a
+# drawn ground; it is then flown up, across and down. The Titan Mare Explorer comes down on Ligeia Mare and
+# floats (docs/physics/ocean.md#the-titan-mare-explorer). The Survey Shuttle comes in from orbit and rolls to a
 # stop. Drawn and undrawn descents land alike, and nothing of the surface outlives the flights.
 #   Godot --headless --path . res://tools/titancheck.tscn
 
@@ -29,12 +30,14 @@ func _ready() -> void:
 	SurfaceStats.reset()
 	await _dragonfly()
 	await _parity()
+	await _time()
 	await _ranger()
 	main.flight.teardown()
 	var c := SurfaceStats.calls
-	check("every ground and site was let go (grounds %d/%d, sites %d/%d)" % [int(c.get("ground_init", 0)), int(c.get("ground_dispose", 0)),
-		int(c.get("site_init", 0)), int(c.get("site_dispose", 0))],
-		int(c.get("ground_init", 0)) > 0 and c.get("ground_init", 0) == c.get("ground_dispose", 0) and c.get("site_init", 0) == c.get("site_dispose", 0))
+	check("every ground, sea and site was let go (grounds %d/%d, seas %d/%d, sites %d/%d)" % [int(c.get("ground_init", 0)),
+		int(c.get("ground_dispose", 0)), int(c.get("sea_init", 0)), int(c.get("sea_dispose", 0)), int(c.get("site_init", 0)), int(c.get("site_dispose", 0))],
+		int(c.get("ground_init", 0)) > 0 and c.get("ground_init", 0) == c.get("ground_dispose", 0) and int(c.get("sea_init", 0)) > 0
+		and c.get("sea_init", 0) == c.get("sea_dispose", 0) and c.get("site_init", 0) == c.get("site_dispose", 0))
 	print("TITANCHECK DONE checks=%d failures=%d" % [checks, failures])
 	get_tree().quit(1 if failures > 0 else 0)
 
@@ -92,6 +95,7 @@ func _dragonfly() -> void:
 	var tilt := rad_to_deg(acos(clampf(DQuat.rotate(DVec3.new(0, 1, 0), h.q).y, -1.0, 1.0)))
 	check("it rests on the drawn ground (a foot within %s m, the next %s m; tilted %s°)" % [U.fixed(gaps[0], 4), U.fixed(gaps[1], 2), U.fixed(tilt, 0)],
 		gaps[0] < 0.02 and tilt < 35.0 and h.vel.length() < 0.05)
+	_dunes(f, h)
 	# Up, across at full speed, and down again.
 	f.rover_keys = false
 	main.set_drawn(false)
@@ -120,6 +124,54 @@ func _dragonfly() -> void:
 	check("and stands again (%s m/s)" % U.fixed(h.vel.length(), 3), h.on_ground and not h.crashed and h.vel.length() < 0.1)
 	f.teardown()
 
+# The drawn ground across the dunes, inside the part of the near grid that is not eased into the far one: its height
+# from crest to trough, and how well it goes with the stated field's ridges, whose own spacing is counted over 60 km.
+# And how far over the datum it came down.
+func _dunes(f: Spaceflight, h: Rotorcraft) -> void:
+	var spec: Dictionary = f.vessel.parent.spec.dunes
+	var b := deg_to_rad(float(spec.bearing))
+	# Across the crests, east and north, as the ground reads them.
+	var across := Vector2(cos(b), -sin(b))
+	var half_w := 0.5 * float(spec.width) / float(spec.spacing)
+	var near_half := float(f.vessel.ground.relief.grids[0].half)
+	var x := PackedFloat64Array(); var y := PackedFloat64Array()
+	var reach := int(0.9 * near_half / 10.0)
+	for i in range(-reach, reach + 1):
+		var p := across * (i * 10.0)
+		y.append(h.ground.height(p.x, p.y))
+		x.append(float(spec.height) * SurfaceRelief.dune_ridge(p, across, float(spec.spacing), half_w))
+	# Less a straight line through each, so the long relief under them does not count.
+	var dy := _detrended(y); var dx := _detrended(x)
+	var sxy := 0.0; var sxx := 0.0; var syy := 0.0
+	for i in dy.size():
+		sxy += dx[i] * dy[i]; sxx += dx[i] * dx[i]; syy += dy[i] * dy[i]
+	var fit := sxy / sxx
+	var corr := sxy / sqrt(sxx * syy)
+	var crests := 0
+	var was := false
+	for i in 6000:
+		var on := SurfaceRelief.dune_ridge(across * (i * 10.0), across, float(spec.spacing), half_w) > 0.5
+		if on and not was: crests += 1
+		was = on
+	var spacing := 60000.0 / maxf(crests, 1.0)
+	var ll := SurfaceGround.lat_lon(SurfaceGround.to_mesh(f.vessel.r, f.vessel.body_angle(f.vessel.coord), DVec3.new()))
+	check("Dragonfly stands among Titan's dunes: the ground %s of the stated %s m of ridge, correlation %s; %s m apart against %s; %s m over the datum at %s° N" % [
+		U.fixed(fit, 2), spec.height, U.fixed(corr, 2), U.fixed(spacing, 0), spec.spacing, U.fixed(f.vessel.altitude(), 0), U.fixed(rad_to_deg(ll[0]), 1)],
+		absf(fit - 1.0) < 0.4 and corr > 0.7 and absf(spacing / float(spec.spacing) - 1.0) < 0.1
+		# Corlies et al. 2017's map keeps Titan within about 2 km of its geoid; the crust's belts stand higher than the
+		# 520 m of Lorenz et al. 2013's gridded map, which docs/physics/rotorcraft.md owns.
+		and absf(f.vessel.altitude()) < 2000.0)
+
+static func _detrended(v: PackedFloat64Array) -> PackedFloat64Array:
+	var n := v.size()
+	var sx := 0.0; var sy := 0.0; var sxx := 0.0; var sxy := 0.0
+	for i in n:
+		sx += i; sy += v[i]; sxx += i * i; sxy += i * v[i]
+	var slope := (n * sxy - sx * sy) / (n * sxx - sx * sx)
+	var out := PackedFloat64Array()
+	for i in n: out.append(v[i] - (sy - slope * sx) / n - slope * i)
+	return out
+
 func _parity() -> void:
 	var out := []
 	for drawn in [false, true]:
@@ -132,6 +184,71 @@ func _parity() -> void:
 	var d: float = (out[0][1] as Vector3).distance_to(out[1][1])
 	check("drawn and undrawn come down alike (%s s apart, %s m)" % [U.fixed(absf(out[0][0] - out[1][0]), 3), U.expo(d, 1)],
 		absf(out[0][0] - out[1][0]) < 1e-6 and d < 1e-6)
+
+# TiME from the top of Titan's air to Ligeia Mare at 20×, then a minute afloat at 1×: drawn when `drawn`.
+func _time_down(drawn: bool) -> Spaceflight:
+	var err: String = await main.jump_scenario("time:entry")
+	if err != "":
+		check("time:entry: jump (%s)" % err, false)
+		return null
+	var f: Spaceflight = main.flight
+	main.set_drawn(drawn)
+	f.dev_warp = 20.0
+	var n := 0
+	while not f.vessel.afloat() and f.vessel.phase != Vessel.PHASE.DESTROYED and n < 60000:
+		main.step_flight(0.05)
+		n += 1
+	f.dev_warp = 0.0
+	for i in 1200: main.step_flight(0.05)
+	main.set_drawn(true)
+	return f
+
+func _time() -> void:
+	var f := await _time_down(false)
+	if f == null: return
+	var v := f.vessel
+	var log_ := _events(v)
+	var chute := _first(log_, "Parachute deploy")
+	var mach := float(chute.get_slice("Mach ", 1).get_slice(",", 0)) if chute.contains("Mach ") else 0.0
+	check("TiME's main opens at Huygens' Mach 1.5 and its stabiliser at 110 km (%s; %s)" % [chute, _first(log_, "Main chutes")],
+		absf(mach - 1.5) < 0.05 and _first(log_, "Main chutes") != "")
+	var sea: SurfaceSea = v.sea
+	check("it comes down on Ligeia Mare (%s)" % _first(log_, "Ligeia Mare at"), v.afloat() and sea != null and sea.pin != null
+		and str(sea.pin.ground.get("mare", "")) == "Ligeia Mare")
+	if not v.afloat(): return
+	var splash := _first(log_, "Splashdown")
+	var speed := float(splash.get_slice("— ", 1).get_slice(" m/s", 0)) if splash.contains("— ") else 0.0
+	check("it splashes down at Huygens' 4.5 m/s (%s)" % splash, absf(speed - 4.5) < 0.6 and sea.floater.peak_accel / 9.81 < 5.0)
+	var fl := sea.floater
+	var want := TimeCapsule.MASS / float(sea.liquid.rho)
+	check("it floats upright on methane, %s m³ of it displaced against m/ρ %s m³ (heel %s°)" % [U.fixed(fl.displaced, 3), U.fixed(want, 3),
+		U.fixed(sea.heel(), 1)], sea.heel() < 20.0 and absf(fl.displaced / want - 1.0) < 0.15 and str(sea.liquid.name) == "liquid methane")
+	var w := sea.weather.now()
+	var lm := 0.2 * float(w.wind) * float(w.wind) / 1.352
+	check("on Ligeia's waves: Hs %s m in %s m/s of wind, against Lorenz & Mann's 0.2U²/g %s m, %s m deep" % [U.fixed(sea.field.hs(), 2),
+		U.fixed(float(w.wind), 1), U.fixed(lm, 2), U.fixed(sea.depth, 0)], sea.field.calm() or absf(sea.field.hs() / lm - 1.0) < 0.3)
+	print("TITANCHECK note TiME: %s" % f.sea_readout())
+	var at := [v.coord, Vector3(fl.p[0], fl.p[1], fl.p[2])]
+	f.teardown()
+	var g := await _time_down(true)
+	if g == null or not g.vessel.afloat():
+		check("TiME drawn: afloat", false)
+		return
+	var gf: Floater = g.vessel.sea.floater
+	var d: float = (at[1] as Vector3).distance_to(Vector3(gf.p[0], gf.p[1], gf.p[2]))
+	check("drawn and undrawn come down on the sea alike (%s s apart, %s m)" % [U.fixed(absf(float(at[0]) - g.vessel.coord), 3), U.expo(d, 1)],
+		absf(float(at[0]) - g.vessel.coord) < 1e-6 and d < 1e-6)
+	# Where it is drawn, against the datum sphere under it: kilometres from the survey's pin, whose tangent plane is
+	# metres above the sea there.
+	for i in 3: main.animate(1.0 / 60.0)
+	var R := g.vessel.surface_r(g.vessel.r)
+	var cg: Vector3 = g.craft.group.basis * TimeCapsule.centre()
+	var h := g.craft_pos.add(DVec3.new(cg.x, R + cg.y, cg.z)).length() - R
+	var off := Vector2(gf.p[0], gf.p[2]).length()
+	check("drawn on the sea %s km from the pin (its centre of mass %s m over the mean sea, the Floater's %s m; the pin's plane is %s m up there)" % [
+		U.fixed(off / 1000.0, 1), U.fixed(h, 2), U.fixed(gf.p[1], 2), U.fixed(off * off / (2.0 * R), 1)],
+		absf(h - gf.p[1]) < 0.1 and absf(gf.p[1]) < 3.0)
+	g.teardown()
 
 func _ranger() -> void:
 	var err: String = await main.jump_scenario("ranger:titan_orbit")

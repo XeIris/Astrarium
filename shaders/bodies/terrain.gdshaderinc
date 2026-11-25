@@ -65,9 +65,11 @@ void terrain(vec3 p, float seed, out float hKm, out float rug) {
 	float s = sign(c);
 	float y = s * pow(min(abs(c) / 0.34, 1.0), 0.55);
 
-	// Continents are rough; the abyssal plain is flat under sediment.
+	// Continents are rough; the abyssal plain is flat under sediment. A world's stated relief scales all of
+	// its land's, the detail and the mountain belts with the continents (3.2 km, the default, is 1 exactly).
+	float reliefK = uLandRelief / 3.2;
 	hKm = (y >= 0.0) ? y * uLandRelief : y * uOceanDepth;
-	float detailAmp = (y >= 0.0) ? 0.9 : 0.25;
+	float detailAmp = (y >= 0.0) ? 0.9 * reliefK : 0.25;
 	float fine = (fbm(q * 5.3 + 3.1, 5) - 0.5) * 2.0;
 	hKm += fine * detailAmp;
 
@@ -86,7 +88,7 @@ void terrain(vec3 p, float seed, out float hKm, out float rug) {
 	float belt = ridged(warp(p * 7.0 + vec3(seed), 0.2), 5);
 	belt = pow(clamp(belt, 0.0, 1.0), 1.6);
 	float conv = max(closing, 0.0) * onEdge;
-	hKm += belt * conv * mix(2.2, 7.0, land);
+	hKm += belt * conv * mix(2.2, 7.0, land) * reliefK;
 	// and the trench that goes with subduction, just OUTBOARD of the arc
 	float trench = sstep(0.06, 0.0, edge) * conv * (1.0 - land);
 	hKm -= trench * 5.0;
