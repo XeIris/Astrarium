@@ -7,7 +7,7 @@ A scenario file sets up an orrery scene's initial conditions: its bodies, how
 they start moving, the sky, the paint library's rings, belts and clouds, the
 camera and the clock. It does not script anything and cannot ask for graphics
 the game doesn't already draw. Scenarios that need code stay in GDScript:
-`solar` and `jovian_voyage` (`sim/presets.gd`), the galaxy scenes, the title
+`solar`, `jovian_voyage` and `titan_voyage` (`sim/presets.gd`), the galaxy scenes, the title
 reel and anything a lesson scripts.
 
 ## Files and where they live
@@ -255,7 +255,7 @@ what is unusual about the body.
 
 ## The built-in scenarios
 
-Every scenario except `solar` and `jovian_voyage` is a file. Each was written
+Every scenario except `solar`, `jovian_voyage` and `titan_voyage` is a file. Each was written
 from the build it replaced, and `tools/fixtures/scenario_states.json` holds those
 builds bit for bit (`-0.0` equal to `0.0`). The check refuses any file whose
 settings or starting bodies differ from it. After an intended change, rewrite

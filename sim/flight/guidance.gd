@@ -102,6 +102,16 @@ class Autopilot extends RefCounted:
 	var q_guarding: bool = false
 	var shield_gone: bool = false
 	var crane_out: bool = false
+	var _chute_met := -1.0       # when the parachute opened and the backshell went (proper time, s)
+	var _sep_met := -1.0
+	var _edl_met := -1.0         # the flight's clock at EDL's last cycle: its own clocks run on accepted time
+	var map_error := Vector2.ZERO # how far out the position on the landing map is, m
+	var picked: DVec3 = null     # the spot picked on that map; `site` is that much off it
+	var flattest: DVec3 = null   # the smoothest candidate it had, rocks aside
+	var _site_mesh: DVec3 = null # both in the planet's own axes
+	var _picked_mesh: DVec3 = null
+	var _t_go := 0.0             # the divert's time to go, s; 0 once it is flown
+	var mains_out: bool = false
 	var _integ: float = 0.0
 	var _pitch_cmd = null        # the last commanded ascent pitch, rad (see _rate_limit_pitch)
 	var _meco_met: float = -1.0  # when the ascent cut off (for a tank dropped after MECO)
@@ -167,6 +177,7 @@ class Autopilot extends RefCounted:
 			if d is DVec3 and not turned.has(d):
 				DQuat.rotate(d, turn); turned.append(d)
 		site = null
+		_site_mesh = null
 
 	func update(dt: float) -> void:
 		if v.phase == Vessel.PHASE.DESTROYED:
@@ -795,7 +806,7 @@ class Autopilot extends RefCounted:
 			floor_alt: float = 0.0, site_k: float = 0.02, site_cap: float = 25.0,
 			t_go: float = 0.0) -> DVec3:
 		var env: Dictionary = v.env
-		var alt := maxf(v.altitude() - floor_alt, 0.0)
+		var alt := maxf(v.height_above_ground() - floor_alt, 0.0)
 		DQuat.nrm(Guidance._up.copy_from(v.r))
 		var g: float = env.mu / maxf(v.r.length_sq(), 1.0)
 		# Drift is over the ground, where the site is; the wind is a disturbance to it.
@@ -824,7 +835,9 @@ class Autopilot extends RefCounted:
 		# The air brakes too; leaving it out makes a booster over-brake by drag·τ and stop short.
 		var va := v.airspeed(v.r, v.v, Guidance._f).length()
 		var drag_up: float = float(v.telemetry.get("drag", 0.0)) / maxf(v.mass, 1.0) * (-v_vert / va) if va > 1.0 else 0.0
-		var a_vert := maxf(g + a_ff + (vref - v_vert) / tau - drag_up, floor_a)
+		# The held rate is held against the ground, which rises or falls under a drifting vehicle on a slope.
+		var closing := v_vert if (alt >= hold_below or v.ground == null) else v.closing_rate(Guidance._g)
+		var a_vert := maxf(g + a_ff + (vref - closing) / tau - drag_up, floor_a)
 
 		# lateral: kill the drift, and lean gently toward the site
 		Guidance._c.set_v(0.0, 0.0, 0.0)
@@ -885,16 +898,24 @@ class Autopilot extends RefCounted:
 	## Carry the landing site round with its body by ω × r, the same expression as `place_on_pad`.
 	func spin_site(dt: float) -> void:
 		if site == null: return
+		# A spot picked off the survey is fixed to the planet: placed at its angle now, with no step to lag by.
+		if _site_mesh != null:
+			var theta := v.body_angle(v.coord)
+			SurfaceGround.from_mesh(_site_mesh, theta, site)
+			DQuat.set_len(site, v.ground_r(site))
+			SurfaceGround.from_mesh(_picked_mesh, theta, picked)
+			DQuat.set_len(picked, v.ground_r(picked))
+			return
 		Guidance._a.set_v(0.0, -v.env.rotRate, 0.0).cross_vectors(Guidance._a, site)
 		site.add_scaled_in(Guidance._a, dt)
-		DQuat.set_len(site, v.surface_r(site))
+		DQuat.set_len(site, v.ground_r(site))
 
 	func landing_guidance(dt: float, pa: float):
 		var env: Dictionary = v.env
 		var t := v.telemetry
 		spin_site(dt)
 		var prof = v.vehicle.get("descent")
-		var alt := v.altitude()
+		var alt := v.height_above_ground()
 		DQuat.nrm(Guidance._up.copy_from(v.r))
 		var v_vert := v.v.dot(Guidance._up)
 		var a_max := full_thrust(pa) / v.mass
@@ -910,7 +931,8 @@ class Autopilot extends RefCounted:
 			var ang: float = rng / env.radius
 			DQuat.nrm(Guidance._b.copy_from(v.v).add_scaled_in(Guidance._up, -v_vert))
 			site = Guidance._up.clone().scale_in(cos(ang)).add_scaled_in(Guidance._b, sin(ang))
-			DQuat.set_len(site, v.surface_r(site))
+			v.request_ground(site)
+			DQuat.set_len(site, v.ground_r(site))
 			state_name = "P63"
 			note("P63 — braking phase")
 		var st: DVec3 = site
@@ -922,7 +944,7 @@ class Autopilot extends RefCounted:
 			Guidance._b.copy_from(v.v).add_scaled_in(Guidance._up, -v.v.dot(Guidance._up))
 			if Guidance._b.length_sq() < 1.0: Guidance._b.copy_from(Guidance._up).cross_vectors(Guidance._b, Guidance._a)
 			DQuat.nrm(Guidance._b)
-			var rT := Guidance._a.clone().scale_in(v.surface_r(st) + gate.alt).add_scaled_in(Guidance._b, -gate.range)
+			var rT := Guidance._a.clone().scale_in(v.ground_r(st) + gate.alt).add_scaled_in(Guidance._b, -gate.range)
 			var vT := Guidance._b.clone().scale_in(gate.vHoriz).add_scaled_in(Guidance._a, gate.vVert)
 			# Aim just above the DPS's forbidden throttle band, so P63 flies at full thrust.
 			var tgo := track_t_go(rT, vT, a_max, dt, 0.96)
@@ -937,7 +959,7 @@ class Autopilot extends RefCounted:
 		if state_name == "P64":
 			var gate: Dictionary = prof.loGate if prof != null else { "alt": 30.0, "range": 11.0 }
 			DQuat.nrm(Guidance._a.copy_from(st))
-			var _rT := Guidance._a.clone().scale_in(v.surface_r(st) + gate.alt)
+			var _rT := Guidance._a.clone().scale_in(v.ground_r(st) + gate.alt)
 			var _vT := Guidance._a.clone().scale_in(-1.2)
 			var cmd := descent_law(a_max, 2.0, 0.60, 3.5, 0.6, 50.0)
 			v.throttle = limit_throttle(cmd.length() / maxf(a_max, 1e-6), pa, dt)
@@ -1017,7 +1039,8 @@ class Autopilot extends RefCounted:
 	const HOVERSLAM_DEC := 0.55
 	func hoverslam_guidance(dt: float, pa: float):
 		var env: Dictionary = v.env
-		var alt := v.altitude()
+		# Over the ground that will stop it; the air is tabulated from the figure, but its ceilings are coarse.
+		var alt := v.height_above_ground()
 		DQuat.nrm(Guidance._up.copy_from(v.r))
 		v.airspeed(v.r, v.v, Guidance._a)
 		var speed := Guidance._a.length()
@@ -1329,9 +1352,13 @@ class Autopilot extends RefCounted:
 	## Normal acceleration, m/s², that steers the flight-path angle γ toward `gref`; below
 	## the preflare toward the pull-up onto the inner glide slope, and below 30 m no
 	## steeper than the flare's sink rate.
+	## The preflare, the inner slope's capture and the flare are heights for the Shuttle's 100 m/s; a much slower
+	## glider (the Survey Shuttle in Titan's thick air, at 20 m/s) takes them proportionally lower, so its pull-up
+	## lasts as long as the Shuttle's rather than gliding shallow for a minute and stalling over rising ground.
 	func _approach_an(h: float, va: float, gam: float, gref: float, g: float) -> float:
-		if h < PREFLARE_ALT: gref = lerpf(INNER_GS, OUTER_GS, sqrt(clampf((h - 40.0) / 560.0, 0.0, 1.0)))
-		if h < 30.0: gref = maxf(gref, -asin(clampf((0.9 + 0.11 * maxf(h, 0.0)) / maxf(va, 1.0), 0.0, 1.0)))
+		var sh := clampf(va / 60.0, 0.25, 1.0)
+		if h < PREFLARE_ALT * sh: gref = lerpf(INNER_GS, OUTER_GS, sqrt(clampf((h - 40.0 * sh) / ((PREFLARE_ALT - 40.0) * sh), 0.0, 1.0)))
+		if h < 30.0 * sh: gref = maxf(gref, -asin(clampf((0.9 + 0.11 * maxf(h, 0.0) / sh) / maxf(va, 1.0), 0.0, 1.0)))
 		var k := 0.8 if h < PREFLARE_ALT else 0.5
 		return clampf(g * cos(gam) + va * k * (gref - gam), 0.2 * g, 1.6 * g)
 
@@ -1568,8 +1595,18 @@ class Autopilot extends RefCounted:
 			if node == null:
 				var el: Dictionary = v.telemetry.el
 				var R: float = el.r
-				# A shallower perigee than a capsule's: a lifting entry needs less of a dive.
-				var a_new: float = (R + Re + float(v.env.atm.top) * 0.5) / 2.0
+				# A shallower perigee than a capsule's: a lifting entry needs less of a dive. Half the air's top
+				# (Earth's 70 km); but an extended air like Titan's is near vacuum there, and it is where the air
+				# reaches 1e-4 kg/m³, where entries start to brake.
+				var top := float(v.env.atm.top)
+				var lo := top * 0.5; var hi := lo
+				if Rocketry.density(v.env.atm, lo) < 1e-5 and Rocketry.density(v.env.atm, 0.0) > 1e-4:
+					lo = 0.0
+					for i in 40:
+						var mid := 0.5 * (lo + hi)
+						if Rocketry.density(v.env.atm, mid) > 1e-4: lo = mid
+						else: hi = mid
+				var a_new: float = (R + Re + 0.5 * (lo + hi)) / 2.0
 				var dv: float = sqrt(maxf(v.env.mu * (2.0 / R - 1.0 / a_new), 0.0)) - float(el.v)
 				node = { "dv": DQuat.nrm(Guidance._a.copy_from(v.v)).scale_in(dv).clone(), "t": 0.0, "label": "Deorbit burn" }
 			# The node counts down in frame seconds, which time warp outruns; hold it to the
@@ -1776,7 +1813,7 @@ class Autopilot extends RefCounted:
 	func bellyflop_guidance(dt: float, pa: float):
 		var st = v.current_stage if v.current_stage != null else v._first_attached()
 		DQuat.nrm(Guidance._up.copy_from(v.r))
-		var alt := v.altitude()
+		var alt := v.height_above_ground()
 		v.airspeed(v.r, v.v, Guidance._g)
 		var va := Guidance._g.length()
 		var v_vert := Guidance._g.dot(Guidance._up)
@@ -1899,13 +1936,23 @@ class Autopilot extends RefCounted:
 		var t := v.telemetry
 		spin_site(dt)
 		var plan_edl = v.vehicle.get("edl")
-		var alt := v.altitude()
+		var alt := v.height_above_ground()
 		DQuat.nrm(Guidance._up.copy_from(v.r))
 		v.airspeed(v.r, v.v, Guidance._a)
 		var speed := Guidance._a.length()
 		var v_vert := v.v.dot(Guidance._up)
 		v.throttle = 0.0
 
+		var ran := maxf(v.met - _edl_met, 0.0) if state_name != null else 0.0
+		_edl_met = v.met
+		# Engaged again part way down, or staged by hand: from where the vehicle is in its sequence.
+		if (state_name == null or state_name == "entry") and _shell_gone():
+			state_name = "chute" if plan_edl != null and plan_edl.get("release") != null else "powered"
+			shield_gone = true
+			crane_out = v.bridle > 0.0
+		elif state_name == null and v.chute_open != null:
+			state_name = "chute"
+			if _chute_met < 0.0 or _chute_met > v.met: _chute_met = v.met
 		if state_name == null:
 			state_name = "entry"
 			note("Entry interface — %s km, %s km/s, flight path %s°" % [U.fixed(alt / 1000.0, 0), U.fixed(speed / 1000.0, 2),
@@ -1916,9 +1963,17 @@ class Autopilot extends RefCounted:
 			# Heat shield forward. Deploy on Mach and q, as a chute is qualified (MSL: Mach 1.7,
 			# ~750 Pa), not on altitude.
 			var ch: Dictionary = plan_edl.chute if (plan_edl != null and plan_edl.get("chute") != null) else { "mach": 1.7, "deployQ": 750.0 }
+			var eb = plan_edl.get("entryBank") if plan_edl != null else null
+			if eb != null: v.bank = deg_to_rad(float(eb.align) if speed < float(eb.alignV) else float(eb.range))
 			var dq: float = ch.get("deployQ", 750.0)
-			# The q lower bound keeps it from firing in vacuum at the entry interface.
-			if t.mach < ch.mach and t.mach > 0.05 and t.q > dq * 0.25 and t.q < dq * 1.6:
+			# The q lower bound keeps it from firing in vacuum at the entry interface. A baroswitch
+			# (`alt`) fires on the way down through its height instead; `machOnly` on the Mach number alone,
+			# for an air whose q at that Mach is nothing like Mars's.
+			var fire: bool = (alt < float(ch.alt) and v_vert < 0.0) if ch.has("alt") \
+				else (t.mach < ch.mach and t.mach > 0.05 and (ch.get("machOnly", false) or (t.q > dq * 0.25 and t.q < dq * 1.6)))
+			# `speed`: on the airspeed, under the same guard against firing in vacuum.
+			if ch.has("speed"): fire = speed < float(ch.speed) and t.q > dq * 0.25 and t.q < dq * 1.6
+			if fire:
 				state_name = "chute"
 				var sh = null
 				for s in v.stages:
@@ -1926,39 +1981,238 @@ class Autopilot extends RefCounted:
 						sh = s; break
 				v.chute_open = sh.spec.chute if sh != null else { "area": 200.0, "Cd": 0.62 }
 				v.chute_deploy = 0.0
+				_chute_met = v.met
+				v.eject_ballast()
+				v.request_ground(_chute_landing(alt))
 				note("Parachute deploy — Mach %s, %s km" % [U.fixed(t.mach, 2), U.fixed(alt / 1000.0, 1)])
 			return Guidance.attitude_for(MODE.RETROGRADE, v)
 
 		if state_name == "chute":
 			# Inflation takes a couple of seconds, and the load during it is the
 			# largest of the whole descent.
-			v.chute_deploy = minf(1.0, v.chute_deploy + dt / 2.2)
+			v.chute_deploy = minf(1.0, v.chute_deploy + dt / float(v.chute_open.get("inflate", 2.2)) if v.chute_open != null else 1.0)
 			say("On the chute — %s km, %s m/s" % [U.fixed(alt / 1000.0, 2), U.fixed(speed, 0)])
-			# Release the backshell low and slow (~1.8 km, 100 m/s): the chute does the braking.
+			# A capsule with mains: the drogues go and the mains take over at their height, and it
+			# stays on them to the sea (SurfaceSea takes it from there).
+			var mains = plan_edl.get("mains") if plan_edl != null else null
+			if mains != null:
+				if not mains_out and alt < float(mains.alt):
+					mains_out = true
+					v.chute_open = {"area": float(mains.area), "Cd": float(mains.Cd), "inflate": float(mains.get("inflate", 2.2))}
+					v.chute_deploy = 0.0
+					note("Main chutes — %s km, %s m/s" % [U.fixed(alt / 1000.0, 2), U.fixed(speed, 0)])
+				if v.phase == Vessel.PHASE.LANDED:
+					program = null
+					if not v.afloat(): note("Touchdown")
+				return Guidance.attitude_for(MODE.RETROGRADE, v)
+			# A flyer leaves its shell at its height and flies itself the rest of the way (Spaceflight).
+			var release = plan_edl.get("release") if plan_edl != null else null
+			if release != null:
+				if (alt < float(release.alt) or _shell_gone()) and not v.release_flyer:
+					if not _shell_gone(): v.stage()
+					v.chute_open = null
+					v.release_flyer = true
+					program = null
+					note("Released from the backshell — %s m, %s m/s" % [U.fixed(alt, 0), U.fixed(speed, 1)])
+				return Guidance.attitude_for(MODE.RETROGRADE, v)
+			var jett = plan_edl.get("shieldJett") if plan_edl != null else null
+			if jett != null and v.met - _chute_met >= float(jett.after) and v.jettison_shield():
+				note("Heat shield separation — %s km, %s m/s" % [U.fixed(alt / 1000.0, 2), U.fixed(speed, 0)])
 			var bs: Dictionary = plan_edl.backshell if (plan_edl != null and plan_edl.get("backshell") != null) else { "alt": 1800.0, "v": 100.0 }
-			if (alt < bs.alt or speed < bs.v) and not shield_gone:
-				# stage(), not jettison(): it drops the shell and lights the descent stage.
-				shield_gone = true; v.stage(); v.chute_open = null
+			if ((alt < bs.alt or speed < bs.v) and not shield_gone) or _shell_gone():
+				# stage(), not jettison(): it drops the shell and readies the descent stage. Staged by hand, it is gone.
+				shield_gone = true
+				if not _shell_gone(): v.stage()
+				v.chute_open = null
 				state_name = "powered"
+				_sep_met = v.met
+				_t_go = 0.0
 				note("Backshell separation — %s km, %s m/s" % [U.fixed(alt / 1000.0, 2), U.fixed(speed, 0)])
 			return Guidance.attitude_for(MODE.RETROGRADE, v)
 
-		# powered descent + sky crane, on the same glide slope as every other
-		# terminal phase
+		# Powered descent. The shell hangs on its parachute and the stage falls clear of it before it lights.
+		var drop := float(plan_edl.backshell.get("drop", 0.0)) if (plan_edl != null and plan_edl.get("backshell") != null) else 0.0
+		if _sep_met >= 0.0 and v.met - _sep_met < drop: return Guidance.attitude_for(MODE.RETROGRADE, v)
 		var a_max := full_thrust(pa) / v.mass
 		var sk: Dictionary = plan_edl.skycrane if (plan_edl != null and plan_edl.get("skycrane") != null) else { "alt": 20.0, "vTouch": -0.75 }
-		if site == null: site = Guidance._up.clone().scale_in(v.surface_r(v.r))
-		DQuat.nrm(Guidance._a.copy_from(site))
-		var _rT := Guidance._a.clone().scale_in(v.surface_r(site) + 0.5)
-		var cmd := descent_law(a_max, absf(sk.vTouch), 0.35, 1.8, 0.55, 120.0, sk.alt * 1.5)
+		var dv = plan_edl.get("divert") if plan_edl != null else null
+		# Where the touchdown rate must be reached: the descent stage's height at rover separation, at the
+		# vessel's own reference.
+		var cabled: bool = sk.has("cable")
+		var h_crane := float(sk.alt) - float(sk.get("stageY", 0.0))
+		if site == null:
+			site = Guidance._up.clone().scale_in(v.ground_r(v.r))
+			if dv != null: _plan_divert(dv, a_max, h_crane, float(sk.vTouch))
+		var cmd: DVec3
+		if _t_go > 0.0:
+			cmd = _fly_divert(ran, a_max, h_crane, dv, absf(float(sk.vTouch)))
+			say("Divert — %s m, %s m to the site" % [U.fixed(alt, 0), U.fixed(_site_off(), 0)])
+		else:
+			cmd = descent_law(a_max, absf(sk.vTouch), 0.35, 1.8, 0.55, float(dv.vVert) if dv != null else 120.0,
+				h_crane * 1.1 if cabled else float(sk.alt) * 1.5)
+			say("Powered descent — %s m, %s m/s" % [U.fixed(alt, 0), U.fixed(v_vert, 2)])
 		v.throttle = limit_throttle(cmd.length() / maxf(a_max, 1e-6), pa, dt)
-		if alt < sk.alt and not crane_out:
+		if cabled and _t_go <= 0.0 and alt < h_crane and not crane_out:
 			crane_out = true
+			# Half the engines shut down as the bridles start to spool (NASA, PIA13282).
+			if v.current_stage != null: v.set_engine_count(int(v.current_stage.spec.count) / 2)
 			note("Sky crane — rover on the cables")
-		say("Powered descent — %s m, %s m/s" % [U.fixed(alt, 0), U.fixed(v_vert, 2)])
+		if crane_out and v.phase != Vessel.PHASE.LANDED:
+			v.bridle = minf(v.bridle + float(sk.payout) * ran, float(sk.cable))
 		if v.phase == Vessel.PHASE.LANDED:
 			program = null; v.throttle = 0.0; note("Touchdown")
 		return aero_limit(cmd, Guidance._b)
+
+	# Whether the vehicle flies in an aeroshell and has left it.
+	func _shell_gone() -> bool:
+		var had := false
+		for st in v.stages:
+			if not st.spec.get("look", {}).get("aeroshell", false): continue
+			had = true
+			if st.attached: return false
+		return had
+
+	## The horizontal distance to the site, m.
+	func _site_off() -> float:
+		Guidance._c.sub_vectors(site, v.r)
+		Guidance._c.add_scaled_in(Guidance._up, -Guidance._c.dot(Guidance._up))
+		return Guidance._c.length()
+
+	# Where the divert hands over to the vertical descent: high enough to stop from its rate at two thirds of
+	# what the engines have over the weight, with a margin.
+	func _divert_end(a_max: float, h_crane: float, dv: Dictionary, v_touch: float) -> float:
+		var g: float = v.env.mu / maxf(v.r.length_sq(), 1.0)
+		var dec := profile_decel(a_max, g, 0.55)
+		return h_crane + (float(dv.vVert) * float(dv.vVert) - v_touch * v_touch) / (2.0 * maxf(dec, 0.1)) * 1.25 + 30.0
+
+	## Pick where to come down: out of the plane the shell falls in by at least `dv.min`, no further from where
+	## she would otherwise land than `dv.max`, and of those the flattest ground over her footprint (the survey's;
+	## the plain nearest one without a survey). Sets `site` and the time to go.
+	func _plan_divert(dv: Dictionary, a_max: float, h_crane: float, v_touch: float) -> void:
+		var up := Guidance._up.clone()
+		var gv := v.ground_velocity(v.r, v.v, DVec3.new())
+		var vz := gv.dot(up)
+		gv.add_scaled_in(up, -vz)
+		var vh := gv.length()
+		var along := DQuat.nrm(gv.clone()) if vh > 0.5 else DQuat.nrm(DVec3.new(0.0, -1.0, 0.0).cross(up))
+		var side := DQuat.nrm(up.clone().cross(along))
+		var h1 := _divert_end(a_max, h_crane, dv, absf(v_touch))
+		var h := v.height_above_ground()
+		if h <= h1 + 50.0: return
+		_t_go = 2.0 * (h - h1) / (absf(vz) + float(dv.vVert))
+		# Stopping the drift over the time to go carries her a third of what it would have covered.
+		var base := v.r.clone().add_scaled_in(along, vh * _t_go / 3.0)
+		# What the engines can spare sideways: 6 d / t² at the start, held to 0.45 of their acceleration.
+		var reach := minf(float(dv.max), 0.45 * a_max * _t_go * _t_go / 6.0)
+		var found := []
+		var b := float(dv.min)
+		while b <= maxf(reach, float(dv.min)) + 1e-6:
+			for s: float in [1.0, -1.0]:
+				for a_off: float in [0.0, 60.0, -60.0, 120.0, -120.0]:
+					if b > float(dv.min) and sqrt(b * b + a_off * a_off) > reach: continue
+					var p := base.clone().add_scaled_in(side, s * b).add_scaled_in(along, a_off)
+					# On the ground: the survey's coordinates of a point above it are stretched by its height.
+					DQuat.set_len(p, v.ground_r(p))
+					found.append([_roughness(p, along, side) + 1e-4 * absf(a_off) + 2e-4 * (b - float(dv.min)), p, b])
+			b += 25.0
+		found.sort_custom(func(x: Array, y: Array) -> bool: return x[0] < y[0])
+		# The rocks a map from orbit shows, over the flattest of them. Both on a hazard's scale: the relief against
+		# SAFE_SLOPE across the map's reach, a rock against what she can stand over.
+		flattest = found[0][1]
+		var cache := {}
+		var best := INF
+		var out_m := 0.0
+		for c: Array in found.slice(0, MAP_SITES):
+			var score: float = c[0] / (2.0 * MAP_RADIUS * tan(SAFE_SLOPE))
+			for d: float in _rocks_at(c[1], cache): score += d / SAFE_ROCK
+			if score < best:
+				best = score
+				out_m = c[2]
+				site = (c[1] as DVec3).clone()
+		# Where she thinks she is on that map is out by this much, so she comes down that far from the spot she picked.
+		map_error = _position_error()
+		picked = site.clone()
+		site.add_scaled_in(along, map_error.x).add_scaled_in(side, map_error.y)
+		DQuat.set_len(site, v.ground_r(site))
+		var theta := v.body_angle(v.coord)
+		_site_mesh = SurfaceGround.to_mesh(site, theta, DVec3.new())
+		_picked_mesh = SurfaceGround.to_mesh(picked, theta, DVec3.new())
+		note("Divert — %s m, %s m out of the shell's plane" % [U.fixed(_site_off(), 0), U.fixed(out_m, 0)])
+
+	## A landing map from orbit (HiRISE, 0.3 m a pixel) shows rocks from about a metre; the position on it is known to
+	## 40 m (JPL's requirement on the Lander Vision System), taken as three standard deviations on each axis.
+	const MAP_ROCK_D := 1.0
+	const MAP_ERROR_M := 40.0
+	## How many of the flattest candidates are looked over for rocks, and how far round each, m.
+	const MAP_SITES := 24
+	const MAP_RADIUS := 13.0
+	## What she can stand on and over: a 25° slope (an estimate, under the 30° a rocker-bogie is limited to) and her
+	## belly's 0.6 m (Rover.PERSEVERANCE's clearance).
+	const SAFE_SLOPE := deg_to_rad(25.0)
+	const SAFE_ROCK := 0.6
+
+	func _rocks_at(p: DVec3, cache := {}) -> PackedFloat64Array:
+		if v.ground == null or not v.ground.adopted: return PackedFloat64Array()
+		var sp := v.ground.site_point(v, p)
+		return SiteRocks.near(v.ground.relief, v.parent.name, -sp.x, sp.z, MAP_RADIUS, MAP_ROCK_D, cache)
+
+	# Drawn once from the run's seed and the world, so the same descent makes the same error however its frames fall.
+	func _position_error() -> Vector2:
+		if v.ground == null or not v.ground.adopted: return Vector2.ZERO
+		var rng := RandomNumberGenerator.new()
+		rng.seed = hash([v.ground_seed, v.parent.name, "lvs"])
+		return (Vector2(rng.randfn(), rng.randfn()) * (MAP_ERROR_M / 3.0)).limit_length(MAP_ERROR_M)
+
+	# How uneven the ground is about `p`, m: the range of its height over a cross as wide as the map's reach.
+	func _roughness(p: DVec3, along: DVec3, side: DVec3) -> float:
+		if v.ground == null or not v.ground.adopted: return 0.0
+		var lo := INF
+		var hi := -INF
+		for o: Vector2 in [Vector2.ZERO, Vector2(5, 0), Vector2(-5, 0), Vector2(0, 5), Vector2(0, -5),
+				Vector2(MAP_RADIUS, 0), Vector2(-MAP_RADIUS, 0), Vector2(0, MAP_RADIUS), Vector2(0, -MAP_RADIUS)]:
+			var q := p.clone().add_scaled_in(along, o.x).add_scaled_in(side, o.y)
+			var z := v.ground_r(q) - v.surface_r(q)
+			lo = minf(lo, z); hi = maxf(hi, z)
+		return hi - lo
+
+	## Fly the divert: the quadratic law to the point over the site at the hand-over height, coming straight
+	## down at `dv.vVert` (as Tianwen-1's, without its terminal acceleration: Huang et al. 2022 eq. 1).
+	func _fly_divert(dt: float, a_max: float, h_crane: float, dv: Dictionary, v_touch: float) -> DVec3:
+		var h1 := _divert_end(a_max, h_crane, dv, v_touch)
+		var h := v.height_above_ground()
+		var gv := v.ground_velocity(v.r, v.v, Guidance._g)
+		var vz := gv.dot(Guidance._up)
+		Guidance._b.copy_from(gv).add_scaled_in(Guidance._up, -vz)
+		_t_go -= dt
+		if _t_go < 1.0 or h <= h1:
+			_t_go = 0.0
+			note("Vertical descent — %s m, %s m/s, %s m from the site" % [U.fixed(h, 0), U.fixed(vz, 1), U.fixed(_site_off(), 0)])
+		var t := maxf(_t_go, 1.0)
+		var g: float = v.env.mu / maxf(v.r.length_sq(), 1.0)
+		var az := g + 6.0 * ((h1 - h)) / (t * t) - (4.0 * vz - 2.0 * float(dv.vVert)) / t
+		Guidance._c.sub_vectors(site, v.r)
+		Guidance._c.add_scaled_in(Guidance._up, -Guidance._c.dot(Guidance._up))
+		Guidance._d.copy_from(Guidance._c).scale_in(6.0 / (t * t)).add_scaled_in(Guidance._b, -4.0 / t)
+		# The vertical comes first; the sideways takes what is left of the engines, at most 50° of tilt.
+		az = clampf(az, 0.5 * g, 0.95 * a_max)
+		var lat := minf(sqrt(maxf(0.95 * 0.95 * a_max * a_max - az * az, 0.0)), az * tan(deg_to_rad(50.0)))
+		if Guidance._d.length() > lat: DQuat.set_len(Guidance._d, lat)
+		v_ref = -float(dv.vVert); v_vert_now = vz; lat_now = Guidance._b.length()
+		return Guidance._e.copy_from(Guidance._up).scale_in(az).add_in(Guidance._d)
+
+	## Where a chute opened at height `h` over the ground comes down: drifting on at the horizontal
+	## ground speed for the time a steady deceleration to rest takes, h / |v_z| · v_h, at most a quarter of a
+	## survey's far grid. An estimate; the survey reaches 60 km either way.
+	func _chute_landing(h: float) -> DVec3:
+		var up := DQuat.nrm(v.r.clone())
+		var gv := v.ground_velocity(v.r, v.v, DVec3.new())
+		var vv := gv.dot(up)
+		gv.add_scaled_in(up, -vv)
+		var vh := gv.length()
+		var at := up.scale_in(v.r.length())
+		if vh > 1e-3:
+			at.add_scaled_in(gv, minf(vh * maxf(h, 0.0) / maxf(-vv, 1.0), SurfaceRelief.FAR_HALF * 0.25) / vh)
+		return at
 
 	# TOWER CATCH — a returning booster (docs/physics/booster-catch.md). No entry burn:
 	# boostback has already killed the downrange speed, and the air brakes the rest.

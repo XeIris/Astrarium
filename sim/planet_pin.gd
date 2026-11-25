@@ -6,7 +6,7 @@ extends RefCounted
 # crust and climate the planet is drawn with, so the pin says what you can see. It does not hunt
 # for land: a pin in the sea says so. docs/physics/surface.md#the-pin.
 
-## Radians. `n` is its number in the sequence, from 1.
+## Radians. `n` is its number in the sequence, from 1; negative for a pin put at a place (`at`).
 var lat := 0.0
 var lon := 0.0
 var n := 1
@@ -22,6 +22,17 @@ static func drop(b: Body, n: int, run_seed: int) -> PlanetPin:
 	var at := draw(str(U.nz(b.spec.get("seed"), b.name)), run_seed, n)
 	pin.lat = at.x
 	pin.lon = at.y
+	pin.p = direction(pin.lat, pin.lon)
+	pin.ground = read_ground(b, pin.p, pin.lat, pin.lon)
+	return pin
+
+## A pin put at a chosen place (rad) rather than drawn: a landing's. Its number is negative, from the
+## place, so two landings get different roughness and the same place the same.
+static func at(b: Body, lat_r: float, lon_r: float) -> PlanetPin:
+	var pin := PlanetPin.new()
+	pin.n = -1 - (hash([snappedf(lat_r, 1e-5), snappedf(wrapf(lon_r, -PI, PI), 1e-5)]) & 0x3fffffff)
+	pin.lat = lat_r
+	pin.lon = wrapf(lon_r, -PI, PI)
 	pin.p = direction(pin.lat, pin.lon)
 	pin.ground = read_ground(b, pin.p, pin.lat, pin.lon)
 	return pin
@@ -72,6 +83,14 @@ static func read_ground(b: Body, p: Vector3, lat_r: float, lon_r: float) -> Dict
 	elif sea: kind = "sea"
 	elif frost >= 0.5: kind = "ice sheet"
 	else: biome = _biome(t, pr, hr.y, biota, r)
+	# A stated sea is where it was mapped, whatever the crust draws there.
+	var mare := StatedSeas.at(b.name, lat_r, lon_r, b.radius * Rocketry.AU_M) if StatedSeas.has(b.name) else {}
+	if not mare.is_empty() and float(mare.inside) > 0.0:
+		kind = "sea"
+		biome = ""
+		out.depth_m = maxf(float(mare.depth), SurfaceRelief.COAST_M)
+		out.height_m = -float(out.depth_m)
+		out.mare = mare.name
 	out.kind = kind
 	out.biome = biome
 	out.text = describe(out, b)
@@ -134,7 +153,10 @@ static func _biome(t: float, pr: float, rug: float, biota: float, r: PlanetRelie
 static func describe(g: Dictionary, b: Body) -> String:
 	var c := "%s °C" % U.fixed(float(g.temp_k) - 273.15, 0)
 	match g.kind:
-		"sea": return "Open sea, %s deep, %s at the surface." % [_distance(float(g.depth_m)), c]
+		"sea":
+			if g.has("mare"):
+				return "%s: open sea of %s, %s deep, %s at the surface." % [g.mare, Liquid.of(b.name).name, _distance(float(g.depth_m)), c]
+			return "Open sea, %s deep, %s at the surface." % [_distance(float(g.depth_m)), c]
 		"sea ice": return "Sea ice over %s of water, %s." % [_distance(float(g.depth_m)), c]
 		"ice sheet": return "An ice sheet, %s, %s." % [_level(float(g.height_m), b), c]
 		_:
@@ -172,6 +194,36 @@ static func land_at(body_name: String, lat_r: float, lon_r: float) -> bool:
 	var y := mini(int(v * image.get_height()), image.get_height() - 1)
 	return image.get_pixel(x, y).r >= 0.5
 
+# A dry map's colour images, read when a site needs one; held only while a showcase or a landing is on.
+static var _colour := {}
+
+## The colour a dry world's map (PlanetMaps kind 2) has at (lat, lon), rad, as sRGB hex at the world's albedo
+## (the map times its `scale`, in linear light, as the globe and the flight's patch draw it); −1 off a map.
+static func map_colour(body_name: String, lat_r: float, lon_r: float) -> int:
+	var source: Dictionary = PlanetMaps.SOURCES.get(body_name, {})
+	if source.is_empty() or int(source.kind) != 2: return -1
+	if not _colour.has(body_name):
+		var tex := load(PlanetMaps.DIR + str(source.color)) as Texture2D
+		var img: Image = tex.get_image() if tex != null else null
+		if img != null and img.is_compressed(): img.decompress()
+		_colour[body_name] = img
+	var image: Image = _colour[body_name]
+	if image == null: return -1
+	var u := fposmod((lon_r + PI) / TAU, 1.0)
+	var v := clampf((PI * 0.5 - lat_r) / PI, 0.0, 1.0)
+	# A few texels about the site, so one bright crater does not colour it.
+	var acc := Color(0, 0, 0)
+	var n := 0
+	for dy in range(-2, 3):
+		for dx in range(-2, 3):
+			var x := posmod(int(u * image.get_width()) + dx, image.get_width())
+			var y := clampi(int(v * image.get_height()) + dy, 0, image.get_height() - 1)
+			acc += image.get_pixel(x, y).srgb_to_linear()
+			n += 1
+	var c := (acc / float(n)) * float(source.scale)
+	return c.linear_to_srgb().to_rgba32() >> 8
+
 static func release_maps() -> void:
 	_mask.clear()
+	_colour.clear()
 	PlanetElevation.release()

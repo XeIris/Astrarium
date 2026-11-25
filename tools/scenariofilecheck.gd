@@ -185,8 +185,8 @@ func compare_builtins() -> void:
 		# is macOS's, and glibc and MinGW put sirius an ulp away. States stay exact.
 		var trig := FileAccess.get_file_as_string(Presets.SCENARIO_DIR.path_join(name)).contains("\"orbit\"")
 		compare_preset(key, decode(fixture[key]), r.preset, ORBIT_ULPS if trig else 0)
-	# The two built in code go through Kepler's equation in libm, like an orbit file.
-	for key in ["solar", "jovian_voyage"]:
+	# The three built in code go through Kepler's equation in libm, like an orbit file.
+	for key in ["solar", "jovian_voyage", "titan_voyage"]:
 		check("%s is in the fixture" % key, fixture.has(key) and Presets.PRESETS.has(key))
 		if fixture.has(key) and Presets.PRESETS.has(key): compare_preset(key, decode(fixture[key]), Presets.PRESETS[key], ORBIT_ULPS)
 	check("every built-in file was read (%d)" % files, files >= 36)

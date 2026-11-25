@@ -63,6 +63,19 @@ var sun_tint := Color.WHITE
 ## What the air takes from the Sun at its altitude, per channel, relative to overhead (where
 ## the light's calibration stands). Never more than 1.
 var sun_extinction := Vector3.ONE
+## Under a haze like Titan's, its diffuse daylight on the craft (_set_ambient), linear irradiance; else zero.
+var _haze_fill := Vector3.ZERO
+## Dust a storm has lifted over what the sky model already holds: an optical depth, set by the site's weather
+## (SurfaceWeather), and its colour, linear. Zero in clear air.
+var dust_extra := 0.0
+var dust_tint := Color(0.6, 0.42, 0.28)
+## Most of a storm's dust is in its lowest few km (MGS TES and MCS profiles: a well-mixed layer about 10 km
+## deep, with the lifted dust densest near the ground): this deep, as an exponential fog, m.
+const DUST_LAYER_M := 3000.0
+
+## What of the haze's fill the engine's ambient puts on every surface, in the ground shaders' skylight units.
+func haze_ambient() -> float:
+	return (_haze_fill.x + _haze_fill.y + _haze_fill.z) / 3.0 / PI
 ## Sine of the Sun's height over the horizon the vehicle actually has, which is below the local
 ## horizontal by the dip. Past the limb it goes negative.
 var sun_over_limb := 1.0
@@ -290,6 +303,63 @@ func _init(p: RenderPipeline) -> void:
 	place(ground, DVec3.new())
 	place(sky, DVec3.new())
 
+# A world's stated dune field on the ground patch, about the eye's latitude (the pole is −Y in this frame).
+func _set_dunes(d, east: DVec3, up: DVec3, north: DVec3, anchor) -> void:
+	if d == null or (d as Dictionary).is_empty():
+		ground_mat.set_shader_parameter("uDunes", Vector4.ZERO)
+		return
+	var b := deg_to_rad(float(d.bearing))
+	ground_mat.set_shader_parameter("uDunes", Vector4(float(d.width), float(d.spacing), deg_to_rad(float(d.band)),
+		asin(clampf(-up.y, -1.0, 1.0))))
+	ground_mat.set_shader_parameter("uDuneAcross", Vector2(cos(b), -sin(b)))
+
+# A world's stated seas on the ground patch: `maria` is [[unit centre (flight frame), angular radius rad], …].
+func _set_maria(maria: Array, east: DVec3, up: DVec3, north: DVec3) -> void:
+	var caps := PackedVector4Array()
+	caps.resize(8)
+	var n := mini(maria.size(), 8)
+	for i in n:
+		var c: DVec3 = maria[i][0]
+		caps[i] = Vector4(c.dot(east), c.dot(up), c.dot(north), float(maria[i][1]))
+	ground_mat.set_shader_parameter("uMariaN", n)
+	if n > 0:
+		ground_mat.set_shader_parameter("uMaria", caps)
+		ground_mat.set_shader_parameter("uLiquid", MARIA_LIQUID)
+
+## The far ground's colour for liquid methane under Titan's light: its deep reflectance (Liquid.deep_reflectance
+## of Liquid.TITAN_SEA) with the haze's sky in it at methane's 1.7% normal reflectance. A shade, not a calculation.
+const MARIA_LIQUID := Vector3(0.012, 0.016, 0.02)
+
+## A haze's zenith optical depth from height `h` up, per channel, from the sky's own coefficients (SkyMS), for
+## an air drawn by the physical sky; zero for any other.
+static func haze_depth(atm, h: float) -> Vector3:
+	if atm == null or not SkyMS.ATMOS.has(str(atm.get("scatter", ""))): return Vector3.ZERO
+	var a: Dictionary = SkyMS.ATMOS[str(atm.scatter)]
+	return (a.betaR as Vector3) * float(a.HR) * exp(-h / float(a.HR)) + (a.betaMExt as Vector3) * float(a.HM) * exp(-h / float(a.HM))
+
+## How far a haze is past what the sky's table carries: 0 under a zenith depth of 2, 1 past 4 (sky_dome's
+## deep_haze). Earth's is 0.1–0.3, Titan's about 5.
+static func haze_weight(atm, h: float) -> float:
+	var t := haze_depth(atm, h)
+	return smoothstep(2.0, 4.0, (t.x + t.y + t.z) / 3.0)
+
+## The sunlight a haze lets down diffusely to height `h`, per unit irradiance at the top, for a sun at cosine
+## `mu0`: Eddington's two-stream, as sky_dome's deep_haze draws it.
+static func haze_diffuse(atm, h: float, mu0: float) -> Vector3:
+	var tau := haze_depth(atm, h)
+	if tau == Vector3.ZERO: return Vector3.ONE
+	var a: Dictionary = SkyMS.ATMOS[str(atm.scatter)]
+	var tau_r: Vector3 = (a.betaR as Vector3) * float(a.HR) * exp(-h / float(a.HR))
+	var tau_m: Vector3 = (a.betaM as Vector3) * float(a.HM) * exp(-h / float(a.HM))
+	var out := Vector3.ZERO
+	for i in 3:
+		var ts := tau_r[i] + tau_m[i]
+		var omega := ts / maxf(tau[i], 1e-9)
+		var g := tau_m[i] * float((a.g as Vector3)[i]) / maxf(ts, 1e-9)
+		var k := sqrt(3.0 * (1.0 - omega) * (1.0 - omega * g))
+		out[i] = (0.5 + 0.75 * mu0) / (1.0 + 0.75 * (1.0 - g) * ts) * exp(-k * tau[i])
+	return out
+
 static func _v3(hex: int) -> Vector3:
 	var c := U.lin(hex)
 	return Vector3(c.r, c.g, c.b)
@@ -307,12 +377,13 @@ func _set_ambient(bounce: float) -> void:
 	# light from the sky and the ground. The ±Y pair gives a vertical wall none, so
 	# the isotropic part carries it.
 	var k := bounce * (1.5 if _has_air else 0.5)
-	var amb := Color(fill.r * 0.30 + (skyc.r + gnd.r) * k + sl * 0.85,
-		fill.g * 0.30 + (skyc.g + gnd.g) * k + sl * 0.92,
-		fill.b * 0.30 + (skyc.b + gnd.b) * k + sl * 1.0)
+	var amb := Color(fill.r * 0.30 + (skyc.r + gnd.r) * k + sl * 0.85 + _haze_fill.x,
+		fill.g * 0.30 + (skyc.g + gnd.g) * k + sl * 0.92 + _haze_fill.y,
+		fill.b * 0.30 + (skyc.b + gnd.b) * k + sl * 1.0 + _haze_fill.z)
 	var env := pipe.env_local
 	# High takes the sky's directional irradiance from the physical sky.
-	var from_sky := sky_ambient if render_quality in ["high", "ultra"] and _has_air else 0.0
+	# Not under a haze like Titan's: the engine's sky does not know it, and its fill is in _haze_fill.
+	var from_sky := sky_ambient if render_quality in ["high", "ultra"] and _has_air and _haze_fill == Vector3.ZERO else 0.0
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY if from_sky > 0.0 else Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_sky_contribution = from_sky
 	var am := maxf(maxf(amb.r, amb.g), maxf(amb.b, 1e-6))
@@ -326,6 +397,16 @@ func _set_ambient(bounce: float) -> void:
 	for l: DirectionalLight3D in hemi:
 		l.light_color = hc
 		l.light_energy = hm * bounce / PI * (1.0 - from_sky)
+
+## The Sun's shadow maps, for a vehicle on drawn ground (Spaceflight's surveyed site): on only then,
+## since in the air nothing stands near enough to take a shadow. Four splits out to a few hundred metres;
+## the ground's own shadows over longer reach are its shader's march.
+const GROUND_SHADOW_REACH := 600.0
+func set_ground_shadows(on: bool) -> void:
+	sun.shadow_enabled = on
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+	sun.directional_shadow_max_distance = GROUND_SHADOW_REACH
+	sun.shadow_blur = 1.0
 
 func set_render_quality(q: String) -> void:
 	render_quality = q
@@ -491,11 +572,30 @@ func update(o: Dictionary) -> Dictionary:
 	pipe.env_local.volumetric_fog_albedo = Color(0.82, 0.88, 0.95)
 	pipe.env_local.volumetric_fog_anisotropy = 0.55
 	pipe.env_local.volumetric_fog_sky_affect = 0.0
+	# Lifted dust closes the view in every direction, the sky with it.
+	# Thinning upward with the layer it is mixed through, so the view opens as a vehicle climbs out of it.
+	var dust_here := dust_extra * exp(-maxf(float(o.altitude), 0.0) / DUST_LAYER_M)
+	var dusty := dust_here > 0.02 and atm != null
+	pipe.env_local.fog_enabled = dusty
+	if dusty:
+		pipe.env_local.fog_mode = Environment.FOG_MODE_EXPONENTIAL
+		pipe.env_local.fog_density = dust_here / DUST_LAYER_M
+		pipe.env_local.fog_light_color = dust_tint.linear_to_srgb()
+		# Lit by the day that reaches it: dark under a night sky.
+		pipe.env_local.fog_light_energy = (0.6 + 0.5 * exp(-dust_here)) * clampf(sun_over_limb * 3.0, 0.01, 1.0)
+		pipe.env_local.fog_sun_scatter = 0.25
+		pipe.env_local.fog_sky_affect = 1.0
+		pipe.env_local.fog_aerial_perspective = 0.0
 	if atm != null and _reflection_body != str(env.name):
 		_reflection_body = str(env.name)
 		reflection_material.rayleigh_color = Color.hex((int(atm.tint) << 8) | 0xff)
 		reflection_material.turbidity = clampf(float(atm.rho0) * 3.0, 1.0, 10.0)
 	var h := maxf(float(o.altitude), 0.0)
+	# Under a haze like Titan's an eye, or Huygens' cameras, adapts to the light that gets down to it.
+	var haze_w := haze_weight(atm, h)
+	if haze_w > 0.0:
+		var t := haze_diffuse(atm, h, 1.0)
+		o.starFlux = float(U.nz(o.get("starFlux"), 1.0)) / lerpf(1.0, maxf((t.x + t.y + t.z) / 3.0, 0.02), haze_w)
 	var R_s := float(U.nz(o.get("surfaceR"), env.radius))
 	# Horizon √(2Rh), floored, and capped where the orrery's planet mesh takes over.
 	var horizon := sqrt(2.0 * R_s * maxf(h, 3.0)) * 1.35
@@ -551,6 +651,8 @@ func update(o: Dictionary) -> Dictionary:
 	var up: DVec3 = DQuat.nrm((o.upWorld as DVec3).clone())
 	var east := DQuat.nrm(DVec3.new().cross_vectors(up, o.northWorld))
 	var north := DQuat.nrm(DVec3.new().cross_vectors(east, up))
+	_set_maria(o.get("maria", []), east, up, north)
+	_set_dunes(o.get("dunes"), east, up, north, o.get("anchorWorld"))
 	ground_mat.set_shader_parameter("uGeoReady", 0.0)
 	var pad = o.get("padWorld")
 	# The planet-fixed point the ground's detail is laid out about: the pad
@@ -565,10 +667,12 @@ func update(o: Dictionary) -> Dictionary:
 			_earth_requested = true
 			PlanetMaps.load_planet_map("Earth", func(m: Dictionary) -> void:
 				_earth_color = m.color
-				_earth_land = m.mask
-				ground_mat.set_shader_parameter("uEarthColor", m.color)
-				ground_mat.set_shader_parameter("uEarthLand", m.mask))
+				_earth_land = m.mask)
 		if _earth_color != null and _earth_land != null:
+			# Every frame: a dry world's flight puts its own map in the same material (_dry_map).
+			ground_mat.set_shader_parameter("uEarthColor", _earth_color)
+			ground_mat.set_shader_parameter("uEarthLand", _earth_land)
+			ground_mat.set_shader_parameter("uDryMap", 0.0)
 			var site_up := DQuat.nrm((pad as DVec3).clone())
 			var pole := DVec3.new(0.0, -1.0, 0.0)
 			var site_north := DQuat.nrm(pole.clone().add_scaled_in(site_up, -pole.dot(site_up)))
@@ -588,9 +692,24 @@ func update(o: Dictionary) -> Dictionary:
 			ground_mat.set_shader_parameter("uGeoFrame", Basis(gx, gy, gz))
 			_hold_planet_map(env.body, site_up.to_v3(), lat, lon, o.get("frame", Basis()))
 			ground_mat.set_shader_parameter("uPadLocal", Vector2((pad as DVec3).dot(east), (pad as DVec3).dot(north)))
+			ground_mat.set_shader_parameter("uMapScale", 1.0)
 			ground_mat.set_shader_parameter("uGeoReady", 1.0)
+	elif env.name != "Earth" and o.get("geoTheta") != null and PlanetMaps.has_map(str(env.name)) \
+			and int(PlanetMaps.SOURCES[str(env.name)].kind) == 2:
+		_dry_map(str(env.name), float(o.geoTheta), east, up, north)
 	var sw: DVec3 = o.sunDirWorld
 	var sun_l := Vector3(sw.dot(east), sw.dot(up), sw.dot(north)).normalized()
+	if haze_w > 0.0:
+		# What diffuses down through it is the ground's skylight: π times the radiance sky_dome.gdshader's
+		# deep_haze draws, at the sky's flux (a third of the ground's) and gain.
+		var td := haze_diffuse(atm, h, maxf(sun_l.y, 0.0))
+		var diffuse := flux / 3.0 * SkyMS.GAIN * maxf(sun_l.y, 0.0) * (td.x + td.y + td.z) / 3.0
+		ground_mat.set_shader_parameter("uSkyI", maxf(float(ground_mat.get_shader_parameter("uSkyI")), diffuse))
+		# And the craft's: the haze's own colour, all round.
+		var hz := _v3(int(atm.haze))
+		_haze_fill = hz / maxf(maxf(hz.x, hz.y), maxf(hz.z, 1e-3)) * diffuse * haze_w
+	else:
+		_haze_fill = Vector3.ZERO
 	_night_emission(env, pad, map_site, east, up, north, sun_l, float(U.nz(o.get("kp"), 2.0)))
 	_upper_sky(o, env, up, east, north)
 	pipe.postfx.flight_exposure = 1.10 if env.name == "Earth" and sun_l.y > 0.10 else 1.0
@@ -639,6 +758,35 @@ static func planet_day(y: float) -> float:
 ## the pad's direction `pad_up` in the parent frame, north on −Y, which `frame`
 ## turns into orrery axes. Seen from past the ground patch, the vehicle is then over
 ## the ground it launched from, turning at the real rate.
+# A mapped dry world (Mars, the Moon, Io) under any vessel: the patch takes the map's colour, as Earth's does
+# under a pad, scaled to the world's albedo as the globe is (PlanetMaps' `scale`), all of it land. The frame
+# turns the patch's (east, up, north) into the map's, through the mesh frame at the body's angle `theta`.
+var _dry_name := ""
+var _dry_color: Texture2D = null
+var _dry_land: Texture2D = null
+
+func _dry_map(body_name: String, theta: float, east: DVec3, up: DVec3, north: DVec3) -> void:
+	if _dry_name != body_name:
+		_dry_name = body_name
+		_dry_color = null
+		PlanetMaps.load_planet_map(body_name, func(m: Dictionary) -> void:
+			if _dry_name == body_name: _dry_color = m.color)
+	if _dry_color == null: return
+	if _dry_land == null:
+		var img := Image.create(1, 1, false, Image.FORMAT_L8)
+		img.fill(Color.WHITE)
+		_dry_land = ImageTexture.create_from_image(img)
+	var to_geo := func(v: DVec3) -> Vector3:
+		var m := SurfaceGround.to_mesh(v, theta, DVec3.new())
+		return Vector3(m.x, m.y, -m.z)
+	ground_mat.set_shader_parameter("uDryMap", 1.0)
+	ground_mat.set_shader_parameter("uEarthColor", _dry_color)
+	ground_mat.set_shader_parameter("uEarthLand", _dry_land)
+	ground_mat.set_shader_parameter("uGeoFrame", Basis(to_geo.call(east), to_geo.call(up), to_geo.call(north)))
+	ground_mat.set_shader_parameter("uPadLocal", Vector2(1.0e9, 1.0e9))
+	ground_mat.set_shader_parameter("uMapScale", float(PlanetMaps.SOURCES[body_name].scale))
+	ground_mat.set_shader_parameter("uGeoReady", 1.0)
+
 func _hold_planet_map(body, pad_up: Vector3, lat: float, lon: float, frame: Basis) -> void:
 	if body == null: return
 	var viz = (body as Body).viz
@@ -810,14 +958,27 @@ func _update_sun(o: Dictionary, env: Dictionary, atm, h: float, sun_l: Vector3) 
 		tau = _tau0 * dens * col
 		m = 1.0 / (sin(over) + 0.50572 * pow(rad_to_deg(over) + 6.07995, -1.6364))
 		aerosol = col * dens * clampf(sqrt(m), 1.0, 6.0)
+	# Under a haze like Titan's, its own depth (the sky's coefficients), and the whole of it: the Sun is gone
+	# into the diffuse light, as Huygens found it.
+	var haze_w := haze_weight(atm, h)
+	var deep := Vector3.ZERO
+	if haze_w > 0.0:
+		deep = haze_depth(atm, h)
+		tau = tau.lerp(deep, haze_w)
+	# Lifted dust takes the Sun along the whole slant path, blue a little more than red (Mars' dust: Lemmon et
+	# al. 2004's 0.88 µm and 0.44 µm depths differ by about a fifth).
+	var dust := Vector3(0.9, 1.0, 1.1) * (dust_extra * exp(-h / DUST_LAYER_M) if atm != null else 0.0)
+	var seen := tau + dust
 	_airmass = m
-	sun_mat.set_shader_parameter("uTau", tau)
+	sun_mat.set_shader_parameter("uTau", seen)
 	sun_mat.set_shader_parameter("uAirMass", m)
 	sun_mat.set_shader_parameter("uAureole", aerosol)
-	var T := Vector3(exp(-tau.x * m), exp(-tau.y * m), exp(-tau.z * m))
+	var T := Vector3(exp(-seen.x * m), exp(-seen.y * m), exp(-seen.z * m))
 	# Overhead Kasten & Young's fit is a hair under 1.
 	var excess := maxf(m - 1.0, 0.0)
 	sun_extinction = Vector3(exp(-tau.x * excess), exp(-tau.y * excess), exp(-tau.z * excess))
+	if haze_w > 0.0: sun_extinction = sun_extinction.lerp(T, haze_w)
+	sun_extinction *= Vector3(exp(-dust.x * m), exp(-dust.y * m), exp(-dust.z * m))
 	sun_over_limb = sin(minf(elev + dip, PI / 2.0))
 	_sun_entering = _sun_rgb * T * 2400.0 * pow(teff / 5772.0, 4.0) * vis \
 		* (ang_r * ang_r) / (0.00465 * 0.00465)

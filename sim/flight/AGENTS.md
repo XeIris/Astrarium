@@ -78,6 +78,18 @@ to the procedural builds too.
 
 ## Vessel (`vessel.gd`)
 
+- The ground is `height_above_ground` / `ground_r`; the air is `altitude`, over the
+  figure. On a dry mapped world without its launch site the vessel owns a
+  `SurfaceGround`, and contact, the landing programs and the descent law read the
+  drawn site through it; without one both read the figure and nothing changes.
+  A survey is adopted a fixed flight time after it is asked for, never when the
+  worker happens to finish, or drawn and undrawn flights diverge
+  ([the ground under a landing](../../docs/physics/surface.md#the-ground-under-a-landing)).
+- A vehicle with `floats` over a world with oceans, or with stated seas (Titan's), owns a `SurfaceSea` instead: asked
+  for when its chute opens and stood on a fixed flight time later, it takes the vessel
+  15 m above the mean sea, which stays landed, and the sea's Floater has the craft
+  afterwards. The sea's figure is the mean sea, so `ground_r` is unchanged
+  ([coming down at sea](../../docs/physics/ocean.md#coming-down-at-sea)).
 - During flight, the vessel requests coordinate seconds from the world's
   integrator before advancing. Both clocks use the accepted duration; all calls
   share the frame's world step budget. Cruise integrates proper time and requests

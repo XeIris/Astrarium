@@ -271,14 +271,13 @@ func begin_cruise(st: S) -> void:
 var _q := DQuat.new()
 var _b := DVec3.new()
 var _a := DVec3.new()
-var _air := DVec3.new()
 
 func pilot(st: S) -> void:
 	var sc := st.sc
 	var v := st.vessel
 	if not sc.get("pilotStage", false) or st.piloted or st.ap.state_name != "chute": return
-	var speed := v.airspeed(v.r, v.v, _air).length()
-	if v.altitude() < 1900.0 or speed < 105.0:
+	# Just before the program's own 2.1 km: released much higher, the fall takes more propellant than there is.
+	if v.height_above_ground() < 2200.0:
 		v.stage(); st.piloted = true
 
 func frame(st: S, dt: float) -> void:

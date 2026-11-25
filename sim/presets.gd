@@ -85,8 +85,8 @@ static func elements_state(mu: float, row: Array, t_cy: float) -> Dictionary:
 		"vel": [px[0] * vxp + px[1] * vyp, -(pz[0] * vxp + pz[1] * vyp), py[0] * vxp + py[1] * vyp],
 	}
 
-# THE TABLE: the scenarios in scenarios/*.jsonc (docs/scenario-format.md), and the two
-# that need code: the Solar System's ephemeris and the Jupiter expedition built on it.
+# THE TABLE: the scenarios in scenarios/*.jsonc (docs/scenario-format.md), and the three
+# that need code: the Solar System's ephemeris and the Jupiter and Titan expeditions built on it.
 const SCENARIO_DIR := "res://scenarios"
 static var PRESETS: Dictionary = _make_presets()
 
@@ -94,7 +94,7 @@ static var PRESETS: Dictionary = _make_presets()
 const LISTED := ["edu_seasons", "edu_moon", "edu_kepler", "edu_mercury", "edu_habitable",
 	"edu_starbirth", "edu_sun", "edu_lifecycle", "edu_supernova", "edu_pulsar",
 	"edu_transit", "edu_hole", "edu_galaxy", "edu_cluster",
-	"blank", "stellar_zoo", "sirius", "vega", "achernar", "betelgeuse", "alphacen", "etacar", "hr_ladder", "trisolaris", "trisolaris_wander", "trisolaris_compact", "trisolaris_wide", "trisolaris_alpha", "trisolaris_chaos", "sandbox", "solar", "jovian_voyage", "threebody", "binarystar", "bhmerger", "nsmerger", "feeding", "gargantua_demo"]
+	"blank", "stellar_zoo", "sirius", "vega", "achernar", "betelgeuse", "alphacen", "etacar", "hr_ladder", "trisolaris", "trisolaris_wander", "trisolaris_compact", "trisolaris_wide", "trisolaris_alpha", "trisolaris_chaos", "sandbox", "solar", "jovian_voyage", "titan_voyage", "threebody", "binarystar", "bhmerger", "nsmerger", "feeding", "gargantua_demo"]
 static var PRESET_ORDER: Array = _make_order()
 
 static func _make_order() -> Array:
@@ -103,6 +103,9 @@ static func _make_order() -> Array:
 		var oa := float(PRESETS[a].get("order", INF)); var ob := float(PRESETS[b].get("order", INF))
 		return oa < ob if oa != ob else a < b)
 	return LISTED.filter(func(k): return PRESETS.has(k)) + extra
+
+## 2023 July 1, 0h TT: the Titan expedition's date.
+const TITAN_EPOCH_JD := 2460126.5
 
 static func _make_presets() -> Dictionary:
 	var P := {}
@@ -137,6 +140,22 @@ static func _make_presets() -> Dictionary:
 				if bodies[i].name=="Jupiter":
 					var system:=JovianMoons.system(bodies[i])
 					bodies[i]=system[0];bodies.append_array(system.slice(1));break
+			return bodies,
+	})
+
+	P.titan_voyage = U.merged(P.solar,{
+		"name":"Titan expedition", "group": null,
+		"blurb":"The Solar System on 1 July 2023, the Titan Mare Explorer's planned arrival, with Titan on an approximate circular orbit in Saturn's equatorial plane: 1.5 bar of nitrogen and methane at 94 K under an orange haze, and late northern summer over its methane seas. Fly Dragonfly down to its dunes, TiME down to Ligeia Mare, or bring the Survey Shuttle in from orbit. The moon's phase is illustrative, not a dated ephemeris.",
+		# Roughly 400 Yoshida steps per 16-day orbit of Titan.
+		"maxStep":1.1e-4,"timeScale":.001,
+		# TiME's arrival (Lorenz & Mann 2015): Titan's northern summer, when the Sun stays up over Ligeia.
+		"epochJD":TITAN_EPOCH_JD,
+		"build":func() -> Array:
+			var bodies:=_build_solar((TITAN_EPOCH_JD - 2451545.0) / 36525.0)
+			for i in bodies.size():
+				if bodies[i].name=="Saturn":
+					var system:=TitanMoon.system(bodies[i])
+					bodies[i]=system[0];bodies.append(system[1]);break
 			return bodies,
 	})
 
