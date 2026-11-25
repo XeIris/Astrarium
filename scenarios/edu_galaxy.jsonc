@@ -1,0 +1,18 @@
+// THE SKY FROM INSIDE THE GALAXY: an empty scene. We're two thirds out in a disc, so
+// the Milky Way is a band round the sky; every sky component is band-aware for the
+// multiwavelength lesson.
+{
+  "format": 1,
+  "name": "The Milky Way, from inside it",
+  "group": "learning",
+  "blurb": "An empty scene: everything here is the sky itself. The Milky Way is a disc about 100 000 light years across and 1000 thick, and we are inside it — so it is not an object we look at, it is a band that goes all the way round us, and its narrowness is the disc seen edge-on. The dark lanes splitting it are not gaps, they are dust in the way. Change the imaging band and that same dust becomes the brightest thing in the sky.",
+  "sky": { "env": "disc", "roll": 0.9, "tilt": 0 },
+  "sceneScale": 2,
+  "bodyScale": 1,
+  "camRadius": 12,
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.1,
+  "bodies": [
+  ]
+}

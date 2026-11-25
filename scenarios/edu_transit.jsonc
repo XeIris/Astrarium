@@ -1,0 +1,45 @@
+// HOW WE FIND PLANETS: two near edge-on planets, sized so both methods work.
+// Giant  1.2 M_J, 1.3 R_J, a = 0.05 AU, P = 4.08 d: area ratio 1.70%,
+// K = 28.43 (M_p/M_J)(a/AU)^-½ = 152 m/s
+// Rock   1 R⊕ at a = 0.28 AU: 84 ppm, and a 17 cm/s wobble
+// The measured dip (~2.1%) is deeper than the area ratio because of limb darkening
+// (linear u = 0.6: centre 1/(1−u/3) = 1.25× the mean), which sim/lightcurve.gd
+// integrates. The observer is the camera, so transits need you in the orbital plane
+// (about 0.5% chance for 1 AU round a Sun).
+// 0.005 yr/s: the 4.08-day orbit takes ~2.2 s, so a few dips fit the window.
+// 1.2 Jupiter masses in solar units, and an inflated 1.3 R_J — hot
+// Jupiters really are puffed up by the irradiation they sit under.
+// Give the star the balancing momentum, so the radial-velocity wobble is the
+// integrator's own.
+{
+  "format": 1,
+  "name": "Finding planets: transits and wobbles",
+  "group": "learning",
+  "blurb": "A Sun-like star with two planets on almost edge-on orbits. The hot Jupiter covers 1.7% of the star every 4.08 days and hauls it around at 152 m/s; the Earth-sized planet further out covers 84 parts per million and moves the star at 17 cm/s. Both are real numbers for those planets. The measured dip is a little deeper than the area ratio, because a stellar disc is brighter in the middle than at the edge. The observer is the camera — so climb out of the orbital plane and the transits stop, which is exactly why we have only found the planets whose orbits happen to point at us.",
+  "sky": { "env": "disc", "roll": 1.9, "tilt": 0.34 },
+  "sceneScale": 300,
+  "bodyScale": 0.5,
+  "camRadius": 26,
+  "focus": "Kepler-ish",
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.005,
+  "maxStep": 2e-05,
+  "bodies": [
+    {
+      "type": "star", "name": "Kepler-ish", "mass": 1, "radiusSun": 1, "teff": 5772, "luminosity": 1,
+      "color": "#fff2cc", "glow": "#ffaa33", "pos": [0, 0, 0],
+      "vel": [2.4089632220140077e-05, -0.0006739094638168157, -0.032154568873637546]
+    },
+    {
+      "type": "gas-giant", "name": "Giant b", "mass": 0.001145508, "radiusKm": 90884.3, "internalHeat": 3,
+      "palette": "jupiter", "pos": [0.05, 0, 0], "vel": [0, 0.5884664788009846, 28.093096292336238]
+    },
+    {
+      "type": "planet", "name": "Rock c", "mass": 3.0035e-06, "radiusKm": 6371, "albedo": 0.25, "crater": 0.3,
+      "hot": true, "regolith": "#a08878",
+      "pos": [-0.20647024035154873, 0.0013203635998326445, 0.18912508159717462],
+      "vel": [-8.020520133224597, -0.06112714551106582, -8.755676378876244]
+    },
+  ]
+}

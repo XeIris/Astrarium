@@ -31,7 +31,10 @@ mass, and nothing here feeds back into its flight.
   the vessel's frame, to the sea or its breakup. The Shuttle's boosters and tank have
   one ([srb-separation.md](srb-separation.md#recovery), and the tank below).
 
-The stage's own drag is left out. For the boosters it is under 2% of the stack's
+  - `canopy`: the stage leaves on a parachute, with the drag of its `CdA` in the air the craft moves through (the
+    Sky Crane's backshell, which goes up off the stack; [sky-crane.md](sky-crane.md#why-the-shell-goes-up)).
+
+Any other stage's own drag is left out. For the boosters it is under 2% of the stack's
 acceleration ([srb-separation.md](srb-separation.md)); higher up it is smaller still.
 
 A stage with no published push leaves on the stack's acceleration alone. No rates are

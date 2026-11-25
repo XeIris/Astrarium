@@ -183,13 +183,16 @@ static func bind_cloud_map(m: ShaderMaterial, body_name: String) -> void:
 		m.set_shader_parameter("uMapKind", float(e.kind)))
 
 # CLOUDS. Not a noise field wrapped round a ball — see cloud_deck.gdshader.
+## Terrain.cloud_global_z(0.5): 3600 terms, a millisecond for every deck built.
+static var _half_cover_z := NAN
 static func cloud_material(seed: float) -> ShaderMaterial:
+	if is_nan(_half_cover_z): _half_cover_z = Terrain.cloud_global_z(0.5)
 	var m := ShaderMaterial.new()
 	m.shader = CLOUD_SHADER
 	_init_suns(m)
 	m.set_shader_parameter("uTime", 0.0)
 	m.set_shader_parameter("uCover", 0.5)
-	m.set_shader_parameter("uCloudZ", Terrain.cloud_global_z(0.5))
+	m.set_shader_parameter("uCloudZ", _half_cover_z)
 	m.set_shader_parameter("uStorm", 0.25)
 	m.set_shader_parameter("uSeed", seed)
 	m.set_shader_parameter("uTint", Vector3(1, 1, 1))
@@ -455,5 +458,5 @@ class RockyViz extends RefCounted:
 			if cloud_mat != null: mats.append(cloud_mat)
 			if atmo_mat != null: mats.append(atmo_mat)
 			Suns.apply_suns(mats, suns, group.position)
-			Suns.apply_occluders(mats, b, ctx.bodies, suns)
-			Suns.apply_shine([surf_mat], b, ctx.bodies, suns)
+			Suns.apply_occluders(mats, b, ctx.bodies, suns, ctx.near)
+			Suns.apply_shine([surf_mat], b, ctx.bodies, suns, ctx.near)

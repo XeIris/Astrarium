@@ -18,6 +18,9 @@ const PROPELLANT := {
 	"methalox":   { "T": 3500.0, "water": 0.45, "core": [0.62, 0.80, 1.00], "edge": [1.00, 0.55, 0.22], "soot": 0.30, "glow": 0.75 },
 	"solid":      { "T": 3000.0, "water": 0.10, "core": [1.00, 0.90, 0.70], "edge": [1.00, 0.55, 0.20], "soot": 1.00, "glow": 1.35 },
 	"hypergolic": { "T": 3050.0, "water": 0.35, "core": [1.00, 0.94, 0.72], "edge": [0.95, 0.72, 0.35], "soot": 0.18, "glow": 0.55 },
+	# Hydrazine decomposed over a catalyst, not burnt: ammonia, nitrogen and hydrogen at about 1,000 K. The descent
+	# stage's own camera saw no flame at all over Jezero, only the dust it raised.
+	"monoprop":   { "T": 1100.0, "water": 0.0, "core": [1.00, 0.86, 0.66], "edge": [0.80, 0.60, 0.40], "soot": 0.0, "glow": 0.08 },
 	# Not thermal at all: a beam of ions recombining, so it gets a low nominal
 	# temperature and is dominated by line emission rather than a continuum.
 	"ion":        { "T": 1200.0, "water": 0.0, "core": [0.55, 0.62, 1.00], "edge": [0.40, 0.20, 0.95], "soot": 0.0, "glow": 0.25, "beam": true },
@@ -50,6 +53,9 @@ const LOOK := {
 	"hypergolic": {"core": [0.60, 0.49, 0.37], "shock": [0.6, 0.54, 0.48], "mix": [0.35, 0.19, 0.12],
 		"tail": [0.12, 0.045, 0.022], "smoke": [0.0, 0.0, 0.0], "afterburn": 0.35, "soot": 0.0,
 		"coreLen": 4.0, "diamonds": 0.6, "machDisk": 0.2, "bright": 1.4},
+	"monoprop":   {"core": [0.10, 0.08, 0.06], "shock": [0.08, 0.07, 0.06], "mix": [0.03, 0.025, 0.02],
+		"tail": [0.01, 0.008, 0.006], "smoke": [0.0, 0.0, 0.0], "afterburn": 0.0, "soot": 0.0,
+		"coreLen": 3.0, "diamonds": 0.0, "machDisk": 0.0, "bright": 0.25},
 	"ion":        {"core": [0.21, 0.30, 0.60], "shock": [0, 0, 0], "mix": [0, 0, 0], "tail": [0, 0, 0],
 		"smoke": [0, 0, 0], "afterburn": 0.0, "soot": 0.0, "coreLen": 99.0, "diamonds": 0.0,
 		"machDisk": 0.0, "bright": 1.0, "beam": true},

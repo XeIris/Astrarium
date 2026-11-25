@@ -32,13 +32,16 @@ func _mars() -> void:
 	var weight := 1.8 * 3.71
 	var p := c.hover_power(weight)
 	var rotor_area := PI * 0.605 * 0.605
-	var ideal := pow(weight, 1.5) / sqrt(2.0 * JEZERO_RHO * rotor_area)
+	# Leishman & Syal's 1.28 is over two rotors each alone in the air with half the weight.
+	var alone := pow(weight * 0.5, 1.5) / sqrt(2.0 * JEZERO_RHO * rotor_area)
 	var induced := 0.0
 	for r in c.rotors:
 		var tip := r.omega * 0.605
-		induced += Rotorcraft.KAPPA * Rotorcraft.KAPPA_COAX * (r.thrust / (JEZERO_RHO * rotor_area * tip * tip)) * r.lam * JEZERO_RHO * rotor_area * tip * tip * tip
-	ok("Ingenuity's induced power is momentum theory's", absf(induced / (Rotorcraft.KAPPA * Rotorcraft.KAPPA_COAX * ideal) - 1.0) < 0.01,
-		"%s W against κ·κ_coax·T^1.5/√(2ρA) = %s W" % [U.fixed(induced, 1), U.fixed(Rotorcraft.KAPPA * Rotorcraft.KAPPA_COAX * ideal, 1)])
+		induced += r.power - 0.148 * 0.035 / 8.0 * JEZERO_RHO * rotor_area * tip * tip * tip
+	ok("Ingenuity's induced power is 1.15 × 1.28 of two rotors' alone", absf(induced / (1.15 * 1.28 * 2.0 * alone) - 1.0) < 0.005,
+		"%s W against %s W" % [U.fixed(induced, 1), U.fixed(1.15 * 1.28 * 2.0 * alone, 1)])
+	_energy(Rotorcraft.INGENUITY, 3.71, JEZERO_RHO, 230.0, "Ingenuity")
+	_energy(Rotorcraft.DRAGONFLY, 1.352, 5.4, 194.0, "Dragonfly")
 	var elec := p / 0.75 + 30.0
 	ok("Ingenuity hovers on the power it flew on", elec > 200.0 and elec < 500.0,
 		"%s W at the battery (%s W at the shafts), collective %s°; NASA: about 350 W in flight" % [U.fixed(elec, 0), U.fixed(p, 0),
@@ -61,18 +64,81 @@ func _titan() -> void:
 	# Lorenz et al. 2018: a 420 kg concept at about 10 m/s needs a little over 2 kW. The same rotors and air,
 	# the concept's weight, in forward flight at 10 m/s: the induced power falls as the disc meets new air.
 	var light := Rotorcraft.new(Rover.PlaneGround.new(), 1.352, 5.4, 194.0, Rotorcraft.DRAGONFLY)
-	for pp in 4: light._pair_state(pp, 420.0 * 1.352 / 4.0, 0.0, 0.0, 10.0)
-	var cruise := 0.5 * 5.4 * 0.8 * 1000.0
+	# Leaning into its drag, the air meets the shaft at v sin(lean).
+	var drag := 0.5 * 5.4 * 0.8 * 100.0
+	var lean := atan(drag / (420.0 * 1.352))
+	for pp in 4: light._pair_state(pp, sqrt(pow(420.0 * 1.352, 2.0) + drag * drag) / 4.0, 0.0, 10.0 * sin(lean), 10.0 * cos(lean))
+	var cruise := 0.0
 	for r in light.rotors: cruise += r.power
-	note("a 420 kg Dragonfly at 10 m/s", "%s kW at the shafts and against its drag; Lorenz et al. 2018: a little over 2 kW" % U.fixed(cruise / 1000.0, 2))
+	note("a 420 kg Dragonfly at 10 m/s", "%s kW at the shafts; Lorenz et al. 2018: a little over 2 kW" % U.fixed(cruise / 1000.0, 2))
 	var area := 4.0 * PI * 0.675 * 0.675
 	var ideal := pow(weight, 1.5) / sqrt(2.0 * 5.4 * area)
 	note("Dragonfly hovering", "%s kW at the shafts, %s rpm; ideal %s kW on its four discs" % [U.fixed(p / 1000.0, 2),
 		U.fixed(c.rotors[0].omega * 60.0 / TAU, 0), U.fixed(ideal / 1000.0, 2)])
-	# A small rotor's figure of merit, ideal over actual power, is 0.5–0.75 (Leishman).
+	# A rotor's figure of merit, ideal over actual power, is 0.5–0.75 (Leishman); against two rotors' thrust on one disc
+	# a coaxial pair's is up to √2/1.28 more, as the lower one draws air of its own.
 	var fm := ideal / p
-	ok("Dragonfly hovers within its rotors' limits on Titan", not c.rotors.any(func(r): return r.saturated) and fm > 0.4 and fm < 0.8,
+	var again := c.hover_power(weight)
+	ok("and the same power asked again", absf(again / p - 1.0) < 1e-9, "%s and %s W" % [U.fixed(p, 1), U.fixed(again, 1)])
+	var vi := sqrt(weight / (2.0 * 5.4 * area))
+	ok("its discs' inflow is momentum theory's", absf(c.rotors[0].lam * c.rotors[0].omega * 0.675 / vi - 1.0) < 0.001,
+		"%s against %s m/s" % [U.fixed(c.rotors[0].lam * c.rotors[0].omega * 0.675, 3), U.fixed(vi, 3)])
+	ok("Dragonfly hovers within its rotors' limits on Titan", not c.rotors.any(func(r): return r.saturated) and fm > 0.5 and fm < 1.1 * sqrt(2.0) / 1.28,
 		"%s kW, figure of merit %s, tip Mach %s" % [U.fixed(p / 1000.0, 2), U.fixed(fm, 2), U.fixed(c.tip_mach(), 2)])
+
+# What the rotors do costs at least the work they do: climbing more than hovering by the weight raised, cruising at
+# least what the drag takes, as flown.
+func _energy(spec: Dictionary, g: float, rho: float, a: float, label: String) -> void:
+	var c := Rotorcraft.new(Rover.PlaneGround.new(), g, rho, a, spec)
+	c.place(0.0, 0.0, 0.0)
+	c.armed = true
+	c.cmd_climb = 1.0
+	c.advance(8.0)
+	c.cmd_climb = 0.0
+	c.advance(20.0)
+	var shafts := func() -> float:
+		var p := 0.0
+		for r in c.rotors: p += r.power
+		return p
+	var hover: float = shafts.call()
+	c.cmd_climb = 1.0
+	c.advance(26.0)
+	var climb: float = shafts.call()
+	var rate := c.vel.y
+	c.cmd_climb = 0.0
+	c.cmd_fwd = 1.0
+	c.advance(90.0)
+	var cruise: float = shafts.call()
+	var v := c.vel.length()
+	var drag := 0.5 * rho * float(spec.cda) * v * v * v
+	ok("%s pays to climb" % label, climb - hover > 0.3 * float(spec.mass) * g * rate and climb - hover < 1.6 * float(spec.mass) * g * rate,
+		"%s W hovering, %s W climbing at %s m/s; the weight raised is %s W" % [U.fixed(hover, 0), U.fixed(climb, 0), U.fixed(rate, 2), U.fixed(float(spec.mass) * g * rate, 0)])
+	ok("%s pays its drag" % label, cruise > 1.05 * drag, "%s W at %s m/s, of which drag takes %s W" % [U.fixed(cruise, 0), U.fixed(v, 1), U.fixed(drag, 0)])
+	# The same seconds, whatever frames they come in.
+	var ends := []
+	for hz in [20.0, 60.0, 144.0, 500.0]:
+		var k := Rotorcraft.new(Rover.PlaneGround.new(), g, rho, a, spec)
+		k.place(0.0, 0.0, 0.0)
+		k.armed = true
+		k.cmd_climb = 1.0
+		for i in int(hz * 5.0): k.run(1.0 / hz)
+		ends.append(k.t)
+	ok("%s flies the flight's time at any frame rate" % label, ends.min() > 5.0 - 2.1 * Rotorcraft.DT and ends.max() < 5.0 + 1e-6, "%s s of 5 at 20, 60, 144 and 500 Hz" % str(ends))
+	# Past the end of the ground it neither lands on nothing nor loses itself.
+	var e := Rotorcraft.new(EndGround.new(), g, rho, a, spec)
+	e.place(0.0, 0.0, 0.0)
+	e.armed = true
+	e.cmd_climb = 1.0
+	e.advance(6.0)
+	e.cmd_climb = 0.0
+	e.cmd_fwd = 1.0
+	e.advance(60.0)
+	ok("%s stops where the ground ends" % label, is_finite(e.pos.length()) and not e.on_ground and not e.crashed and e.pos.z < 100.0 and e.vel.length() < 0.5,
+		"%s m out, %s m up" % [U.fixed(e.pos.z, 0), U.fixed(e.pos.y, 1)])
+
+class EndGround:
+	func height(_e: float, n: float) -> float:
+		return NAN if n > 40.0 else 0.0
 
 func _fly(spec: Dictionary, g: float, rho: float, a: float, label: String) -> void:
 	var c := Rotorcraft.new(Rover.PlaneGround.new(), g, rho, a, spec)
@@ -102,11 +168,12 @@ func _fly(spec: Dictionary, g: float, rho: float, a: float, label: String) -> vo
 	c.cmd_fwd = 0.0
 	c.cmd_yaw = 1.0
 	# A quarter turn at its top rate.
-	var t_turn := PI * 0.5 / float(spec.yaw_max)
+	# Eight fixed-pitch rotors yaw by the difference of their torques alone, and take their time to get there.
+	var t_turn := PI * 0.5 / float(spec.yaw_max) * (1.0 if str(spec.control) == "collective" else 3.0)
 	c.advance(t_off + t_turn)
 	var turned := rad_to_deg(c.heading())
 	ok("%s turns right when asked" % label, turned > 30.0 and turned < 120.0,
-		"%s° in %s s, a quarter turn at its top %s°/s" % [U.fixed(turned, 0), U.fixed(t_turn, 1), U.fixed(rad_to_deg(float(spec.yaw_max)), 0)])
+		"%s° in %s s, at its top %s°/s" % [U.fixed(turned, 0), U.fixed(t_turn, 1), U.fixed(rad_to_deg(float(spec.yaw_max)), 0)])
 	c.cmd_yaw = 0.0
 	c.advance(t_off + 20.0)
 	c.cmd_climb = -1.0

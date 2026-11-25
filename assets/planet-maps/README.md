@@ -23,4 +23,8 @@ ground patch adds local texture rather than enlarging pixels into boulders.
 The flight map anchors use the [NASA launch-site coordinates in the Starship
 environmental assessment](https://netspublic.grc.nasa.gov/main/20190807_Final_DRAFT_EA_SpaceX_Starship.pdf)
 for Kennedy Pad 39A and the Boca Chica launch site. The local image is aligned
-to the launch pad's simulated position as the body rotates.
+to the launch pad's simulated position as the body rotates. A descent to a dry
+mapped world (Mars, the Moon, Io) has no pad: its ground patch takes the map
+from the vessel's own place on the turning body (`LocalView._dry_map`), at the
+albedo the globe draws it (`scale`), and a landing site's palette is the map's
+colour at the site (`PlanetPin.map_colour`).

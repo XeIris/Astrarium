@@ -194,6 +194,36 @@ static func land_at(body_name: String, lat_r: float, lon_r: float) -> bool:
 	var y := mini(int(v * image.get_height()), image.get_height() - 1)
 	return image.get_pixel(x, y).r >= 0.5
 
+# A dry map's colour images, read when a site needs one; held only while a showcase or a landing is on.
+static var _colour := {}
+
+## The colour a dry world's map (PlanetMaps kind 2) has at (lat, lon), rad, as sRGB hex at the world's albedo
+## (the map times its `scale`, in linear light, as the globe and the flight's patch draw it); −1 off a map.
+static func map_colour(body_name: String, lat_r: float, lon_r: float) -> int:
+	var source: Dictionary = PlanetMaps.SOURCES.get(body_name, {})
+	if source.is_empty() or int(source.kind) != 2: return -1
+	if not _colour.has(body_name):
+		var tex := load(PlanetMaps.DIR + str(source.color)) as Texture2D
+		var img: Image = tex.get_image() if tex != null else null
+		if img != null and img.is_compressed(): img.decompress()
+		_colour[body_name] = img
+	var image: Image = _colour[body_name]
+	if image == null: return -1
+	var u := fposmod((lon_r + PI) / TAU, 1.0)
+	var v := clampf((PI * 0.5 - lat_r) / PI, 0.0, 1.0)
+	# A few texels about the site, so one bright crater does not colour it.
+	var acc := Color(0, 0, 0)
+	var n := 0
+	for dy in range(-2, 3):
+		for dx in range(-2, 3):
+			var x := posmod(int(u * image.get_width()) + dx, image.get_width())
+			var y := clampi(int(v * image.get_height()) + dy, 0, image.get_height() - 1)
+			acc += image.get_pixel(x, y).srgb_to_linear()
+			n += 1
+	var c := (acc / float(n)) * float(source.scale)
+	return c.linear_to_srgb().to_rgba32() >> 8
+
 static func release_maps() -> void:
 	_mask.clear()
+	_colour.clear()
 	PlanetElevation.release()

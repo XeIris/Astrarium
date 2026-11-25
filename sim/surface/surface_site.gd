@@ -68,6 +68,8 @@ var air: Variant = null
 var _task := -1
 var _mat: ShaderMaterial
 var _ocean: MeshInstance3D = null
+## The rocks about the eye on a lifeless dry world, or null (SiteRocks).
+var rocks: SiteRocks = null
 var _ocean_mat: ShaderMaterial = null
 var _rain: GPUParticles3D = null
 var _rain_mat: ShaderMaterial = null
@@ -107,9 +109,9 @@ static func plan_relief(b: Body, where: PlanetPin, r: PlanetRelief, cells: int, 
 	var relief := SurfaceRelief.new()
 	relief.relief = r
 	relief.center = where.p
-	# East and north on the mesh's own ball, with its pole on +Y.
-	var ref := Vector3.UP if absf(where.p.y) < 0.999 else Vector3.RIGHT
-	relief.east = ref.cross(where.p).normalized()
+	# East and north on the mesh's own ball, with its pole on +Y: from the longitude, which says which way they
+	# point at a pole too.
+	relief.east = Vector3(-sin(where.lon), 0.0, -cos(where.lon))
 	relief.north = where.p.cross(relief.east).normalized()
 	relief.radius_m = b.radius * Rocketry.AU_M
 	relief.g = climate.gravity
@@ -152,8 +154,7 @@ var _map_sea := true
 # Whether the map has sea anywhere across the far grid, on a 9 × 9 lattice of it.
 static func _map_has_sea(b: Body, where: PlanetPin, radius_m: float) -> bool:
 	var half := minf(SurfaceRelief.FAR_HALF, radius_m * 0.08) / radius_m
-	var ref := Vector3.UP if absf(where.p.y) < 0.999 else Vector3.RIGHT
-	var east := ref.cross(where.p).normalized()
+	var east := Vector3(-sin(where.lon), 0.0, -cos(where.lon))
 	var north := where.p.cross(east).normalized()
 	for j in 9:
 		for i in 9:
@@ -213,6 +214,10 @@ func _palette() -> Dictionary:
 	var biome: String = pin.ground.get("biome", "")
 	var row: Dictionary = BIOMES.get(biome, BIOMES["bare ground"]).duplicate()
 	var regolith = body.spec.get("regolith")
+	# On a dry mapped world the map's own colour here, at the albedo the globe draws it: the site, its rim and
+	# the flight's patch past it (LocalView._dry_map) are then one ground.
+	var mapped := PlanetPin.map_colour(body.name, pin.lat, pin.lon)
+	if mapped >= 0: regolith = mapped
 	if regolith != null and float(row.grow) == 0.0:
 		row.a = int(regolith)
 		row.b = _shade(int(regolith), 0.8)
@@ -264,22 +269,73 @@ func _build_scene() -> void:
 	_mat.set_shader_parameter("uSnowLine", snow_line)
 	_mat.set_shader_parameter("uRivers", 1.0 if relief.flowing else 0.0)
 	_mat.set_shader_parameter("uFillTint", fill_tint())
+	_mat.set_shader_parameter("uPatchCol", patch_colour())
+	_set_dune_uniforms()
+	_set_crater_uniforms()
 	var R: float = relief.radius_m
 	for gi in 2:
 		var channel: PackedFloat32Array = relief.channel_near if gi == 0 else relief.channel_far
 		group.add_child(SiteScene.terrain_mesh(grids, gi, patch_y, R, _mat, has_sea, channel))
+	# Loose rock wears the dust it sits in: at Jezero (PIA24424, PIA24429) the stones are the soil's hue, a little
+	# greyer, the dark of fresh rock showing only on their faces.
+	var stone := SiteScene._lin(int(pal.soil)).lerp(SiteScene._lin(int(pal.a)), 0.35)
+	var lum := stone.dot(Vector3(0.2126, 0.7152, 0.0722))
+	# None in the open sea, or on ice.
+	if not str(pin.ground.get("kind", "")) in ["sea", "sea ice", "ice sheet"]: rocks = SiteRocks.build(body, relief, patch_y, stone.lerp(Vector3(lum, lum, lum), 0.45) * 1.15, crust.biota)
+	if rocks != null: group.add_child(rocks.node)
 	# The sea's own temperature, at its level here, not the mountain's.
 	var freeze := float(Liquid.of(body.name).get("freeze_k", Climate.freezing_point(climate.salinity)))
 	frozen_sea = has_sea and crust.temperature(sin(pin.lat), 0.0) < freeze - 4.0
 	if has_sea: _build_ocean(at_sea)
 	_build_rain()
 
+## The colours the planet's patch past the grids wears, as hex: the site's soil and rock in the sky's light.
+func patch_hex() -> Dictionary:
+	var pal := _palette()
+	var tint := fill_tint()
+	return {"ground": SurfaceVisit._tinted(int(pal.soil), tint), "rock": SurfaceVisit._tinted(int(pal.a), tint)}
+
+## Their mean, linear: what the far grid's rim fades to.
+func patch_colour() -> Vector3:
+	var h := patch_hex()
+	return (SiteScene._lin(int(h.ground)) + SiteScene._lin(int(h.rock))) * 0.5
+
+# An airless world's fresh craters for the shader: of the twelve largest the survey stamped, about one in three,
+# drawn from the site's seed, has bright ejecta and rays. Under air, rays are erased fast and are not drawn.
+func _set_crater_uniforms() -> void:
+	var fresh := PackedVector4Array()
+	fresh.resize(12)
+	var n := 0
+	if climate.flight_atmosphere() == null and not relief.craters.is_empty():
+		var by_size: Array = relief.craters.duplicate()
+		by_size.sort_custom(func(a, b): return float(a[2]) > float(b[2]))
+		var rng := RandomNumberGenerator.new()
+		rng.seed = relief.seed + 404
+		for c: Array in by_size.slice(0, 12):
+			if rng.randf() < 0.35:
+				fresh[n] = Vector4(float(c[0]), float(c[1]), float(c[2]), float(rng.randi_range(1, 60000)))
+				n += 1
+	_mat.set_shader_parameter("uCraterN", n)
+	if n > 0: _mat.set_shader_parameter("uCraters", fresh)
+
+# A stated dune field for the shader: carved on the near grid, shaded past it, faded by the band as carved.
+func _set_dune_uniforms() -> void:
+	var d: Dictionary = relief.dunes
+	if d.is_empty():
+		_mat.set_shader_parameter("uDunes", Vector4.ZERO)
+		return
+	var band := clampf((1.0 - absf(rad_to_deg(relief.lat)) / float(d.band)) * 3.0, 0.0, 1.0)
+	var b := deg_to_rad(float(d.bearing))
+	_mat.set_shader_parameter("uDunes", Vector4(float(d.height), float(d.width), float(d.spacing), band))
+	_mat.set_shader_parameter("uDuneAcross", Vector2(cos(b), -sin(b)))
+
+
 # What the ground shader reads beyond the palette: the grids' heights for the Sun's march, the
 # world's roughness below the grid, and whether a regolith lies under no air.
 func _set_ground_uniforms() -> void:
 	var grids: Array = relief.grids
 	_mat.set_shader_parameter("uNearH", _height_texture(grids[0]))
-	_mat.set_shader_parameter("uFarH", _height_texture(grids[1]))
+	_mat.set_shader_parameter("uFarH", _height_texture(grids[1], float(grids[0].half)))
 	_mat.set_shader_parameter("uNearHalf", float(grids[0].half))
 	_mat.set_shader_parameter("uFarHalf", float(grids[1].half))
 	_mat.set_shader_parameter("uRadius", relief.radius_m)
@@ -296,9 +352,16 @@ func _set_ground_uniforms() -> void:
 		_mat.set_shader_parameter("uHurst", HURST_DEFAULT)
 	_mat.set_shader_parameter("uAirless", 1.0 if climate.flight_atmosphere() == null else 0.0)
 
-static func _height_texture(g: Dictionary) -> ImageTexture:
+# A grid's heights for the ground's shader, those within `near_half` tucked as terrain_mesh draws them.
+static func _height_texture(g: Dictionary, near_half := 0.0) -> ImageTexture:
 	var n: int = g.n
-	var img := Image.create_from_data(n, n, false, Image.FORMAT_RF, (g.h as PackedFloat32Array).to_byte_array())
+	var h: PackedFloat32Array = (g.h as PackedFloat32Array).duplicate()
+	var half := float(g.half)
+	var step := 2.0 * half / (n - 1)
+	for j in n:
+		for i in n:
+			if absf(-half + i * step) < near_half and absf(-half + j * step) < near_half: h[j * n + i] -= SiteScene.TUCK
+	var img := Image.create_from_data(n, n, false, Image.FORMAT_RF, h.to_byte_array())
 	return ImageTexture.create_from_image(img)
 
 func _build_ocean(at_sea: bool) -> void:
@@ -491,6 +554,14 @@ func light_sea(sun_l: Vector3, sun_rgb: Vector3, sky_top: Vector3, haze: Vector3
 			["uHaze", haze], ["uDensity", density], ["uScaleH", scale_h], ["uCover", cover], ["uTide", tide_h]]:
 		_ocean_mat.set_shader_parameter(key_val[0], key_val[1])
 
+## The eye at (east, north), `y` m in the site's frame: the rocks laid out about it, and the ground giving way to the
+## planet's patch by its height over the ground there.
+func follow_eye(e: float, n: float, y: float) -> void:
+	var g := SiteScene.drawn_height(relief.grids, e, n, patch_y, relief.radius_m, false)
+	var over := y - (patch_y if is_nan(g) else g)
+	if _mat != null: _mat.set_shader_parameter("uOver", maxf(over, 0.0))
+	if rocks != null: rocks.follow(e, n, over)
+
 ## The ground's light and air for this frame: `sun_l` in the site's frame, `eye_y` the eye's height in it.
 ## The flight pass's ground material supplies the air, as it does for the planet's patch.
 func light_terrain(sun_l: Vector3, eye_y: float, cover: float, sun_ang := 0.00465) -> void:
@@ -504,7 +575,9 @@ func light_terrain(sun_l: Vector3, eye_y: float, cover: float, sun_ang := 0.0046
 	# Under cloud the sunlight has not gone, it has been scattered: the deck's bright underside lights
 	# the ground from everywhere. A factor by eye; nothing here casts a shadow from the deck.
 	var fill: float = float(gm.get_shader_parameter("uSkyI")) * (1.0 + OVERCAST_FILL * cover)
-	_mat.set_shader_parameter("uSkyI", fill)
+	# Under a haze like Titan's the engine's ambient carries some of that skylight already (LocalView's haze fill),
+	# so the site's own term gives way to it, or it stands brighter than the patch beside it.
+	_mat.set_shader_parameter("uSkyI", maxf(fill - local.haze_ambient(), 0.0))
 	# The planet's patch past the grids stands in the same light, or it reads as dark water. Its shading
 	# divides by π; the site's emission does not.
 	gm.set_shader_parameter("uSkyI", fill * PI)
