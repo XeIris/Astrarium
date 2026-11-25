@@ -112,11 +112,15 @@ func outgrown(v: Vessel, rr: DVec3) -> bool:
 	return adopted and not covers(v, rr)
 
 var _visited := false
-## Flown twice the grid's half-width from a survey it has been over.
+## Flown twice the grid's half-width from a survey it has been over, or coming down somewhere off it.
 func left(v: Vessel) -> bool:
 	if not adopted or v.phase == Vessel.PHASE.LANDED: return false
-	if covers(v, v.r): _visited = true
-	if not _visited: return false
+	if covers(v, v.r):
+		_visited = true
+		return false
+	if not _visited:
+		var at = _coming_down(v)
+		return at != null and not covers(v, at)
 	to_mesh(v.r, v.body_angle(v.coord), _m)
 	return acos(clampf(_m.dot(c) / maxf(_m.length(), 1.0), -1.0, 1.0)) * datum_r > 2.0 * float(relief.grids[1].half)
 
@@ -160,19 +164,8 @@ func request(v: Vessel, rr: DVec3) -> void:
 ## on it when its time comes.
 func tick(v: Vessel) -> void:
 	if pin == null:
-		var h := agl(v, v.r)
-		if h > AUTO_AGL: return
-		var up := DQuat.nrm(v.r.clone())
-		var gv := v.ground_velocity(v.r, v.v, DVec3.new())
-		var vv := gv.dot(up)
-		gv.add_scaled_in(up, -vv)
-		var vh := gv.length()
-		if vh > AUTO_VH or vv >= 0.0: return
-		# Where a steady deceleration to rest on the ground would put it: v_h · h / |v_z|.
-		var lead := minf(vh * maxf(h, 0.0) / maxf(-vv, 1.0), SurfaceRelief.FAR_HALF * 0.5)
-		var at := up.clone().scale_in(v.r.length())
-		if vh > 1e-3: at.add_scaled_in(gv, lead / vh)
-		request(v, at)
+		var at = _coming_down(v)
+		if at != null: request(v, at)
 		return
 	if adopted or v.coord < adopt_at: return
 	if _task >= 0:
@@ -189,6 +182,22 @@ func tick(v: Vessel) -> void:
 ## Whether `rr` is on the pin's side of the world, where the site's plane means anything.
 func near_side(v: Vessel, rr: DVec3) -> bool:
 	return to_mesh(rr, v.body_angle(v.coord), _m).dot(c) > 0.5 * datum_r
+
+# Where a vessel low and slow enough to be landing comes down (flight frame, m), or null.
+func _coming_down(v: Vessel):
+	var h := agl(v, v.r)
+	if h > AUTO_AGL: return null
+	var up := DQuat.nrm(v.r.clone())
+	var gv := v.ground_velocity(v.r, v.v, DVec3.new())
+	var vv := gv.dot(up)
+	gv.add_scaled_in(up, -vv)
+	var vh := gv.length()
+	if vh > AUTO_VH or vv >= 0.0: return null
+	# Where a steady deceleration to rest on the ground would put it: v_h · h / |v_z|.
+	var lead := minf(vh * maxf(h, 0.0) / maxf(-vv, 1.0), SurfaceRelief.FAR_HALF * 0.5)
+	var at := up.clone().scale_in(v.r.length())
+	if vh > 1e-3: at.add_scaled_in(gv, lead / vh)
+	return at
 
 ## A flight-frame point in the adopted site's frame: (west, up, north), m, as the site's group is laid out.
 func site_point(v: Vessel, rr: DVec3) -> Vector3:

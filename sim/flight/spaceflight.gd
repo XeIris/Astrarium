@@ -1424,7 +1424,7 @@ func _fly_away(sim_seconds: float, since: float) -> void:
 ## Can the vehicle put its rover down here: landed, on a surveyed ground, carrying one.
 func can_deploy_rover() -> bool:
 	return vessel != null and vessel.phase == Vessel.PHASE.LANDED and vessel.ground != null \
-		and vessel.ground.adopted and vessel.vehicle.get("rover") != null
+		and vessel.ground.covers(vessel, vessel.r) and vessel.vehicle.get("rover") != null
 
 ## Put the rover down beside the vehicle (7 m east of its centre, clear of an LM's 9.4 m leg span, facing
 ## north) and take the wheel; the vehicle stands in its way as a cylinder of its own diameter. A rover that

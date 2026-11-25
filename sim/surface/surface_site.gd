@@ -335,7 +335,7 @@ func _set_dune_uniforms() -> void:
 func _set_ground_uniforms() -> void:
 	var grids: Array = relief.grids
 	_mat.set_shader_parameter("uNearH", _height_texture(grids[0]))
-	_mat.set_shader_parameter("uFarH", _height_texture(grids[1]))
+	_mat.set_shader_parameter("uFarH", _height_texture(grids[1], float(grids[0].half)))
 	_mat.set_shader_parameter("uNearHalf", float(grids[0].half))
 	_mat.set_shader_parameter("uFarHalf", float(grids[1].half))
 	_mat.set_shader_parameter("uRadius", relief.radius_m)
@@ -352,9 +352,16 @@ func _set_ground_uniforms() -> void:
 		_mat.set_shader_parameter("uHurst", HURST_DEFAULT)
 	_mat.set_shader_parameter("uAirless", 1.0 if climate.flight_atmosphere() == null else 0.0)
 
-static func _height_texture(g: Dictionary) -> ImageTexture:
+# A grid's heights for the ground's shader, those within `near_half` tucked as terrain_mesh draws them.
+static func _height_texture(g: Dictionary, near_half := 0.0) -> ImageTexture:
 	var n: int = g.n
-	var img := Image.create_from_data(n, n, false, Image.FORMAT_RF, (g.h as PackedFloat32Array).to_byte_array())
+	var h: PackedFloat32Array = (g.h as PackedFloat32Array).duplicate()
+	var half := float(g.half)
+	var step := 2.0 * half / (n - 1)
+	for j in n:
+		for i in n:
+			if absf(-half + i * step) < near_half and absf(-half + j * step) < near_half: h[j * n + i] -= SiteScene.TUCK
+	var img := Image.create_from_data(n, n, false, Image.FORMAT_RF, h.to_byte_array())
 	return ImageTexture.create_from_image(img)
 
 func _build_ocean(at_sea: bool) -> void:
