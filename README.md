@@ -182,6 +182,16 @@ and its `SIM` console handle:
 | `ff=alt:12000\|t:124\|event:staging` | before the `frames` steps, step undrawn until the vehicle crosses an altitude (m), until seconds after liftoff (stage seconds outside flight) or until a vehicle event containing the text (`staging` matches separations); `frames` then counts only the drawn frames that settle the picture |
 | `eval=_preset_check` | run a development check (below); tools are excluded from exports |
 
+### Scenario files
+
+Most scenarios are files in [scenarios/](scenarios/): bodies, orbits, the sky, rings
+and the clock, written by hand in JSON with comments. A new file there is a new
+built-in scenario. **Upload scenario file…**, below the scenario list, loads your
+own and keeps a copy under Custom scenarios. A file with an error is refused with
+the line and the reason. One that may run slowly (over 256 bodies, or a predicted
+frame under 10 FPS) asks first. The format, its units and its limits are in
+[docs/scenario-format.md](docs/scenario-format.md).
+
 ## Building the macOS app
 
 The macOS export preset in `export_presets.cfg` is universal arm64 + x86_64,
@@ -437,10 +447,13 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/numericalcheck.gd` | requires native kernel; checks tiny forces, potentials, step caps, positive durations, orbital convergence and unsafe-update rollback in both implementations |
 | `tools/nbodycheck.gd` | requires native kernel; checks bodies, mass, positions, velocities, spins, overflow, merger order, steps and integrated time against GDScript, with a `secular` case that exercises tides, winds and Roche-lobe overflow |
 | `tools/secularcheck.gd` | the secular terms against their sources: Hut's tidal de/dt and da/dt, angular momentum with the spin, despin time, adiabatic widening under a wind, Eggleton's lobe and Hurley's overflow rate with mass and momentum kept, wind rates, nova ignition and accretion regimes, the ageing clock ([secular.md](docs/physics/secular.md)) |
+| `tools/neighbourcheck.gd` | the per-frame neighbour index (`sim/neighbours.gd`) against the full scans it replaced: the tidal test's primary, the eclipse occluders and the planetshine source must be the same body for every receiver of random, flat, collinear, tied, coincident, non-finite and solar scenes |
 | `tools/invariantcheck.gd` | collision mass/momentum, symmetric ordinary and black-hole pair forces, matching energy, and presentation-independent contact distances |
 | `tools/stabilitycheck.gd` | requires native kernel; strict 60,000-year Trisolaris bounds and compensated accepted time; `years=<n>` selects a shorter probe; `max_step=<years>`, `step_divisor=2`, `world_rotation=<radians>` and `world_eccentricity=<e>` select separately marked diagnostics; `report=/abs/result.json` retains runtime/force metadata, exact double states and approximate orbital elements |
 | `tools/transitioncheck.tscn` | rendered spin/remnant transitions and canonical black-hole horizons through mass sliders, edits and contact mergers; rejects stale progenitor measurements |
 | `tools/structureinputcheck.tscn` | production spawn/edit/preset rejection before mutation, supported threshold events, and rejected-control resynchronization |
+| `tools/scenariofilecheck.tscn` | headless: every built-in scenario file against the builds it replaced, bit for bit; each refusal and warning; derived defaults; upload, replace, Load anyway, the load deadline, the slow-frame pause, remove and standing on an uploaded world through the stage; `snapshot=1` rewrites the fixture |
+| `tools/scenariolimits.tscn` | windowed measurements behind the scenario files' cost warning (`mode=sweep\|tight\|phys`); prints numbers, checks nothing |
 | `tools/accretioncheck.tscn` | rendered physical/visual boundary: separated bodies retain mass and momentum under visual updates, paused streams freeze, and physical contact mergers still conserve mass and momentum; `native=0` forces GDScript and `inject_mutation=1` must fail |
 | `tools/crafttest.tscn` | vehicles: `audit()` heights/triangles, `clearance()`; `-- parity` requires all thirteen authored craft and asserts whole-vehicle height/base agreement within 2 cm in both poses; `inject_parity=1` must fail |
 | `tools/discoverycheck.gd` | Discovery cover sweep, berth furniture and rotor clearance, proper-time phase, gravity/Coriolis telemetry and Galilean-moon initial conditions in both build paths |

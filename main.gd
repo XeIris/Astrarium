@@ -92,12 +92,9 @@ func configure_window_scale(scale: float) -> void:
 	win.min_size = minimum_window_size(scale)
 	win.size = win.size.max(win.min_size)
 
-# Scenario list groups: navigation only; PRESETS is the source of truth.
-func _preset_group(id: String, label: String, keys_in: Array) -> Dictionary:
-	var ks := []
-	for k in Presets.PRESET_ORDER:
-		if keys_in.has(k): ks.append(k)
-	return {"id": id, "label": label, "keys": ks}
+# Scenario list groups: a scenario names its group; one that names none is not listed.
+func _preset_group(id: String, label: String) -> Dictionary:
+	return {"id": id, "label": label, "keys": Presets.PRESET_ORDER.filter(func(k): return Presets.PRESETS[k].get("group") == id)}
 
 var PRESET_GROUPS: Array = []
 
@@ -138,22 +135,13 @@ func _ready() -> void:
 			clampi(frame_pos.x, usable_rect.position.x, frame_limit.x),
 			clampi(frame_pos.y, usable_rect.position.y, frame_limit.y)) + frame_offset
 
-	PRESET_GROUPS = [
-		# The course's own scenarios are in the list like everything else. A lesson
-		# opens one, but nothing about them is only reachable through a lesson.
-		_preset_group("learning", "Learning scenarios", [
-			"edu_seasons", "edu_moon", "edu_kepler", "edu_habitable", "edu_starbirth",
-			"edu_sun", "edu_lifecycle", "edu_supernova", "edu_pulsar", "edu_transit",
-			"edu_hole", "edu_galaxy", "edu_cluster"]),
-		_preset_group("trisolaris", "Trisolaris scenarios", ["trisolaris", "trisolaris_wander", "trisolaris_compact", "trisolaris_wide", "trisolaris_alpha", "trisolaris_chaos"]),
-		_preset_group("black-holes", "BH scenarios", ["bhmerger", "feeding"]),
-		_preset_group("neutron-stars", "Neutron star scenarios", ["nsmerger"]),
-		_preset_group("sandboxes", "Sandboxes", ["blank", "sandbox"]),
-		_preset_group("real-stars", "Real stars", ["stellar_zoo", "sirius", "vega", "achernar", "betelgeuse", "alphacen", "etacar", "hr_ladder"]),
-		_preset_group("stellar-systems", "Stellar system scenarios", ["solar", "threebody", "binarystar"]),
-		# The galactic scene's own scenarios: a different world, not orrery presets.
-		{"id": "galaxies", "label": "Galaxies", "keys": GalModels.ORDER.duplicate()},
-	]
+	# The course's own scenarios are in the list like everything else. A lesson
+	# opens one, but nothing about them is only reachable through a lesson.
+	PRESET_GROUPS = []
+	for id in ScenarioFile.GROUPS: PRESET_GROUPS.append(_preset_group(id, ScenarioFile.GROUPS[id]))
+	# The galactic scene's own scenarios: a different world, not orrery presets.
+	PRESET_GROUPS.append({"id": "galaxies", "label": "Galaxies", "keys": GalModels.ORDER.duplicate()})
+	_load_custom_scenarios()
 
 	pipe = RenderPipeline.new()
 	pipe.name = "Pipeline"
@@ -475,7 +463,9 @@ func _sync_climate(b: Body) -> void:
 		var v = b.viz.inner if b.viz is Bodies.AccretionWrap else b.viz
 		if v != null and v.has_method("snap_climate"): v.snap_climate()
 
-func remove_body(id) -> void:
+## `refresh` false leaves the HUD to the caller: rebuilding its body list per removal
+## makes emptying a scene N², and floods Godot's message queue past a few hundred.
+func remove_body(id, refresh := true) -> void:
 	var idx := -1
 	for i in state.bodies.size():
 		if state.bodies[i].id == id:
@@ -496,12 +486,12 @@ func remove_body(id) -> void:
 	if state.focus_id == id:
 		state.focus_id = null
 		state.follow_id = null
-	refresh_ui()
+	if refresh: refresh_ui()
 
 # Empty the scene, including flashes and everything the painter tracks by id.
 func clear_bodies() -> void:
 	while not state.bodies.is_empty():
-		remove_body(state.bodies[0].id)
+		remove_body(state.bodies[0].id, false)
 	for f in flashes:
 		f.flash.kill()
 	flashes.clear()
@@ -732,9 +722,10 @@ func recoil_camera(b: Body, blast_size: float) -> void:
 	cam.radius_to = minf(maxf(cam.radius, blast_size * 2.4), 20000.0)
 
 # Every mass change can cross a hard structural threshold, even a small merger.
-func check_structural_limits(b: Body) -> void:
+## `near` indexes state.bodies at their current positions and masses; null builds one.
+func check_structural_limits(b: Body, near: Neighbours = null) -> void:
 	if not b.alive or b.type == "bh": return
-	if _check_tidal_limit(b): return
+	if _check_tidal_limit(b, near): return
 	if _check_nova(b): return
 	if Physics.secular and b.type == "star" and b.phase != null and float(b.phase) >= Structure.LIFE_CLOCK[-1][0]:
 		core_collapse(b)
@@ -789,15 +780,8 @@ func _check_nova(b: Body) -> bool:
 # when the radial velocity has turned outward, the osculating periapsis was inside,
 # and the orbit's time since periapsis fits in the interval.
 var _tidal_rv := {}   # "victim:primary" → [r·v, sim_years] at the last check
-func _check_tidal_limit(b: Body) -> bool:
-	var prim: Body = null
-	var pull := 0.0
-	for o in state.bodies:
-		if o == b or not o.alive: continue
-		var d2 := b.pos.distance_sq_to(o.pos)
-		if d2 <= 0.0: continue
-		var t: float = o.mass / (d2 * sqrt(d2))
-		if t > pull: pull = t; prim = o
+func _check_tidal_limit(b: Body, near: Neighbours = null) -> bool:
+	var prim := (near if near != null else Neighbours.new(state.bodies)).strongest_pull(b)
 	if prim == null: return false
 	var r_d := Structure.disruption_radius(b.type, b.mass, b.radius, prim.mass)
 	var contact := (prim.rs if prim.type == "bh" else (prim.contact_au if prim.contact_au != 0.0 else prim.radius)) \
@@ -1397,18 +1381,44 @@ func aim_at_brightest_sun() -> void:
 	observer.elevation = 0.12 if sun_elev < 0.05 else clampf(sun_elev, 0.05, 1.1)
 
 # PRESET LOADING
-func load_preset(key: String) -> bool:
-	cam.roll = 0.0
-	if GalaxyScene.has_preset(key): return enter_galaxy(key)
+## A scenario file with warnings asks first; `force` is its Load anyway.
+func load_preset(key: String, force := false) -> bool:
+	if GalaxyScene.has_preset(key):
+		cam.roll = 0.0
+		return enter_galaxy(key)
 	if not Presets.PRESETS.has(key): return false
-	return load_preset_spec(key, Presets.PRESETS[key])
+	var p: Dictionary = Presets.PRESETS[key]
+	if not p.get("errors", []).is_empty():
+		hud.show_scenario_notice("%s no longer reads, so it was not loaded:\n%s" % [p.name, "\n".join(p.errors)],
+			[["Remove", func(): request_remove_scenario(key)], ["Close", hud.hide_scenario_notice]])
+		return false
+	var warnings: Array = p.get("warnings", [])
+	if not warnings.is_empty() and not force:
+		hud.show_scenario_notice("⚠ %s\n%s" % [p.name, "\n".join(warnings)],
+			[["Load anyway", func(): load_preset(key, true)], ["Cancel", hud.hide_scenario_notice]])
+		return false
+	hud.hide_scenario_notice()
+	cam.roll = 0.0
+	if not warnings.is_empty():
+		_load_sliced(key, p)
+		return true
+	return load_preset_spec(key, p)
 
 ## A scenario that is not in the list (the title reel's), under its own key.
 func load_preset_spec(key: String, p: Dictionary) -> bool:
+	var specs = _preset_specs(key, p)
+	if specs == null: return false
+	_preset_begin(key, p)
+	for spec in specs: spawn_body(spec)
+	_preset_finish(p)
+	return true
+
+# A scenario's bodies, checked before anything on the stage changes; null if refused.
+func _preset_specs(key: String, p: Dictionary) -> Variant:
 	var sky_error := SkyModel.request_error(p.get("sky", {}))
 	if not sky_error.is_empty():
 		_reject_body_input("Preset %s: %s" % [key, sky_error])
-		return false
+		return null
 	var built
 	if _cmd.has("seed"):
 		var rng := GiantVisual.Mulberry.new(int(_cmd.seed))
@@ -1419,25 +1429,29 @@ func load_preset_spec(key: String, p: Dictionary) -> bool:
 		built = p.build.call()
 	if not built is Array:
 		_reject_body_input("Preset bodies must be an array.")
-		return false
+		return null
 	var specs: Array = []
 	for source in built:
 		if not source is Dictionary:
 			_reject_body_input("Preset body must be a specification.")
-			return false
+			return null
 		var spec := _normalized_body_spec(source)
 		# A preset's `climate` block is what it states about its home world.
 		if spec.type == "world" and spec.get("home") == true and p.get("climate"):
 			var unknown := ClimateInputs.unknown_key(p.climate)
 			if not unknown.is_empty():
 				_reject_body_input("Preset %s: climate has no input %s." % [key, unknown])
-				return false
+				return null
 			spec.merge(p.climate)
 		var reason := Structure.input_error(spec)
 		if not reason.is_empty():
 			_reject_body_input("Preset %s: %s" % [key, reason])
-			return false
+			return null
 		specs.append(spec)
+	return specs
+
+func _preset_begin(key: String, p: Dictionary) -> void:
+	_cancel_scenario_load()
 	# The Observatory is the solar preset on a date: another scenario ends the mode, so its
 	# clock and observer never outlive the bodies they read.
 	if observatory.active or showcase.active: set_app_mode("sandbox")
@@ -1476,7 +1490,8 @@ func load_preset_spec(key: String, p: Dictionary) -> bool:
 
 	_climate_frame = 0
 	_climates_deferred = true
-	for spec in specs: spawn_body(spec)
+
+func _preset_finish(p: Dictionary) -> void:
 	_climates_deferred = false
 
 	# Anything the scenario paints on: rings, belts, ejecta. Applied after the
@@ -1510,7 +1525,7 @@ func load_preset_spec(key: String, p: Dictionary) -> bool:
 	# UI
 	hud.set_text("presetName", String(p.name))
 	hud.set_text("blurb", String(p.get("blurb", "")))
-	hud.set_shown("massRow", key == "sandbox")
+	hud.set_shown("massRow", p.get("massSlider") == true)
 	hud.set_shown("discRow", state.lensing)
 	hud.set_shown("tempRow", state.lensing)
 	hud.set_shown("bhPanel", not get_holes().is_empty())
@@ -1522,7 +1537,107 @@ func load_preset_spec(key: String, p: Dictionary) -> bool:
 	spacetime_mesh.node.visible = state.show_mesh
 	render_preset_groups()
 	refresh_ui()
-	return true
+
+# A scenario file loaded anyway: its bodies spawn over several frames, under a deadline,
+# with the clock held; past the deadline the previous scenario comes back.
+var slice_ms := 30               # a check sets 0 to yield after every body
+var slice_deadline_ms := 15000   # a check shortens it to reach the failure path
+var _slice_generation := 0
+var _loading := false
+# After a load anyway, frames slower than 1 s; two of them pause the clock. −1: not watching.
+var _watch_slow := -1
+var _watch_until := 0
+
+## Whatever takes the stage next owns it: a load still spawning stops at its next frame,
+## and the slow-frame watch ends with the scenario that started it.
+func _cancel_scenario_load() -> void:
+	_slice_generation += 1
+	_loading = false
+	_climates_deferred = false
+	_watch_slow = -1
+
+func _load_sliced(key: String, p: Dictionary) -> void:
+	var specs = _preset_specs(key, p)
+	if specs == null: return
+	var previous := state.preset_key
+	_preset_begin(key, p)
+	var generation := _slice_generation
+	_loading = true
+	var started := Time.get_ticks_msec()
+	var slice := started
+	for i in specs.size():
+		spawn_body(specs[i])
+		var now := Time.get_ticks_msec()
+		if now - started > slice_deadline_ms:
+			_loading = false
+			var back: String = previous if Presets.PRESETS.has(previous) and Presets.PRESETS[previous].get("warnings", []).is_empty() \
+				and Presets.PRESETS[previous].get("errors", []).is_empty() else "blank"
+			if not (Presets.PRESETS.has(back) and load_preset_spec(back, Presets.PRESETS[back])): reset_stage()
+			hud.show_scenario_notice("Loading %s failed: %d of %d bodies took longer than %s s, so it was stopped." % [
+				p.name, i + 1, specs.size(), slice_deadline_ms / 1000.0], [["Close", hud.hide_scenario_notice]])
+			return
+		if now - slice >= slice_ms:
+			hud.show_scenario_notice("Loading %s: %d of %d bodies…" % [p.name, i + 1, specs.size()])
+			await get_tree().process_frame
+			if generation != _slice_generation: return
+			slice = Time.get_ticks_msec()
+	_loading = false
+	_preset_finish(p)
+	hud.hide_scenario_notice()
+	_watch_slow = 0
+	_watch_until = Time.get_ticks_msec() + 3000
+
+func _watch_frame(real_dt: float) -> void:
+	if _watch_slow < 0: return
+	if state.preset == null:
+		_watch_slow = -1
+		return
+	if real_dt > 1.0: _watch_slow += 1
+	if _watch_slow >= 2:
+		_watch_slow = -1
+		state.paused = true
+		hud.show_scenario_notice("%s runs under 1 FPS here, so the simulation is paused. The scene stays loaded." % state.preset.name,
+			[["Unload", func(): if not load_preset("blank"): reset_stage()], ["Close", hud.hide_scenario_notice]])
+	elif Time.get_ticks_msec() > _watch_until:
+		_watch_slow = -1
+
+# UPLOADED SCENARIOS (sim/scenario_store.gd)
+func _load_custom_scenarios() -> void:
+	if String(_cmd.get("settings", "")) == "default":
+		ScenarioStore.dir = OS.get_temp_dir().path_join("astrarium-scenarios-%d" % OS.get_process_id())
+	var stored := ScenarioStore.load_all()
+	for key in stored: Presets.PRESETS[key] = stored[key]
+	_refresh_custom_group()
+
+func _refresh_custom_group() -> void:
+	var keys := Presets.PRESETS.keys().filter(func(k): return Presets.PRESETS[k].get("group") == ScenarioStore.GROUP)
+	keys.sort_custom(func(a, b): return String(Presets.PRESETS[a].name).naturalnocasecmp_to(Presets.PRESETS[b].name) < 0)
+	PRESET_GROUPS = PRESET_GROUPS.filter(func(g): return g.id != ScenarioStore.GROUP)
+	PRESET_GROUPS.append({"id": ScenarioStore.GROUP, "label": "Custom scenarios", "keys": keys})
+
+## Copies a scenario file into Custom and loads it; a file with errors is not copied.
+func upload_scenario(path: String) -> bool:
+	var r := ScenarioStore.add(path)
+	if not r.ok:
+		hud.show_scenario_notice("%s was not loaded:\n%s" % [path.get_file(), "\n".join(r.errors)], [["Close", hud.hide_scenario_notice]])
+		return false
+	Presets.PRESETS[r.key] = r.preset
+	_refresh_custom_group()
+	hud.open_preset_group(ScenarioStore.GROUP)
+	render_preset_groups()
+	return load_preset(r.key)
+
+func request_remove_scenario(key: String) -> void:
+	hud.show_scenario_notice("Remove %s from Custom scenarios? Its copy is deleted; the file you uploaded is not touched." % Presets.PRESETS[key].name,
+		[["Remove", func(): remove_scenario(key)], ["Cancel", hud.hide_scenario_notice]])
+
+func remove_scenario(key: String) -> void:
+	if not key.begins_with(ScenarioStore.PREFIX) or not Presets.PRESETS.has(key): return
+	ScenarioStore.remove(key)
+	Presets.PRESETS.erase(key)
+	_refresh_custom_group()
+	hud.hide_scenario_notice()
+	render_preset_groups()
 
 # PAINTING: parameters come from the body (Roche limit for rings, resonances for
 # belt gaps).
@@ -1786,6 +1901,7 @@ func quit_to_start() -> void:
 
 ## Back to an empty universe with the default camera and sky.
 func reset_stage() -> void:
+	_cancel_scenario_load()
 	if showcase.active: showcase.leave()
 	if galaxy.active: leave_galaxy()
 	close_map()
@@ -2016,6 +2132,8 @@ func sync_sim_controls() -> void:
 	hud.set_slider("maxStep", U.log10(state.max_step), "%s yr" % U.expo(state.max_step, 1))
 	hud.set_slider("gwBoost", state.gw_boost, ("%s×" % U.fixed(state.gw_boost, 2)) if state.gw_boost else "off")
 
+var _energy_due_us := 0
+
 func update_sim_stats() -> void:
 	# Say when step_physics hits STEP_GUARD: it then runs simulated time slow, silently.
 	var capped := state.last_steps >= STEP_GUARD
@@ -2025,8 +2143,17 @@ func update_sim_stats() -> void:
 		hud.set_warn("setSteps", true, "Integration stopped at a numerical precision limit. Unsafe steps were not accepted. Check the body inputs and step cap; reduce the requested time scale for tiny systems. A larger step does not fix this limit.")
 	else:
 		hud.set_warn("setSteps", capped, "The integrator hit its 8000 sub-step guard. Only the integrated time advances the clock, so the simulation is running slower than the requested rate. Reduce the time scale to give each frame less work; increasing Max step trades accuracy for speed." if capped else "")
+	# The energy is N² GDScript (~145 ms at 512 bodies). A read that costs more than 5 ms
+	# waits 20 times its cost, so a large scene spends a twentieth of the wall clock on it
+	# and a small one reads it on every call; a new or invalid reference is read at once.
+	var started := Time.get_ticks_usec()
+	var stale: bool = state.energy0 == null or not is_finite(float(state.energy0)) \
+		or state.energy_n != state.bodies.size() or state.energy_pn != Physics.post_newtonian
+	if started < _energy_due_us and not stale: return
 	# Body creation/removal changes the energy budget independently of integration.
 	var E := Derive.total_energy(state.bodies)
+	var cost := Time.get_ticks_usec() - started
+	_energy_due_us = started + 20 * cost if cost > 5000 else 0
 	if not is_finite(E):
 		state.energy0 = null
 		state.energy_n = state.bodies.size()
@@ -2133,6 +2260,8 @@ func _bind_hud() -> void:
 	hud.mode_chosen.connect(set_app_mode)
 	hud.showcase_action.connect(_on_showcase_action)
 	hud.preset_chosen.connect(load_preset)
+	hud.scenario_file_chosen.connect(upload_scenario)
+	hud.scenario_remove.connect(request_remove_scenario)
 	hud.body_focus.connect(_on_body_focus)
 	hud.body_remove.connect(remove_body)
 	hud.spawn.connect(spawn_orbiting)
@@ -2355,6 +2484,7 @@ func _on_showcase_action(kind: String) -> void:
 # THE GALACTIC SCENE (sim/galaxy/): its own world in kpc and Myr. The orrery's bodies
 # are cleared on the way in; leaving restores the default sky and an empty stage.
 func enter_galaxy(key: String) -> bool:
+	_cancel_scenario_load()
 	if observatory.active or showcase.active: set_app_mode("sandbox")
 	close_map()
 	if flight.active: end_flight()
@@ -2649,7 +2779,7 @@ func _on_slider(id: String, v: float) -> void:
 			state.mass = v
 			hud.set_text("mass-val", U.fixed(v, 1))
 			var holes := get_holes()
-			if not holes.is_empty() and state.preset_key == "sandbox":
+			if not holes.is_empty() and state.preset != null and state.preset.get("massSlider") == true:
 				var bh: Body = holes[0]
 				if edit_body(bh, {"mass": state.mass}) == null:
 					state.mass = bh.mass
@@ -2989,12 +3119,7 @@ func show_cross_section(b: Body) -> void:
 func secular_facts(b: Body) -> Array:
 	var rows := []
 	if not Physics.secular: return rows
-	var prim: Body = null
-	var pull := 0.0
-	for o in state.bodies:
-		if o == b or not o.alive: continue
-		var d2 := b.pos.distance_sq_to(o.pos)
-		if d2 > 0.0 and o.mass / (d2 * sqrt(d2)) > pull: pull = o.mass / (d2 * sqrt(d2)); prim = o
+	var prim := Neighbours.new(state.bodies).strongest_pull(b)
 	if prim != null and b.tide_k2 > 0.0:
 		var rel := DVec3.new().sub_vectors(b.pos, prim.pos)
 		var vrel := DVec3.new().sub_vectors(b.vel, prim.vel)
@@ -3246,6 +3371,7 @@ func frame(dt: float = 1.0 / 60.0) -> void:
 
 func _process(real_dt: float) -> void:
 	update_fps(real_dt)
+	_watch_frame(real_dt)
 	# Cap dt at 50 ms: a slow machine runs the sim slow rather than jumping.
 	var dt: float = float(manual_dt) if manual_dt != null else minf(real_dt, 0.05)
 	manual_dt = null
@@ -3451,7 +3577,7 @@ func animate(dt: float) -> void:
 		if not title_reel.update(dt):
 			pipe.prepare_frame(null, state.time)
 			return
-	var sim_dt := 0.0 if state.paused else dt * state.speed * state.time_scale
+	var sim_dt := 0.0 if state.paused or _loading else dt * state.speed * state.time_scale
 	state.time += dt
 
 	var sim_stepped := 0.0
@@ -3507,6 +3633,7 @@ func animate(dt: float) -> void:
 	ctx.holes = holes; ctx.camera = pipe.scene_cam; ctx.cam_pos = cam_pos; ctx.time = state.time
 	ctx.scene_scale = state.scene_scale; ctx.sim_dt = sim_stepped; ctx.suns = state.suns
 	ctx.bodies = state.bodies; ctx.viewport_h = float(pipe.view_size.y)
+	ctx.near = Neighbours.new(state.bodies)
 	ctx.visible_band = state.band == Spectrum.VISIBLE_BAND
 	var vis_dt := 0.0 if state.paused else dt
 	if not drawn: _held_dt += vis_dt
@@ -3524,8 +3651,14 @@ func animate(dt: float) -> void:
 			# A star's visual steps its activity, whose flares the climate reads.
 			b.activity.step(sim_stepped)
 		apply_size_ease(b, dt)
-	# Structural limits, on anything whose mass moved this frame.
-	for b in state.bodies.duplicate(): check_structural_limits(b)
+	# Structural limits, on anything whose mass moved this frame. An event changes a mass
+	# or the body list, and the next search needs an index of what is left.
+	var near := ctx.near
+	for b: Body in state.bodies.duplicate():
+		var count := state.bodies.size()
+		var mass := b.mass
+		check_structural_limits(b, near)
+		if state.bodies.size() != count or b.mass != mass: near = Neighbours.new(state.bodies)
 
 	# Sample after this frame's camera and body updates: a photometer's line of
 	# sight must match the image rather than lag a camera move by one frame.

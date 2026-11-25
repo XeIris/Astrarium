@@ -1,0 +1,26 @@
+// Close enough to show the illustrative stream, with physical surfaces still separated.
+{
+  "format": 1,
+  "name": "Black Hole and Companion",
+  "group": "black-holes",
+  "blurb": "A star orbits a 12 M☉ black hole, with both bodies drawn at their physical sizes. The gas stream illustrates how stripped material could flow toward the hole; the star keeps its mass until contact. Focus Singularity for a close view of its shadow and illustrated disc.",
+  "sky": { "env": "core", "roll": 1.2, "tilt": 0.36 },
+  "sceneScale": 200,
+  "bodyScale": 1,
+  "trueScale": true,
+  "camRadius": 30,
+  "lensing": true,
+  "discOuter": 9,
+  "timeScale": 0.0001,
+  "maxStep": 1e-05,
+  "bodies": [
+    {
+      "type": "bh", "name": "Singularity", "mass": 12, "pos": [-0.0023478260869565213, 0, 0],
+      "vel": [0, 0, -22.692198699023557]
+    },
+    {
+      "type": "star", "name": "Companion Star", "mass": 1.8, "color": "#ffe0a0", "glow": "#ff8040",
+      "pos": [0.015652173913043476, 0, 0], "vel": [0, 0, 151.28132466015708]
+    },
+  ]
+}

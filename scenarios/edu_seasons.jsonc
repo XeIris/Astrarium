@@ -1,0 +1,35 @@
+// WHY THERE ARE SEASONS: an axis fixed in space on Earth's real orbit (e = 0.0167).
+// Perihelion is on 3 January, and the 6.8% swing in insolation has the wrong sign
+// to explain summer; the 23.44° tilt does the work.
+// Started at aphelion (early July), so the planet first falls sunward through
+// northern autumn. 20 days to the year so neither the orbit nor the day strobes;
+// the lessons set their own pace on top (0.003 yr/s for day/night, 0.06 for seasons).
+{
+  "format": 1,
+  "name": "Why there are seasons",
+  "group": "learning",
+  "blurb": "One star, one planet, and the real 23.44° tilt. Earth's orbit is its real one — eccentricity 0.0167, with perihelion in January — so the planet is CLOSEST to the Sun during northern winter. Watch the terminator: the axis keeps pointing at the same place in the sky all year, so first one pole leans into the light and then the other. The ONE thing changed from reality is the length of the day: this world turns 20 times a year rather than 365, because no single pace makes both the day and the year watchable and the course needs both.",
+  "sky": { "env": "disc", "roll": 2.1, "tilt": 0.38 },
+  "sceneScale": 34,
+  "bodyScale": 0.5,
+  "camRadius": 12,
+  "focus": "Earth",
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.06,
+  "maxStep": 0.001,
+  "surface": true,
+  "climate": { "T0": 288, "mixedLayer": 60 },
+  "bodies": [
+    {
+      "type": "star", "name": "Sun", "mass": 1, "color": "#fff2cc", "glow": "#ffaa33", "pos": [0, 0, 0],
+      "vel": [0, 0, 0]
+    },
+    {
+      "type": "world", "name": "Earth", "mass": 3.0035e-06, "radiusKm": 6371, "albedo": 0.306,
+      "atmosphere": true, "biota": 1, "cloudCover": 0.44, "dayLength": 438.3, "home": true, "k2": 0.299,
+      "land": 0.29, "obliquity": 23.44, "season": 11, "tideLagS": 638, "pos": [1.016700111837, 0, 0],
+      "vel": [0, 0, 6.179117479867173]
+    },
+  ]
+}

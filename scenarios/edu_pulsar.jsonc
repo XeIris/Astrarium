@@ -1,0 +1,28 @@
+// A LIGHTHOUSE MADE OF NEUTRONS: 1.4 M☉ in 12 km, surface gravity 2×10¹¹ g, and
+// light bent enough to show over half the sphere (analytic approximation;
+// docs/physics/neutron-light-bending.md).
+// The beams leave the magnetic poles, off the rotation axis, so they sweep.
+// 12.5 km at true scale, so sceneScale makes the star about one unit wide
+// (8.35e-8 AU × 1.2e7).
+{
+  "format": 1,
+  "name": "A pulsar",
+  "group": "learning",
+  "blurb": "One and a half solar masses inside a sphere 24 km across, turning 30 times a second. Rotation is slowed in this view so you can follow the sweep. Its gravity bends the light leaving its own surface far enough that you see well past the limb — more than half the star at once. The beams come out of the magnetic poles, which are not the rotation poles, so they sweep: a pulsar does not blink, it rotates, and we only call it a pulsar because the beam happens to cross us. Switch to the RADIO band to see what a radio telescope sees.",
+  "sky": { "env": ["disc", "halo"], "roll": 2.2, "tilt": 0.58 },
+  "sceneScale": 12000000,
+  "bodyScale": 1,
+  "trueScale": true,
+  "camRadius": 6.5,
+  "focus": "Pulsar",
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 2e-07,
+  "maxStep": 1e-08,
+  "bodies": [
+    {
+      "type": "neutron", "name": "Pulsar", "mass": 1.4, "spinHz": 30, "visualSpinRadS": 30, "pos": [0, 0, 0],
+      "vel": [0, 0, 0]
+    },
+  ]
+}
