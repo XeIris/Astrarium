@@ -1,0 +1,57 @@
+{
+  "format": 1,
+  "name": "The Stellar Zoo",
+  "group": "real-stars",
+  "blurb": "Ten famous stars at their true relative sizes, from Betelgeuse — whose photosphere would reach the asteroid belt — down to Sirius B, an Earth-sized white dwarf. That is a range of 90 000 to 1, so most of them are points until you fly to them. They are on genuinely circular orbits about their common centre of mass, computed from the real N-body force at t = 0; a ring of unequal masses has no stable mode, so left running it will buckle and come apart. That is the correct answer, not a bug.",
+  "sky": { "env": "disc", "roll": 1.15, "tilt": 0.34 },
+  "sceneScale": 0.5,
+  "bodyScale": 1,
+  "trueScale": true,
+  "camRadius": 60,
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 1.5,
+  "maxStep": 0.002,
+  "bodies": [
+    {
+      "type": "star", "name": "Betelgeuse", "catalog": "betelgeuse", "pos": [70, 0, 0],
+      "vel": [0, 0, 3.7930468445244654]
+    },
+    {
+      "type": "star", "name": "Rigel", "catalog": "rigel", "pos": [56.63118960624632, 0, 41.14496766047312],
+      "vel": [-2.1046448238502027, 0, 2.8967950845606567]
+    },
+    {
+      "type": "star", "name": "Aldebaran", "catalog": "aldebaran",
+      "pos": [21.631189606246323, 0, 66.57395614066074], "vel": [-4.257757851993038, 0, 1.3834293879028496]
+    },
+    {
+      "type": "star", "name": "Polaris", "catalog": "polaris",
+      "pos": [-21.631189606246313, 0, 66.57395614066075], "vel": [-3.6255047550769945, 0, -1.1779979037105741]
+    },
+    {
+      "type": "star", "name": "Achernar", "catalog": "achernar",
+      "pos": [-56.631189606246316, 0, 41.14496766047313], "vel": [-2.1942130794915142, 0, -3.0200752122734973]
+    },
+    {
+      "type": "star", "name": "Bellatrix", "catalog": "bellatrix", "pos": [-70, 0, 8.572527594031473e-15],
+      "vel": [-4.2047178608061246e-16, 0, -3.4334126898740216]
+    },
+    {
+      "type": "star", "name": "Vega", "catalog": "vega", "pos": [-56.63118960624632, 0, -41.144967660473114],
+      "vel": [2.1524265585396427, 0, -2.962561000315953]
+    },
+    {
+      "type": "star", "name": "Sirius A", "catalog": "siriusA",
+      "pos": [-21.63118960624633, 0, -66.57395614066074], "vel": [3.2750233332337126, 0, -1.0641195865899788]
+    },
+    {
+      "type": "star", "name": "Sun", "catalog": "sun", "pos": [21.631189606246306, 0, -66.57395614066075],
+      "vel": [3.42394515694069, 0, 1.112507220311299]
+    },
+    {
+      "type": "white-dwarf", "name": "Sirius B", "catalog": "siriusB",
+      "pos": [56.631189606246316, 0, -41.144967660473135], "vel": [2.431421359156401, 0, 3.3465643997903167]
+    },
+  ]
+}

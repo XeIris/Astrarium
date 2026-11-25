@@ -33,6 +33,14 @@ const ROUGH_M := 900.0
 const MAX_ROUGH := 4.0
 # How far to the map's side of a coast the pin is put when a measured cell says otherwise, m.
 const COAST_M := 5.0
+# A measured world with nothing flowing: the Hurst exponent H of its height increments, ν(L) ∝ L^H,
+# carries the measured cell's own roughness down below the cell, instead of an Earth-scaled field drawn
+# on top of relief the cell already holds. The Moon: Rosenburg et al. 2011 (LOLA, 17 m–2.7 km baselines)
+# give medians of 0.76 in the maria and 0.95 in the highlands; 0.85 is between. Mars: Orosei et al. 2003
+# (MOLA) find H > 0.5 over most of the surface; 0.8 is an estimate within that.
+const HURST := {"Moon": 0.85, "Mars": 0.80}
+# The lag the added field is calibrated at, in its grid's cells.
+const CAL_LAG := 2
 
 # Inputs.
 var relief: PlanetRelief
@@ -47,18 +55,35 @@ var rain_mm := 0.0                  # mm/yr, 0 for no running water
 var flowing := false
 var crater := 0.0
 var map_land := -1                  # 1 land, 0 sea when a map says, else the crust does
+## The world's stated land relief against the crust's default 3.2 km, or < 0 where it is not stated. A stated
+## relief already holds what strength and erosion made of a world, so its roughness scales with it, not with
+## 1/g (Titan's 1 km is far gentler than its gravity alone would allow).
+var relief_scale := -1.0
+## A stated dune field ({height, width, spacing, bearing, band}: m, m, m, degrees from north, degrees of latitude),
+## or empty.
+var dunes := {}
+## The pin's latitude, rad, for the dune band.
+var lat := 0.0
+## A world whose seas are stated (StatedSeas), or "": under a mare the floor is its depth, off it the land
+## the crust has, kept above the datum.
+var stated := ""
 ## Measured height in place of the crust's, m from sea level (or the datum on a dry world); loaded
 ## by the caller on the main thread.
 var elevation: PlanetElevation = null
 ## Whether the map's coast is within a measured cell of the pin; only there does the grid bend to it.
 var map_coastal := false
 var rain_index := -1.0              # the pin's precipitation(), 0..1, or < 0 for none
+## HURST's for a measured dry world, else 0 and the gravity-scaled roughness.
+var hurst := 0.0
 var seed := 0
 var cells := 129
 # Outputs.
 var grids: Array = []
 var channel_far := PackedFloat32Array()
 var channel_near := PackedFloat32Array()
+## The craters stamped, [east, north, radius], m, in the site's frame: what the ground shader brightens as fresh.
+var craters: Array = []
+
 var cancelled := false
 var progress := 0.0
 var stats := {}
@@ -88,21 +113,77 @@ func build() -> void:
 	if rain_index >= 0.0 and relief != null: rain_index_mean = relief.mean_precipitation(elevation)
 	var far := _grid_from_crust(far_half)
 	if cancelled: return
-	if cancelled: return
 	progress = 0.1
-	# Strength over ρg, up to where a small world's own size has more to say than its gravity.
-	var strength := minf(G_EARTH / g, MAX_ROUGH)
-	_add_roughness(far, far_half, far_half / 6.0, ROUGH_M * strength, seed)
-	if crater > 0.02: _stamp_craters(far, far_half, seed + 1)
+	var measured := hurst > 0.0 and elevation != null
+	var cell := elevation.cell_rad() * radius_m if measured else 0.0
+	if measured:
+		stats.cell_m = cell
+		stats.cell_roughness_m = cell_roughness()
+		_add_fractal(far, far_half, cell, seed)
+		# Craters wider than a cell are in the measured grid already.
+		if crater > 0.02: _stamp_craters(far, far_half, seed + 1, cell * 0.5)
+	else:
+		# Strength over ρg, up to where a small world's own size has more to say than its gravity.
+		var strength := strength()
+		_add_roughness(far, far_half, far_half / 6.0, ROUGH_M * strength, seed)
+		if crater > 0.02: _stamp_craters(far, far_half, seed + 1)
+	_add_dunes(far, far_half)
 	channel_far = _carve(far, far_half, 0.1, 0.55, true)
 	if cancelled: return
 	var near := _grid_inside(far, far_half, near_half)
-	_add_roughness(near, near_half, near_half / 4.0, 0.1 * ROUGH_M * strength, seed + 7)
+	if measured:
+		_add_fractal(near, near_half, 2.0 * far_half / (cells - 1), seed + 7)
+	else:
+		_add_roughness(near, near_half, near_half / 4.0, 0.1 * ROUGH_M * strength(), seed + 7)
 	if crater > 0.02: _stamp_craters(near, near_half, seed + 11)
+	# The near grid is drawn from the far one, dunes and all: its own at full resolution replace them.
+	_add_dunes(near, near_half, far_half)
 	channel_near = _carve(near, near_half, 0.55, 1.0, false)
 	if cancelled: return
+	if not has_sea: _ramp_rim(far)
+	_ramp_seam(near, near_half, far, far_half)
 	grids = [{"n": cells, "half": near_half, "h": near}, {"n": cells, "half": far_half, "h": far}]
 	progress = 1.0
+
+# The near grid's outer SEAM eases to the far grid as drawn just past its edge (SiteScene tucks the far one under
+# it), so the ground a wheel crosses there has no step.
+const SEAM := 0.08
+func _ramp_seam(near: PackedFloat32Array, near_half: float, far: PackedFloat32Array, far_half: float) -> void:
+	var step := 2.0 * near_half / (cells - 1)
+	var pair := [{"n": cells, "half": near_half, "h": near}, {"n": cells, "half": far_half, "h": far}]
+	for j in cells:
+		for i in cells:
+			var e := -near_half + i * step
+			var n := -near_half + j * step
+			var edge := 1.0 - maxf(absf(e), absf(n)) / near_half
+			if edge >= SEAM: continue
+			var far_h := _seam_lookup(pair, e, n)
+			var k := j * cells + i
+			near[k] = lerpf(far_h, near[k], smoothstep(0.0, SEAM, edge))
+
+# The far grid's height at (e, n) on the triangles SiteScene draws, its vertices inside the near grid tucked.
+func _seam_lookup(pair: Array, e: float, n: float) -> float:
+	var g: Dictionary = pair[1]
+	var half: float = g.half
+	var c: int = int(g.n) - 1
+	var step := 2.0 * half / c
+	var fx := (e + half) / step
+	var fy := (n + half) / step
+	var i := mini(int(fx), c - 1)
+	var j := mini(int(fy), c - 1)
+	var tx := fx - i
+	var ty := fy - j
+	var at := func(a: int, b: int) -> float:
+		var de := -half + a * step
+		var dn := -half + b * step
+		return SiteScene._drawn_vertex(pair, 1, a, b, -1e9, radius_m, false) + (de * de + dn * dn) / (2.0 * radius_m)
+	var h10: float = at.call(i + 1, j)
+	var h01: float = at.call(i, j + 1)
+	if tx + ty <= 1.0:
+		var h00: float = at.call(i, j)
+		return h00 + tx * (h10 - h00) + ty * (h01 - h00)
+	var h11: float = at.call(i + 1, j + 1)
+	return h11 + (1.0 - tx) * (h01 - h11) + (1.0 - ty) * (h10 - h11)
 
 # Unit direction at metres east and north of the pin, on the ball.
 func _dir(e: float, n: float) -> Vector3:
@@ -122,6 +203,7 @@ func _grid_from_crust(half: float) -> PackedFloat32Array:
 				coarse[j * m + i] = elevation.at(ll.x, ll.y)
 			else:
 				coarse[j * m + i] = (relief.height(_dir(e, n)).x * 1000.0) - sea_m
+				if stated != "": coarse[j * m + i] = _stated_height(_dir(e, n), coarse[j * m + i])
 		progress = 0.1 * float(j + 1) / m
 	if elevation != null:
 		_keep_map_coast(coarse, m, 2.0 * half / (m - 1))
@@ -144,6 +226,18 @@ func _grid_from_crust(half: float) -> PackedFloat32Array:
 			tx = tx * tx * (3.0 - 2.0 * tx)
 			out[j * cells + i] = lerpf(lerpf(coarse[j0 * m + i0], coarse[j0 * m + i0 + 1], tx), lerpf(coarse[(j0 + 1) * m + i0], coarse[(j0 + 1) * m + i0 + 1], tx), ty)
 	return out
+
+# On a world with stated seas: the mare's floor under it, and off it the crust's land, rising from the shore
+# over SHORE_RISE so a coast is a beach, not the crust's height cut off.
+const SHORE_RISE := 20.0e3
+
+func _stated_height(d: Vector3, crust_m: float) -> float:
+	var ll := PlanetPin.lat_lon(d)
+	var mare := StatedSeas.at(stated, ll.x, ll.y, radius_m, INF)
+	if mare.is_empty(): return absf(crust_m) + COAST_M
+	var inside := float(mare.inside)
+	if inside > 0.0: return -maxf(float(mare.depth), COAST_M)
+	return absf(crust_m) * (1.0 - exp(inside / SHORE_RISE)) + COAST_M
 
 # A measured cell averages across a coast; the map, which is finer, says which side the pin is on.
 # Only the pin's own neighbourhood moves, over one measured cell, to a few metres on the map's side.
@@ -175,6 +269,98 @@ func _grid_inside(far: PackedFloat32Array, far_half: float, half: float) -> Pack
 			out[j * cells + i] = lerpf(lerpf(far[j0 * cells + i0], far[j0 * cells + i0 + 1], tx), lerpf(far[(j0 + 1) * cells + i0], far[(j0 + 1) * cells + i0 + 1], tx), ty)
 	return out
 
+## A dune's crest factor, 0–1, at (east, north) `p` m: the profile ground.gdshader shades past the near grid,
+## its meander the same gradient noise on the same hash, so the carved crests and the shaded ones are one field.
+static func dune_ridge(p: Vector2, across: Vector2, spacing: float, half_w: float) -> float:
+	var meander := 0.25 * gnoise(p / (spacing * 12.0), 61) * spacing
+	var u := (p.dot(across) + meander) / spacing
+	var d := absf(u - floorf(u) - 0.5) / half_w
+	return 0.0 if d >= 1.0 else pow(cos(d * PI * 0.5), 2.0)
+
+const _M32 := 0xFFFFFFFF
+
+# ground.gdshader's pcg2d (Jarzynski & Olano 2020), in 32-bit unsigned arithmetic.
+static func _pcg_x(vx: int, vy: int) -> int:
+	vx = (vx * 1664525 + 1013904223) & _M32
+	vy = (vy * 1664525 + 1013904223) & _M32
+	vx = (vx + vy * 1664525) & _M32
+	vy = (vy + vx * 1664525) & _M32
+	vx ^= vx >> 16
+	vy ^= vy >> 16
+	vx = (vx + vy * 1664525) & _M32
+	vx ^= vx >> 16
+	return vx
+
+static func _hash2(cx: int, cy: int, s: int) -> float:
+	return float(_pcg_x((cx + s) & _M32, (cy + s * 747796405) & _M32)) / 4294967295.0
+
+## ground.gdshader's gnoise: Perlin's gradient noise, quintic, in [−1, 1].
+static func gnoise(p: Vector2, s: int) -> float:
+	var ix := floori(p.x); var iy := floori(p.y)
+	var fx := p.x - ix; var fy := p.y - iy
+	var ux := fx * fx * fx * (fx * (fx * 6.0 - 15.0) + 10.0)
+	var uy := fy * fy * fy * (fy * (fy * 6.0 - 15.0) + 10.0)
+	var v := [0.0, 0.0, 0.0, 0.0]
+	for k in 4:
+		var ox := k & 1; var oy := k >> 1
+		var a := _hash2(ix + ox, iy + oy, s) * TAU
+		v[k] = cos(a) * (fx - ox) + sin(a) * (fy - oy)
+	return 1.414 * lerpf(lerpf(v[0], v[1], ux), lerpf(v[2], v[3], ux), uy)
+
+## The far grid's outer RIM of its half-width eased down to its lowest point, where SurfaceSite.patch_level
+## lays the planet's patch, so the site meets the patch as a slope, not a cliff standing out of it. A dry world's
+## only: under a sea the patch is below the water anyway. Contact reads the eased grid, as it is drawn.
+const RIM := 0.15
+
+func _ramp_rim(h: PackedFloat32Array) -> void:
+	var lowest := INF
+	for v in h: lowest = minf(lowest, v)
+	var c := (cells - 1) * 0.5
+	for j in cells:
+		for i in cells:
+			var r := maxf(absf(i - c), absf(j - c)) / c
+			var t := clampf((r - (1.0 - RIM)) / RIM, 0.0, 1.0)
+			if t <= 0.0: continue
+			var k := j * cells + i
+			h[k] = lerpf(h[k], lowest, t * t * (3.0 - 2.0 * t))
+
+## How much rougher than Earth's this world's ground is: its stated relief's scale, or strength over ρg (the
+## ratio of gravities), up to where a small world's own size has more to say than its gravity.
+func strength() -> float:
+	return relief_scale if relief_scale > 0.0 else minf(G_EARTH / g, MAX_ROUGH)
+
+## Linear dunes across the grid (`dunes`): ridges `spacing` apart running along `bearing`, meandering a little,
+## each a rounded crest `width` across with flat interdunes between, `height` at the crest.
+## They thin out to nothing at the band's edge in latitude and do not climb out of a sea. Where the grid is too
+## coarse to hold a ridge (under 6 cells to a spacing) they are left to the finer grid. `far_half` > 0 is the
+## grid this one was drawn from, whose dunes it replaces.
+func _add_dunes(h: PackedFloat32Array, half: float, far_half := 0.0) -> void:
+	if dunes.is_empty(): return
+	var spacing := float(dunes.spacing)
+	var band := absf(rad_to_deg(lat)) / float(dunes.band)
+	var amp := float(dunes.height) * clampf((1.0 - band) * 3.0, 0.0, 1.0)
+	if amp <= 0.0: return
+	var step := 2.0 * half / (cells - 1)
+	var keep := 1.0 if spacing / step >= 6.0 else 0.0
+	var took := 0.0
+	if far_half > 0.0:
+		took = 1.0 if spacing / (2.0 * far_half / (cells - 1)) >= 6.0 else 0.0
+	if keep == took: return
+	var b := deg_to_rad(float(dunes.bearing))
+	# Across the crests: the grid's (east, north) onto the bearing's normal.
+	var across := Vector2(cos(b), -sin(b))
+	var half_w := 0.5 * float(dunes.width) / spacing
+	for j in cells:
+		var y := -half + j * step
+		for i in cells:
+			var x := -half + i * step
+			var k := j * cells + i
+			var base: float = h[k]
+			if has_sea and base <= 0.0: continue
+			var ridge := dune_ridge(Vector2(x, y), across, spacing, half_w)
+			h[k] = base + amp * ridge * (keep - took)
+
+
 # Fractal detail with the world's strength behind it, on land only: a sea bed under sediment is smooth.
 func _add_roughness(h: PackedFloat32Array, half: float, wavelength: float, amp: float, s: int) -> void:
 	var noise := FastNoiseLite.new()
@@ -196,13 +382,72 @@ func _add_roughness(h: PackedFloat32Array, half: float, wavelength: float, amp: 
 			if land > 0.0:
 				h[k] = base + noise.get_noise_2d(x, y) * 0.5 * amp * land
 
+## RMS height difference between neighbouring measured cells about the pin, m: the measured relief's
+## own roughness at the cell's scale, over a 7 × 7 patch of them.
+func cell_roughness() -> float:
+	var L := elevation.cell_rad() * radius_m
+	var sum := 0.0
+	var n := 0
+	for j in range(-3, 4):
+		for i in range(-3, 4):
+			var here := _measured(i * L, j * L)
+			for d in [Vector2(1, 0), Vector2(0, 1)]:
+				var dh := _measured((i + d.x) * L, (j + d.y) * L) - here
+				sum += dh * dh
+				n += 1
+	return sqrt(sum / n)
+
+func _measured(e: float, n: float) -> float:
+	var ll := PlanetPin.lat_lon(_dir(e, n))
+	return elevation.at(ll.x, ll.y)
+
+# Relief below `top` m: fBm whose octaves each fall by 2^−H as their wavelength halves, scaled so the
+# grid's height increments at CAL_LAG cells reach the measured cell's extended there,
+# ν(ℓ) = ν_cell (ℓ / L_cell)^H. What the grid already holds at that lag counts toward it.
+func _add_fractal(h: PackedFloat32Array, half: float, top: float, s: int) -> void:
+	var step := 2.0 * half / (cells - 1)
+	var lag := CAL_LAG * step
+	var want := float(stats.cell_roughness_m) * pow(lag / float(stats.cell_m), hurst)
+	var have := _increments(h, CAL_LAG)
+	var need := sqrt(maxf(want * want - have * have, 0.0))
+	if need <= 0.0 or top <= lag: return
+	var noise := FastNoiseLite.new()
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	noise.fractal_octaves = clampi(int(ceil(log(top / step) / log(2.0))) + 1, 1, 9)
+	noise.fractal_lacunarity = 2.0
+	noise.fractal_gain = pow(2.0, -hurst)
+	noise.seed = s
+	noise.frequency = 1.0 / top
+	var f := PackedFloat32Array()
+	f.resize(cells * cells)
+	for j in cells:
+		for i in cells:
+			f[j * cells + i] = noise.get_noise_2d(-half + i * step, -half + j * step)
+	var scale := need / maxf(_increments(f, CAL_LAG), 1e-9)
+	for k in h.size(): h[k] += f[k] * scale
+
+# RMS of height differences `lag` cells apart along both axes.
+func _increments(h: PackedFloat32Array, lag: int) -> float:
+	var sum := 0.0
+	var n := 0
+	for j in range(0, cells - lag):
+		for i in range(0, cells - lag):
+			var a := h[j * cells + i]
+			var dx := h[j * cells + i + lag] - a
+			var dy := h[(j + lag) * cells + i] - a
+			sum += dx * dx + dy * dy
+			n += 2
+	return sqrt(sum / maxf(n, 1.0))
+
 # Saturated cratering: bowls and rims, with counts falling as D⁻² (the power law crater counts
-# show). Density and depth/diameter of 0.2 are typical fresh values (estimates).
-func _stamp_craters(h: PackedFloat32Array, half: float, s: int) -> void:
+# show). Density and depth/diameter of 0.2 are typical fresh values (estimates). `largest` caps the
+# radius, m.
+func _stamp_craters(h: PackedFloat32Array, half: float, s: int, largest := INF) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = s
 	var step := 2.0 * half / (cells - 1)
-	var r_max := half * 0.35
+	var r_max := minf(half * 0.35, largest)
 	var r_min := step * 2.0
 	var count := int(60.0 * crater)
 	for c in count:
@@ -211,6 +456,7 @@ func _stamp_craters(h: PackedFloat32Array, half: float, s: int) -> void:
 		var cx := rng.randf_range(-half, half)
 		var cy := rng.randf_range(-half, half)
 		var depth := 0.4 * r * crater
+		craters.append([cx, cy, r])
 		var reach := int(ceil(r * 1.7 / step))
 		var ic := int((cx + half) / step)
 		var jc := int((cy + half) / step)

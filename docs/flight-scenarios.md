@@ -15,7 +15,7 @@ real flight is flown to from there.
 | `pad` | `Spaceflight.begin(mode=pad)` and the terminal count at T−10 s, in the local morning | every ascent |
 | `orbit` | a circular orbit, with stages dropped or jettisoned and propellant set | parking orbits, deorbit burns, the LM's descent |
 | `return` | Super Heavy after its boostback (`CatchTower.begin_return`); with `at`, part-way down relative to the tower | booster return and catch |
-| `descent` | `tools/flight_scenarios.json`'s descent starts (`flightcheck`'s f9booster and skycrane) | Falcon 9 booster, Mars EDL |
+| `descent` | `tools/flight_scenarios.json`'s descent starts (`flightcheck`'s f9booster and skycrane); Apollo 11's entry interface (NASA SP-4029) | Falcon 9 booster, Mars EDL, the command module's return |
 | `air` | an altitude, airspeed and flight-path angle on an orbit's track, the program's first guidance cycle, the attitude it asks for, and its filters as they were in flight | the Shuttle's and Starship's returns |
 
 The condition (`until`) is flown by `FlightScenarios.Jump`: the frame loop
@@ -133,9 +133,20 @@ here), which the later booster scenarios avoid.
 | `lm:approach` | 2.66 km, 154 m/s air, land/P64 | 3.8 s | alt -1.8 m, speed +0.3 m/s, fpa +0.2°, mass -87.9 kg, t -2.2 s |
 | `lm:terminal_descent` | 0.09 km, 21 m/s air, land/P66 | 4.5 s | alt -2.5 m, speed -0.2 m/s, fpa +0.1°, mass -83.3 kg, t -1.8 s |
 | `skycrane:entry` | 125.00 km, 5560 m/s air, edl | 0.0 s | built directly |
-| `skycrane:parachute` | 6.19 km, 387 m/s air, edl/chute | 2.6 s | alt -11.8 m, speed -0.3 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |
-| `skycrane:powered_descent` | 1.79 km, 107 m/s air, edl/powered | 3.0 s | alt -6.0 m, speed +0.0 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |
-| `skycrane:sky_crane` | 0.02 km, 1 m/s air, edl/powered | 3.6 s | alt +0.0 m, speed -0.1 m/s, fpa -0.5°, mass -0.3 kg, t +0.1 s |
+| `skycrane:parachute` | 9.25 km, 420 m/s air, edl/chute | 3.7 s | alt -4.1 m, speed -0.1 m/s, fpa -0.1°, mass +0.0 kg, t +0.1 s |
+| `skycrane:powered_descent` | 1.47 km, 81 m/s air, edl/powered | 4.8 s | alt -12.4 m, speed +0.1 m/s, fpa +0.0°, mass +0.0 kg, t +0.2 s |
+| `skycrane:sky_crane` | -0.60 km, 1 m/s air, edl/powered | 5.6 s | alt -7.4 m, speed +0.0 m/s, fpa +0.6°, mass -0.1 kg, t +0.1 s |
+| `skycrane:dust_devils` | -0.47 km, 0 m/s air, landed | 5.8 s | alt +107.5 m, speed +0.0 m/s, fpa +0.0°, mass +0.3 kg, t -1.5 s |
+| `skycrane:dust_storm` | -3.08 km, 0 m/s air, landed | 6.4 s | alt +0.0 m, speed +0.0 m/s, fpa +0.0°, mass -0.6 kg, t +0.0 s |
+| `apollocm:entry` | 121.92 km, 10561 m/s air, edl | 0.7 s | built directly |
+| `apollocm:drogues` | 7.31 km, 65 m/s air, edl/chute | 12.5 s | alt -2.2 m, speed +0.0 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |
+| `apollocm:mains` | 3.25 km, 78 m/s air, edl/chute | 13.4 s | alt -5.9 m, speed +0.1 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |
+| `apollocm:splashdown` | afloat, landed | 18.0 s | alt +0.0 m, speed +0.0 m/s, fpa +0.0°, mass +0.0 kg, t -0.3 s |
+| `dragonfly:entry` | 600.00 km, 5987 m/s air, edl (Titan expedition) | 0.7 s | built directly |
+| `dragonfly:parachute` | 139.98 km, 294 m/s air, edl/chute | 9.8 s | alt -11.7 m, speed -0.2 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |
+| `time:entry` | 600.00 km, 6000 m/s air, edl (Titan expedition), over Ligeia Mare | 0.0 s | built directly |
+| `time:parachute` | 149.30 km, 294 m/s air, edl/chute | 9.3 s | alt -9.8 m, speed -0.2 m/s, fpa +0.0°, mass +0.0 kg, t +0.1 s |
+| `ranger:titan_orbit` | 800.00 km, 1616 m/s air, glide (Titan expedition) | 0.0 s | built directly |
 
 ## Known limits
 

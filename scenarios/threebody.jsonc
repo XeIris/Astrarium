@@ -1,0 +1,27 @@
+// exact figure-eight ICs for G=m=1; rescale velocities by 2π for G=4π².
+{
+  "format": 1,
+  "name": "Three-Body (figure-eight)",
+  "group": "stellar-systems",
+  "blurb": "The Chenciner–Montgomery choreography: three equal masses chasing each other along one shared figure-eight orbit. A real exact solution.",
+  "sky": { "env": "globular", "roll": 1.4, "tilt": 0.3 },
+  "sceneScale": 4,
+  "bodyScale": 1.4,
+  "camRadius": 22,
+  "lensing": false,
+  "timeScale": 2,
+  "bodies": [
+    {
+      "type": "star", "name": "Body 1", "mass": 1, "color": "#ffd9a0", "glow": "#ff8040",
+      "pos": [0.97000436, 0, -0.24308753], "vel": [2.92924414374498, 0, 2.716634002063976]
+    },
+    {
+      "type": "star", "name": "Body 2", "mass": 1, "color": "#a0c8ff", "glow": "#4080ff",
+      "pos": [-0.97000436, 0, 0.24308753], "vel": [2.92924414374498, 0, 2.716634002063976]
+    },
+    {
+      "type": "star", "name": "Body 3", "mass": 1, "color": "#ffa0a0", "glow": "#ff4060", "pos": [0, 0, 0],
+      "vel": [-5.85848828748996, 0, -5.433268004127952]
+    },
+  ]
+}

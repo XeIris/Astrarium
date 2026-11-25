@@ -866,3 +866,69 @@ Visual confirmation, windowed, 1280×720:
 
 With the same `seed=`, the fast-forwarded ascent picture matches the drawn one,
 trail included; without it, the preset's random planet phases move the weather.
+
+## Orrery cost with hundreds of bodies
+
+Apple M5, Metal, 1280×720, render scale 1, VSync off, one `stage.animate(1/60)` per
+frame. Bodies are on circular orbits 3–60 AU about a 50 M☉ hole (5 sub-steps per
+frame), with two 1 M☉ suns among them where marked "lit". Each entry is the median of
+60 frames after 20 warm-up frames. Load is `main.load_preset_spec`, replacing the
+previous, smaller scene. The probe (`limits.gd`) is kept under ignored `tools/evidence/probe/`.
+
+| Scene | before (84df57a) | after | load before | load after |
+| --- | ---: | ---: | ---: | ---: |
+| 128 rocky | 38.9 ms | 16.3 ms | 617 ms | 98 ms |
+| 256 rocky | 138.7 ms | 38.7 ms | 2009 ms | 193 ms |
+| 512 rocky | 534.3 ms | 101.8 ms | 7226 ms | 396 ms |
+| 128 rocky, lit | 98.5 ms | 19.7 ms | 640 ms | 93 ms |
+| 256 rocky, lit | 374.0 ms | 45.5 ms | 2041 ms | 182 ms |
+| 512 rocky, lit | — | 114.3 ms | — | 372 ms |
+| 512 gas giants, lit | 333.1 ms | 95.3 ms | 6642 ms | 194 ms |
+| 512 stars (13 sub-steps) | 344.3 ms | 244.7 ms | 6701 ms | 347 ms |
+| 128 rocky, 0.02 AU stellar pair (524 sub-steps) | 426.5 ms | 343.3 ms | | |
+
+The lit rocky sweep stopped at 256 before, past its 250 ms limit. In the 512 lit
+run the mean frame is 171 ms: in the frames where a planet passes close to a sun, the
+integrator's sub-steps take 0.6–1.3 s.
+
+Section timers in `main.animate` (removed again) found where the time went. At 256
+rocky worlds without suns (152 ms a frame) the integrator took 12.4 ms. Choosing
+eclipse occluders took 73 ms. The tidal test's search for each body's primary took
+21 ms, and the energy readout averaged 18 ms, about 110 ms every sixth frame. At 128
+lit rocky worlds (101 ms a frame), planetshine took 69 ms. That is the cost the limits
+probe had put at 0.55 ms per lit climate world. The climate step itself took 0.14 ms.
+Every one of these searches scanned all bodies for every body, in GDScript.
+
+- `sim/neighbours.gd` indexes the bodies once a frame for the three searches. It
+  tests the few heaviest candidates directly, then walks slabs along the widest axis
+  and stops once no farther body could beat or tie the best. The stopping bounds use the
+  same rounded arithmetic as the values, so the answers are the full scan's, ties going
+  to the earlier body. `tools/neighbourcheck.gd` holds every receiver of ten scenes to
+  the full scans, copied verbatim, including exact ties on the bound. One difference
+  is deliberate: a non-finite position gave the full scan a NaN occluder that its sort
+  placed anywhere, and the index takes none. A query costs about 3 µs for a tide and
+  12–14 µs for an eclipse or a shine, flat from 128 to 512 bodies.
+- The energy readout keeps its operations but reads plain arrays rather than calling
+  helpers and reading DVec3s per pair. On twelve systems, with and without 1PN, the
+  energies, 1PN sets and potentials matched bit for bit. That made it about 3.3×
+  faster, but it is still N²: about 145 ms at 512 bodies. A reading that costs more
+  than 5 ms now waits twenty times its cost before the next, so a large scene's drift
+  updates every few seconds. Below about 200 bodies it is read every 0.1 s as before.
+  A new or invalid reference (load, edit, body count, 1PN) is read at once.
+- `clear_bodies` refreshed the HUD once per removed body, which rebuilt the whole body
+  list each time. Clearing 129 bodies took 1.5 s and clearing 257 took 6.2 s. Clearing
+  513 overflowed Godot's message queue and aborted the process. It now refreshes once.
+- Each new cloud deck computed `Terrain.cloud_global_z(0.5)`, 3600 terms and about
+  1 ms, for the same constant. It is computed once.
+
+At 256 lit rocky worlds the frame is now 49 ms. Of that, the integrator takes 16 ms,
+eclipses 6.3 ms, planetshine 4.5 ms, the climate look 3.5 ms and the tidal checks
+2.1 ms. A 512-body load is 0.39 s: climate builds take 0.18 s (0.35 ms per world),
+the HUD's body list 0.09 s and spawning 0.08 s.
+
+What still grows with N outside the integrator:
+
+- The HUD body list is rebuilt whole on any spawn, removal or merger. That costs about
+  0.19 ms a row, 98 ms per merger at 512 bodies.
+- The energy readout's frame, about 145 ms at 512 bodies, now every few seconds.
+- Each rocky world's visual update, its two searches included, is about 80 µs.
