@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "name": "Inside a globular cluster",
+  "group": "learning",
+  "blurb": "A million stars inside thirty light years, bound to each other and orbiting the galaxy as one object for twelve billion years. From in here the naked-eye sky holds tens of thousands of stars instead of three thousand, and the galaxy the cluster orbits is a distant object rather than a band overhead — because you are outside the disc looking back at it. Globulars are the oldest things in the galaxy, which is why almost every star in one is either a red dwarf or a red giant: everything heavier has already died.",
+  "sky": { "env": ["globular", "halo"], "roll": 1.7, "tilt": 0.4 },
+  "sceneScale": 2,
+  "bodyScale": 1,
+  "camRadius": 12,
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.1,
+  "bodies": [
+  ]
+}

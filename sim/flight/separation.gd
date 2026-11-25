@@ -78,7 +78,8 @@ static func _bounds(n: Node3D) -> AABB:
 
 ## Begin the drift of `nodes`: the stage's pieces (children of `group`), or the stage
 ## group itself. `frame` is the craft's attitude now; `ctx` is {mass: what is left of
-## the stack, kg, for its own unmodelled push (`look.sep.stack`); support: the
+## the stack, kg, for its own unmodelled push (`look.sep.stack`); own: the stage's mass, kg, where it has shed
+## some of its dry mass; support: the
 ## non-gravitational acceleration, craft frame, m/s², the ground gives a stage left
 ## standing on it (the LM's descent stage), else zero}.
 static func start(spec: Dictionary, group: Node3D, nodes: Array, frame: Basis, ctx := {}) -> Dictionary:
@@ -103,11 +104,11 @@ static func start(spec: Dictionary, group: Node3D, nodes: Array, frame: Basis, c
 		bodies.append({"node": n, "base": n.transform, "side": side, "cg": cg,
 			"p": Vector3.ZERO, "v": v, "R": Basis(), "support": support})
 	var stack = sep.get("stack")
-	return {"t": 0.0, "frame": frame, "bodies": bodies, "sep": sep, "motors": sep.get("motors"),
+	return {"t": 0.0, "chuted": ctx.get("chuted", true), "frame": frame, "bodies": bodies, "sep": sep, "motors": sep.get("motors"),
 		# Pieces sit in the stage group, which rides with the craft; held-frame rotations
 		# turn about the craft's origin, so they need where the group is.
 		"offset": Vector3.ZERO if whole else group.position,
-		"mass": float(spec.dry) / maxf(float(nodes.size()), 1.0),
+		"mass": float(ctx.get("own", spec.dry)) / maxf(float(nodes.size()), 1.0),
 		"stack_a": float(stack.thrust) / maxf(float(ctx.get("mass", 0.0)), 1.0) if stack != null else 0.0}
 
 ## Seconds after separation when everything this model adds is over (the motors' burn,
@@ -128,7 +129,9 @@ static func handoff_time(s: Dictionary) -> float:
 
 ## Advance by `dt` s. `basis` is the craft's attitude now and `accel` the stack's
 ## non-gravitational acceleration, craft frame, m/s². Returns false once done.
-static func step(s: Dictionary, dt: float, basis: Basis, accel: Vector3) -> bool:
+## `air`: {v: the craft's velocity through the air, craft frame, m/s; rho: its density}, for a body with drag of
+## its own (`look.sep.canopy`), which without it has none.
+static func step(s: Dictionary, dt: float, basis: Basis, accel: Vector3, air := {}) -> bool:
 	var sep: Dictionary = s.sep
 	var m = s.motors
 	var t0 := float(s.t)
@@ -152,6 +155,9 @@ static func step(s: Dictionary, dt: float, basis: Basis, accel: Vector3) -> bool
 	# aerodynamics that drive them are not modelled (the boosters' memo gives 3 s).
 	var spin_k := minf(float(s.t) / float(sep.get("spinUp", 3.0)), 1.0)
 	var off: Vector3 = s.offset
+	var canopy = sep.get("canopy") if bool(s.get("chuted", true)) else null
+	var rho := float(air.get("rho", 0.0)) if canopy != null else 0.0
+	var v_air: Vector3 = F.inverse() * (air.get("v", Vector3.ZERO) as Vector3) if rho > 0.0 else Vector3.ZERO
 	for b: Dictionary in s.bodies:
 		var R: Basis = b.R
 		var a: Vector3 = (b.support as Vector3) - a_stack
@@ -160,6 +166,11 @@ static func step(s: Dictionary, dt: float, basis: Basis, accel: Vector3) -> bool
 				a -= R * exhaust_dir(m, site, b.side) * thrust
 		if push > 0.0:
 			a += R * Vector3.UP * push
+		if rho > 0.0:
+			# Its own quadratic drag, taken implicitly: a light shell under a canopy slows in under a second.
+			var u: Vector3 = v_air + (b.v as Vector3)
+			var k := 0.5 * rho * float(canopy.CdA) * u.length() / float(s.mass)
+			a -= u * k / (1.0 + k * dt)
 		# Trapezoidal in position: exact for a constant push over the step, so the drift
 		# does not depend on the step (semi-implicit Euler put a 5-step separation 20% long).
 		var v0: Vector3 = b.v

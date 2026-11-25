@@ -1,0 +1,49 @@
+// TRISOLARIS — WANDERING SUNS: built for the sky. A 2+2 hierarchy just inside the
+// chaotic region; each 3.8-year passage kicks the world's orbit, so no two returns
+// look alike. Nothing is scripted. Ensemble statistics (how many suns show a disc,
+// insolation, lifetimes) are in docs/scenarios.md; a single run can't reproduce them.
+// A tighter step cap for the close passes (drift 6e-5 over 1500 years).
+// a deeper mixed layer than the flagship: the swings here are sharper, and
+// 20 m of ocean is what keeps them eras rather than weather.
+{
+  "format": 1,
+  "name": "Trisolaris — Wandering Suns",
+  "group": "trisolaris",
+  "blurb": "Three suns that genuinely wander. A tight Beta+Gamma pair dives past the home sun every 3.8 years on a chaotically evolving inclined orbit, so the sky is never the same twice. Over an ensemble of runs, counting suns that show a disc at least a quarter of the Sun's width: one 21% of the time, two 44%, three 32%, none 3% — against two-suns-always for the other architectures. Stand on the planet (V); this is the one built for the view. Unlike them it is not stable, and it is not meant to be: the world lives a few centuries, then is ejected or torn apart.",
+  "sky": { "env": "disc", "roll": 0.85, "tilt": 0.52 },
+  "sceneScale": 4,
+  "bodyScale": 0.2,
+  "camRadius": 18,
+  "focus": "Alpha",
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.35,
+  "maxStep": 0.0003,
+  "surface": true,
+  "climate": { "T0": 288, "mixedLayer": 20 },
+  "bodies": [
+    {
+      "type": "star", "name": "Alpha", "mass": 0.58, "teff": 4162.776733614066,
+      "luminosity": 0.11316495999999997, "contactAU": 0.006011481002904103,
+      "pos": [3.924661101894325, -1.8004810150740934e-16, -1.3277863921816898e-06],
+      "vel": [3.345405522692583e-05, 0.9309839613255119, 2.3042379076080843]
+    },
+    {
+      "type": "star", "name": "Beta", "mass": 1.25, "teff": 6770.441372196044, "luminosity": 2.44140625,
+      "contactAU": 0.007765012374469694,
+      "pos": [-1.0303248769855227, 5.144258079734084e-17, -0.15561820776025093],
+      "vel": [4.448552723471553, -0.26599679335994125, 1.4280107591601667]
+    },
+    {
+      "type": "star", "name": "Gamma", "mass": 0.78, "teff": 4972.594943765448,
+      "luminosity": 0.3701505600000001, "contactAU": 0.006635449507053938,
+      "pos": [-1.2671919589484513, 5.144258079734084e-17, 0.24938815346194093],
+      "vel": [-7.129090902999283, -0.26599679335994125, -4.001916328886223]
+    },
+    {
+      "type": "world", "name": "Trisolaris", "mass": 3e-06, "dayLength": 97.4, "home": true,
+      "obliquity": 23.49126960036375, "pos": [4.128370995842707, -1.8004810150740934e-16, 0.2567053690689702],
+      "vel": [-6.467784010421308, 0.9309839613255119, 7.767056119084772]
+    },
+  ]
+}

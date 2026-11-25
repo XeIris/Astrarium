@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "name": "Black Hole Sandbox",
+  "group": "sandboxes",
+  "blurb": "A 10 M☉ black hole with an illustrated accretion disc and lensing. Spawn bodies and watch their orbits and contact mergers.",
+  "massSlider": true,
+  "sky": { "env": "disc", "roll": 0.7, "tilt": 0.42 },
+  "sceneScale": 2,
+  "bodyScale": 1,
+  "camRadius": 34,
+  "lensing": true,
+  "timeScale": 2,
+  "bodies": [
+    { "type": "bh", "name": "Singularity", "mass": 10, "pos": [0, 0, 0], "vel": [0, 0, 0] },
+    {
+      "type": "gas-giant", "name": "Gas Giant", "palette": "jupiter",
+      "pos": [3.7140102670935526, 0, 2.540891130277659], "vel": [-5.2886783531689545, 0, 7.730439714226753]
+    },
+    {
+      "type": "star", "name": "Companion Star", "mass": 1.2,
+      "pos": [-6.767587348056228, 0, -1.7887877141878186], "vel": [1.9190735145873163, 0, -7.260502481261598]
+    },
+  ]
+}

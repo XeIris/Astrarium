@@ -1,0 +1,20 @@
+// THE SUN, CLOSE UP: no orbit, on a clock slow enough that a flare lasts more
+// than a frame.
+{
+  "format": 1,
+  "name": "The Sun, close up",
+  "group": "learning",
+  "blurb": "One ordinary G2 star at 5772 K, filling the frame, on a clock slowed to about a day per second — because a solar flare lasts hours and erupts once every few years, and at orbital pace the entire event happens between two frames. Everything on the surface is derived: the granulation is convection cells at the size the pressure scale height gives, the spots are where the field is strong enough to choke that convection, and the loops above them are gas that cannot cross a magnetic field line and so slides along it.",
+  "sky": { "env": "disc", "roll": 2.1, "tilt": 0.38 },
+  "sceneScale": 210,
+  "bodyScale": 1,
+  "trueScale": true,
+  "camRadius": 6,
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.0028,
+  "maxStep": 0.0005,
+  "bodies": [
+    { "type": "star", "name": "Sun", "catalog": "sun", "pos": [0, 0, 0], "vel": [0, 0, 0] },
+  ]
+}

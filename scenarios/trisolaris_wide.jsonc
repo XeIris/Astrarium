@@ -1,0 +1,37 @@
+// A wide P-type hierarchy: a long outer period and a big seasonal cycle.
+{
+  "format": 1,
+  "name": "Trisolaris - Wide Seasons",
+  "group": "trisolaris",
+  "blurb": "A wide circumbinary world: Alpha and Beta are 0.55 AU apart, Trisolaris follows a 2.6 AU eccentric orbit, and Gamma returns every century from 36 AU.",
+  "sky": { "env": "disc", "roll": 0.1, "tilt": 0.6 },
+  "sceneScale": 3,
+  "bodyScale": 0.55,
+  "camRadius": 28,
+  "focus": "Alpha",
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.35,
+  "maxStep": 0.0004,
+  "surface": true,
+  "climate": { "T0": 288, "mixedLayer": 18 },
+  "bodies": [
+    {
+      "type": "star", "name": "Alpha", "mass": 1.05, "teff": 5976.909380106513,
+      "luminosity": 1.2155062500000002
+    },
+    {
+      "type": "star", "name": "Beta", "mass": 0.9, "teff": 5418.409550471435, "luminosity": 0.6561,
+      "orbit": { "around": "Alpha", "a": 0.55 }
+    },
+    {
+      "type": "star", "name": "Gamma", "mass": 1.65, "teff": 8257.09616433786, "luminosity": 7.412006249999998,
+      "orbit": { "around": ["Alpha", "Beta", "Trisolaris"], "a": 36, "e": 0.25, "i": 18, "nu": 72 }
+    },
+    {
+      "type": "world", "name": "Trisolaris", "mass": 3e-06, "dayLength": 97.4, "home": true,
+      "obliquity": 23.49126960036375,
+      "orbit": { "around": ["Alpha", "Beta"], "a": 2.6, "e": 0.28, "nu": 180, "testParticle": true }
+    },
+  ]
+}

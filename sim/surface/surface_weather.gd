@@ -30,6 +30,14 @@ const SHOWER_SHARE := 0.1
 # from 3-hourly reports (Dai 2008, doi:10.1029/2008GL033295).
 const SNOW_LAND_K := 274.35
 const SNOW_SEA_K := 275.05
+# The dust a dry world's air holds between storms, as an optical depth at visible wavelengths, and what a storm
+# overhead adds at its heart. Mars: 0.6, an estimate inside what the rovers record outside storms; Jezero's
+# January 2022 regional storm peaked near 2 (Lemmon et al. 2022) and 2018's global storm passed 8 at Gale, so 3
+# here. Other dry worlds' dust is not modelled.
+const DUST_TAU := {"Mars": 0.6}
+const DUST_STORM_TAU := 3.0
+# A storm lifts dust once its winds are this share of the way to its heart.
+const DUST_FROM := 0.35
 # How many storm lives the calibration runs through.
 const CALIBRATE_STEPS := 3000
 const WORLD_DAY_MIN_S := 3600.0
@@ -72,6 +80,10 @@ var over_sea := false
 # The long-run mean of what makes it rain (activity()), so a year here brings rain_here_mm.
 var activity_mean := 1.0
 var _seed := 0
+var dust_tau := 0.0
+## A showcase's stated weather, drawn over what the population brings: {storm: 0..1 (a system overhead at that
+## strength), devils: a multiplier on the dust devils' rate}.
+var stated := {}
 # Today's systems: [{lat, lon, born, life, size, sign, seed}], where lat and lon are radians.
 var systems: Array = []
 var _rng := RandomNumberGenerator.new()
@@ -94,6 +106,7 @@ func setup(b: Body, cl: Climate, lat_r: float, lon_r: float, seed: int) -> void:
 	rho = air_bar * 1e5 * molar / (Atmosphere.R_GAS * temp)
 	scale_h = Atmosphere.R_GAS * temp / (molar * g)
 	wet = cl.wet and cl.ocean + cl.steam > 0.0
+	dust_tau = float(DUST_TAU.get(b.name, 0.0)) if has_air and not wet else 0.0
 	lat = lat_r
 	lon = lon_r
 	absorbed = (1.0 - float(cl.albedo(cl.T).alb)) * cl.S * Climate.S0 / 4.0
@@ -108,7 +121,8 @@ func setup(b: Body, cl: Climate, lat_r: float, lon_r: float, seed: int) -> void:
 	systems.clear()
 	_span = 2.0 * life_s
 	_age = 0.0
-	if has_air and eady_rate > 0.0:
+	# A cell that runs past the pole leaves no baroclinic zone poleward of it, so no storms grow (Titan, Venus).
+	if has_air and eady_rate > 0.0 and hadley < PI * 0.5:
 		var count: int = clampi(int(round(TAU * radius * cos(storm_lat) / wavelength)), 1, 16)
 		# Spread through their lives, so a visit does not start on a blank sky.
 		for i in count:
@@ -236,13 +250,15 @@ func _field() -> Dictionary:
 		near = minf(near, d)
 	return {"influence": influence, "near": near, "gust_dir": gust_dir}
 
-## The weather at the site now: {cover, wind, wind_dir, rain_mm_h, kind, front, near_km, snow}.
-## Rain's mean over a year is rain_here_mm; storms and showers concentrate it.
+## The weather at the site now: {cover, wind, wind_dir, rain_mm_h, kind, front, near_km, snow, dust_tau}.
+## Rain's mean over a year is rain_here_mm; storms and showers concentrate it. On a dry world a storm lifts
+## dust instead: `dust_tau` is the air's optical depth, and `kind` "dust" while a storm is lifting it.
 func now() -> Dictionary:
-	var out := {"cover": 0.0, "wind": 0.0, "wind_dir": 0.0, "rain_mm_h": 0.0, "kind": "none", "front": 0.0, "near_km": -1.0, "snow": false}
+	var out := {"cover": 0.0, "wind": 0.0, "wind_dir": 0.0, "rain_mm_h": 0.0, "kind": "none", "front": 0.0, "near_km": -1.0, "snow": false,
+		"dust_tau": 0.0}
 	if not has_air: return out
 	var f := _field()
-	var influence: float = f.influence
+	var influence: float = maxf(float(f.influence), float(stated.get("storm", 0.0)))
 	var near: float = f.near
 	var gust_dir: float = f.gust_dir
 	var westerly := PI * 0.5 if absf(lat) >= hadley else -PI * 0.5
@@ -250,9 +266,12 @@ func now() -> Dictionary:
 	out.wind = wind_mean * (1.0 + FRONT_GUST * influence)
 	out.near_km = near / 1000.0 if near < INF else -1.0
 	out.front = influence
-	# A dry world's storms lift dust, not clouds, and dust isn't modelled.
 	out.cover = clampf(clear_cover + (1.0 - clear_cover) * influence, 0.0, 1.0) if wet else clear_cover
-	if not wet: return out
+	if not wet:
+		var lift := clampf((influence - DUST_FROM) / (1.0 - DUST_FROM), 0.0, 1.0)
+		out.dust_tau = dust_tau + (DUST_STORM_TAU * lift * lift if dust_tau > 0.0 else 0.0)
+		if dust_tau > 0.0 and lift > 0.1: out.kind = "dust"
+		return out
 	out.rain_mm_h = rain_here_mm / (365.25 * 24.0) * activity(influence) / activity_mean
 	out.snow = site_k <= (SNOW_SEA_K if over_sea else SNOW_LAND_K) and float(out.rain_mm_h) > 0.0
 	out.kind = "rain" if float(out.rain_mm_h) > 0.05 and not out.snow else ("snow" if out.snow else "none")
