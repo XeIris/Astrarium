@@ -104,6 +104,7 @@ class Autopilot extends RefCounted:
 	var crane_out: bool = false
 	var _chute_met := -1.0       # when the parachute opened and the backshell went (proper time, s)
 	var _sep_met := -1.0
+	var _edl_met := -1.0         # the flight's clock at EDL's last cycle: its own clocks run on accepted time
 	var map_error := Vector2.ZERO # how far out the position on the landing map is, m
 	var picked: DVec3 = null     # the spot picked on that map; `site` is that much off it
 	var flattest: DVec3 = null   # the smoothest candidate it had, rocks aside
@@ -1038,7 +1039,8 @@ class Autopilot extends RefCounted:
 	const HOVERSLAM_DEC := 0.55
 	func hoverslam_guidance(dt: float, pa: float):
 		var env: Dictionary = v.env
-		var alt := v.altitude()
+		# Over the ground that will stop it; the air is tabulated from the figure, but its ceilings are coarse.
+		var alt := v.height_above_ground()
 		DQuat.nrm(Guidance._up.copy_from(v.r))
 		v.airspeed(v.r, v.v, Guidance._a)
 		var speed := Guidance._a.length()
@@ -1593,15 +1595,17 @@ class Autopilot extends RefCounted:
 			if node == null:
 				var el: Dictionary = v.telemetry.el
 				var R: float = el.r
-				# A shallower perigee than a capsule's: a lifting entry needs less of a dive. Where the air
-				# reaches 1e-4 kg/m³ (Earth's near 75 km, where entries start to brake), and never above half
-				# the air's top: an extended air like Titan's is near vacuum at half its top.
+				# A shallower perigee than a capsule's: a lifting entry needs less of a dive. Half the air's top
+				# (Earth's 70 km); but an extended air like Titan's is near vacuum there, and it is where the air
+				# reaches 1e-4 kg/m³, where entries start to brake.
 				var top := float(v.env.atm.top)
-				var lo := 0.0; var hi := top * 0.5
-				for i in 40:
-					var mid := 0.5 * (lo + hi)
-					if Rocketry.density(v.env.atm, mid) > 1e-4: lo = mid
-					else: hi = mid
+				var lo := top * 0.5; var hi := lo
+				if Rocketry.density(v.env.atm, lo) < 1e-5 and Rocketry.density(v.env.atm, 0.0) > 1e-4:
+					lo = 0.0
+					for i in 40:
+						var mid := 0.5 * (lo + hi)
+						if Rocketry.density(v.env.atm, mid) > 1e-4: lo = mid
+						else: hi = mid
 				var a_new: float = (R + Re + 0.5 * (lo + hi)) / 2.0
 				var dv: float = sqrt(maxf(v.env.mu * (2.0 / R - 1.0 / a_new), 0.0)) - float(el.v)
 				node = { "dv": DQuat.nrm(Guidance._a.copy_from(v.v)).scale_in(dv).clone(), "t": 0.0, "label": "Deorbit burn" }
@@ -1809,7 +1813,7 @@ class Autopilot extends RefCounted:
 	func bellyflop_guidance(dt: float, pa: float):
 		var st = v.current_stage if v.current_stage != null else v._first_attached()
 		DQuat.nrm(Guidance._up.copy_from(v.r))
-		var alt := v.altitude()
+		var alt := v.height_above_ground()
 		v.airspeed(v.r, v.v, Guidance._g)
 		var va := Guidance._g.length()
 		var v_vert := Guidance._g.dot(Guidance._up)
@@ -1939,6 +1943,16 @@ class Autopilot extends RefCounted:
 		var v_vert := v.v.dot(Guidance._up)
 		v.throttle = 0.0
 
+		var ran := maxf(v.met - _edl_met, 0.0) if state_name != null else 0.0
+		_edl_met = v.met
+		# Engaged again part way down, or staged by hand: from where the vehicle is in its sequence.
+		if (state_name == null or state_name == "entry") and _shell_gone():
+			state_name = "chute" if plan_edl != null and plan_edl.get("release") != null else "powered"
+			shield_gone = true
+			crane_out = v.bridle > 0.0
+		elif state_name == null and v.chute_open != null:
+			state_name = "chute"
+			if _chute_met < 0.0 or _chute_met > v.met: _chute_met = v.met
 		if state_name == null:
 			state_name = "entry"
 			note("Entry interface — %s km, %s km/s, flight path %s°" % [U.fixed(alt / 1000.0, 0), U.fixed(speed / 1000.0, 2),
@@ -1994,8 +2008,8 @@ class Autopilot extends RefCounted:
 			# A flyer leaves its shell at its height and flies itself the rest of the way (Spaceflight).
 			var release = plan_edl.get("release") if plan_edl != null else null
 			if release != null:
-				if alt < float(release.alt) and not v.release_flyer:
-					v.stage()
+				if (alt < float(release.alt) or _shell_gone()) and not v.release_flyer:
+					if not _shell_gone(): v.stage()
 					v.chute_open = null
 					v.release_flyer = true
 					program = null
@@ -2005,9 +2019,11 @@ class Autopilot extends RefCounted:
 			if jett != null and v.met - _chute_met >= float(jett.after) and v.jettison_shield():
 				note("Heat shield separation — %s km, %s m/s" % [U.fixed(alt / 1000.0, 2), U.fixed(speed, 0)])
 			var bs: Dictionary = plan_edl.backshell if (plan_edl != null and plan_edl.get("backshell") != null) else { "alt": 1800.0, "v": 100.0 }
-			if (alt < bs.alt or speed < bs.v) and not shield_gone:
-				# stage(), not jettison(): it drops the shell and readies the descent stage.
-				shield_gone = true; v.stage(); v.chute_open = null
+			if ((alt < bs.alt or speed < bs.v) and not shield_gone) or _shell_gone():
+				# stage(), not jettison(): it drops the shell and readies the descent stage. Staged by hand, it is gone.
+				shield_gone = true
+				if not _shell_gone(): v.stage()
+				v.chute_open = null
 				state_name = "powered"
 				_sep_met = v.met
 				_t_go = 0.0
@@ -2022,28 +2038,39 @@ class Autopilot extends RefCounted:
 		var dv = plan_edl.get("divert") if plan_edl != null else null
 		# Where the touchdown rate must be reached: the descent stage's height at rover separation, at the
 		# vessel's own reference.
+		var cabled: bool = sk.has("cable")
 		var h_crane := float(sk.alt) - float(sk.get("stageY", 0.0))
 		if site == null:
 			site = Guidance._up.clone().scale_in(v.ground_r(v.r))
 			if dv != null: _plan_divert(dv, a_max, h_crane, float(sk.vTouch))
 		var cmd: DVec3
 		if _t_go > 0.0:
-			cmd = _fly_divert(dt, a_max, h_crane, dv, absf(float(sk.vTouch)))
+			cmd = _fly_divert(ran, a_max, h_crane, dv, absf(float(sk.vTouch)))
 			say("Divert — %s m, %s m to the site" % [U.fixed(alt, 0), U.fixed(_site_off(), 0)])
 		else:
-			cmd = descent_law(a_max, absf(sk.vTouch), 0.35, 1.8, 0.55, float(dv.vVert) if dv != null else 120.0, h_crane * 1.1)
+			cmd = descent_law(a_max, absf(sk.vTouch), 0.35, 1.8, 0.55, float(dv.vVert) if dv != null else 120.0,
+				h_crane * 1.1 if cabled else float(sk.alt) * 1.5)
 			say("Powered descent — %s m, %s m/s" % [U.fixed(alt, 0), U.fixed(v_vert, 2)])
 		v.throttle = limit_throttle(cmd.length() / maxf(a_max, 1e-6), pa, dt)
-		if _t_go <= 0.0 and alt < h_crane and not crane_out:
+		if cabled and _t_go <= 0.0 and alt < h_crane and not crane_out:
 			crane_out = true
 			# Half the engines shut down as the bridles start to spool (NASA, PIA13282).
 			if v.current_stage != null: v.set_engine_count(int(v.current_stage.spec.count) / 2)
 			note("Sky crane — rover on the cables")
 		if crane_out and v.phase != Vessel.PHASE.LANDED:
-			v.bridle = minf(v.bridle + float(sk.get("payout", 0.0)) * dt, float(sk.get("cable", 0.0)))
+			v.bridle = minf(v.bridle + float(sk.payout) * ran, float(sk.cable))
 		if v.phase == Vessel.PHASE.LANDED:
 			program = null; v.throttle = 0.0; note("Touchdown")
 		return aero_limit(cmd, Guidance._b)
+
+	# Whether the vehicle flies in an aeroshell and has left it.
+	func _shell_gone() -> bool:
+		var had := false
+		for st in v.stages:
+			if not st.spec.get("look", {}).get("aeroshell", false): continue
+			had = true
+			if st.attached: return false
+		return had
 
 	## The horizontal distance to the site, m.
 	func _site_off() -> float:
@@ -2129,11 +2156,11 @@ class Autopilot extends RefCounted:
 		var sp := v.ground.site_point(v, p)
 		return SiteRocks.near(v.ground.relief, v.parent.name, -sp.x, sp.z, MAP_RADIUS, MAP_ROCK_D, cache)
 
-	# Drawn once from the survey's own seed, so the same descent makes the same error.
+	# Drawn once from the run's seed and the world, so the same descent makes the same error however its frames fall.
 	func _position_error() -> Vector2:
 		if v.ground == null or not v.ground.adopted: return Vector2.ZERO
 		var rng := RandomNumberGenerator.new()
-		rng.seed = hash([v.ground.relief.seed, "lvs"])
+		rng.seed = hash([v.ground_seed, v.parent.name, "lvs"])
 		return (Vector2(rng.randfn(), rng.randfn()) * (MAP_ERROR_M / 3.0)).limit_length(MAP_ERROR_M)
 
 	# How uneven the ground is about `p`, m: the range of its height over a cross as wide as the map's reach.

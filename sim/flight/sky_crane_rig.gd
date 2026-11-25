@@ -105,8 +105,9 @@ func update(s: Dictionary) -> void:
 	if not away.is_empty():
 		desc.group.position = away.at
 		desc.group.basis = away.basis
+		# No longer the vessel's, so the craft no longer draws it.
+		desc.group.visible = not bool(away.hit)
 		if bool(away.hit):
-			desc.group.visible = false
 			# Nothing of the craft is left to draw once she has driven off.
 			if deployed: craft.group.visible = false
 			_burn_smoke(away.at, away.up, away.wind, float(away.age), float(away.day))
@@ -160,6 +161,10 @@ const PUFF_LIFE := 70.0
 func _burn_smoke(at: Vector3, up: Vector3, wind: Vector3, age: float, day: float) -> void:
 	var holder := craft.group.get_parent()
 	if holder == null: return
+	# The last puff has died.
+	if age > SMOKE_S + PUFF_LIFE:
+		if smoke != null: smoke.visible = false
+		return
 	if smoke == null:
 		smoke = MultiMeshInstance3D.new()
 		smoke.name = "descent_stage_smoke"

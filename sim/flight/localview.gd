@@ -573,14 +573,16 @@ func update(o: Dictionary) -> Dictionary:
 	pipe.env_local.volumetric_fog_anisotropy = 0.55
 	pipe.env_local.volumetric_fog_sky_affect = 0.0
 	# Lifted dust closes the view in every direction, the sky with it.
-	var dusty := dust_extra > 0.02 and atm != null and float(o.altitude) < DUST_LAYER_M * 3.0
+	# Thinning upward with the layer it is mixed through, so the view opens as a vehicle climbs out of it.
+	var dust_here := dust_extra * exp(-maxf(float(o.altitude), 0.0) / DUST_LAYER_M)
+	var dusty := dust_here > 0.02 and atm != null
 	pipe.env_local.fog_enabled = dusty
 	if dusty:
 		pipe.env_local.fog_mode = Environment.FOG_MODE_EXPONENTIAL
-		pipe.env_local.fog_density = dust_extra / DUST_LAYER_M
+		pipe.env_local.fog_density = dust_here / DUST_LAYER_M
 		pipe.env_local.fog_light_color = dust_tint.linear_to_srgb()
 		# Lit by the day that reaches it: dark under a night sky.
-		pipe.env_local.fog_light_energy = (0.6 + 0.5 * exp(-dust_extra)) * clampf(sun_over_limb * 3.0, 0.01, 1.0)
+		pipe.env_local.fog_light_energy = (0.6 + 0.5 * exp(-dust_here)) * clampf(sun_over_limb * 3.0, 0.01, 1.0)
 		pipe.env_local.fog_sun_scatter = 0.25
 		pipe.env_local.fog_sky_affect = 1.0
 		pipe.env_local.fog_aerial_perspective = 0.0
@@ -665,10 +667,12 @@ func update(o: Dictionary) -> Dictionary:
 			_earth_requested = true
 			PlanetMaps.load_planet_map("Earth", func(m: Dictionary) -> void:
 				_earth_color = m.color
-				_earth_land = m.mask
-				ground_mat.set_shader_parameter("uEarthColor", m.color)
-				ground_mat.set_shader_parameter("uEarthLand", m.mask))
+				_earth_land = m.mask)
 		if _earth_color != null and _earth_land != null:
+			# Every frame: a dry world's flight puts its own map in the same material (_dry_map).
+			ground_mat.set_shader_parameter("uEarthColor", _earth_color)
+			ground_mat.set_shader_parameter("uEarthLand", _earth_land)
+			ground_mat.set_shader_parameter("uDryMap", 0.0)
 			var site_up := DQuat.nrm((pad as DVec3).clone())
 			var pole := DVec3.new(0.0, -1.0, 0.0)
 			var site_north := DQuat.nrm(pole.clone().add_scaled_in(site_up, -pole.dot(site_up)))
@@ -775,6 +779,7 @@ func _dry_map(body_name: String, theta: float, east: DVec3, up: DVec3, north: DV
 	var to_geo := func(v: DVec3) -> Vector3:
 		var m := SurfaceGround.to_mesh(v, theta, DVec3.new())
 		return Vector3(m.x, m.y, -m.z)
+	ground_mat.set_shader_parameter("uDryMap", 1.0)
 	ground_mat.set_shader_parameter("uEarthColor", _dry_color)
 	ground_mat.set_shader_parameter("uEarthLand", _dry_land)
 	ground_mat.set_shader_parameter("uGeoFrame", Basis(to_geo.call(east), to_geo.call(up), to_geo.call(north)))
@@ -960,19 +965,20 @@ func _update_sun(o: Dictionary, env: Dictionary, atm, h: float, sun_l: Vector3) 
 	if haze_w > 0.0:
 		deep = haze_depth(atm, h)
 		tau = tau.lerp(deep, haze_w)
+	# Lifted dust takes the Sun along the whole slant path, blue a little more than red (Mars' dust: Lemmon et
+	# al. 2004's 0.88 µm and 0.44 µm depths differ by about a fifth).
+	var dust := Vector3(0.9, 1.0, 1.1) * (dust_extra * exp(-h / DUST_LAYER_M) if atm != null else 0.0)
+	var seen := tau + dust
 	_airmass = m
-	sun_mat.set_shader_parameter("uTau", tau)
+	sun_mat.set_shader_parameter("uTau", seen)
 	sun_mat.set_shader_parameter("uAirMass", m)
 	sun_mat.set_shader_parameter("uAureole", aerosol)
-	var T := Vector3(exp(-tau.x * m), exp(-tau.y * m), exp(-tau.z * m))
+	var T := Vector3(exp(-seen.x * m), exp(-seen.y * m), exp(-seen.z * m))
 	# Overhead Kasten & Young's fit is a hair under 1.
 	var excess := maxf(m - 1.0, 0.0)
 	sun_extinction = Vector3(exp(-tau.x * excess), exp(-tau.y * excess), exp(-tau.z * excess))
 	if haze_w > 0.0: sun_extinction = sun_extinction.lerp(T, haze_w)
-	# Lifted dust takes the Sun along the whole slant path, blue a little more than red (Mars' dust: Lemmon et
-	# al. 2004's 0.88 µm and 0.44 µm depths differ by about a fifth).
-	if dust_extra > 0.0:
-		sun_extinction *= Vector3(exp(-dust_extra * m * 0.9), exp(-dust_extra * m), exp(-dust_extra * m * 1.1))
+	sun_extinction *= Vector3(exp(-dust.x * m), exp(-dust.y * m), exp(-dust.z * m))
 	sun_over_limb = sin(minf(elev + dip, PI / 2.0))
 	_sun_entering = _sun_rgb * T * 2400.0 * pow(teff / 5772.0, 4.0) * vis \
 		* (ang_r * ang_r) / (0.00465 * 0.00465)

@@ -19,9 +19,6 @@ NASA's public-domain photojournal frames from Perseverance's landing and first s
 | PIA24421, 24423 | The deck | The white deck dense with boxes; the MMRTG between its white panels at the back |
 | PIA24431 | The parachute from the backshell | The orange-and-white disc-gap-band canopy |
 
-The user's artist frame shows the same moment as PIA24428 from outside: the descent stage hovering with the rover
-lowered under it.
-
 ### What was wrong before, against them
 
 - **The Sky Crane** was an authored model of Curiosity's era: the descent stage drawn as a slab and a rover that was not
@@ -84,7 +81,7 @@ The photographs set the parts, and the parts follow the rules the ground follows
 
 ## Where it stands against the references
 
-The renders behind this table are in this change's evidence.
+Judged from renders at the Sky Crane's sites, not measured.
 
 | Reference | Now | Still short of it |
 | --- | --- | --- |
@@ -92,7 +89,7 @@ The renders behind this table are in this change's evidence.
 | PIA24426, the first tracks | Two ruts with grouser imprints, berms and their shadows | Displacement in the geometry; the soil's compaction and colour change in the rut |
 | PIA24429, the wheel | 48 curved grousers, the spokes outboard | The wheel's real width (NASA gives no figure; the physics' 26 cm estimate is drawn) |
 | PIA24425, the crash plume | A dark column 650 m off, drifting | Its smoke is drawn, not a dust cloud's physics |
-| Rocks in the frames | The soil's hue, greyed | Vesicular, rounded shapes. One angular mesh in many rotations is not yet enough. |
+| Rocks in the frames | The soil's hue, greyed, lumpy and pitted by a normal map | Vesicles in the shape itself, and rounded and angular shapes by the geology: one mesh in many rotations and proportions is not yet enough |
 | The sky's colour | The butterscotch day sky; a storm's closing pall | Blue sunsets (dust's forward scattering) |
 
 ## What would come next

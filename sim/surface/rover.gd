@@ -51,9 +51,16 @@ const LUNAR_SOIL := {"kc": 1400.0, "kphi": 820000.0, "n": 1.0, "c": 520.0, "phi"
 const MARS_SAND := {"kc": 572100.0, "kphi": 4915300.0, "n": 1.3, "c": 2000.0, "phi": 0.6109, "K": 0.0254}
 const SOILS := {"Moon": LUNAR_SOIL, "Mars": MARS_SAND}
 
-## The integration step, s, and the speed under which slip is measured against this instead, m/s.
+## The integration step, s, and the speed under which slip is measured against this instead, m/s, for a vehicle of
+## SLIP_TOP or more; a slower one's is in proportion to its own top speed.
 const DT := 1.0 / 600.0
 const V_EPS := 0.05
+const SLIP_TOP := 0.3
+## A suspension past its travel stops at this many times the wheel's standing load.
+const BUMP_MAX := 12.0
+## A vehicle under the parking brake this slow, m/s and rad/s, for this long, s, is left to stand.
+const STILL := 2.0e-3
+const STILL_S := 2.0
 const OBSTACLE_K := 2.0e4
 const OBSTACLE_C := 4.0e3
 
@@ -79,6 +86,9 @@ var obstacles: Array = []
 var spec: Dictionary = LRV
 var soil: Dictionary = LUNAR_SOIL
 var time := 0.0
+## The ground ends under it: it has been stopped at the survey's edge.
+var at_edge := false
+var _still := 0.0
 var _acc := 0.0
 var _k := 0.0
 var _c := 0.0
@@ -101,6 +111,7 @@ class Wheel:
 	var contact := false
 	var contact_point := DVec3.new()   # site frame
 	var steer := 0.0
+	var hold := Vector2.ZERO      # parked: the soil's shear displacement under it, m, along and across the wheel
 
 func _init(ground_ = null, gravity := 1.62, vehicle: Dictionary = LRV, ground_soil: Dictionary = LUNAR_SOIL) -> void:
 	ground = ground_
@@ -156,9 +167,22 @@ func advance(dt: float) -> void:
 	_acc += dt
 	var guard := 0
 	while _acc >= DT and guard < 6000:
+		if asleep():
+			# Standing on its brake: only the clock goes on.
+			time += _acc
+			_acc = 0.0
+			return
 		_step(DT)
 		_acc -= DT
 		guard += 1
+		if on_step.is_valid() and guard % 12 == 0: on_step.call()
+
+## Called every 12 steps of an advance (RoverTracks records the wheels' path by it).
+var on_step := Callable()
+
+## Parked and still, with nothing asked of it.
+func asleep() -> bool:
+	return parked and _still > STILL_S and absf(throttle) < 0.05 and absf(steer - steer_now) < 1e-6
 
 ## Bekker's static sinkage of a rigid wheel under `load` N, m: z = [3W / ((3 − n)(kc/b + kφ) b √D)]^(2/(2n+1)).
 func sinkage_for(load: float) -> float:
@@ -220,7 +244,10 @@ func _step(dt: float) -> void:
 	if absf(throttle) >= 0.05: parked = false
 	elif vel.length() < 0.3 * minf(1.0, _top_speed() / 3.0): parked = true
 	steer_now = move_toward(steer_now, clampf(steer, -1.0, 1.0), float(spec.steer_rate) * dt / max_steer())
+	_still = _still + dt if parked and vel.length() < STILL and omega.length() < STILL else 0.0
 	var mass := float(spec.mass)
+	var slow := V_EPS * minf(1.0, _top_speed() / SLIP_TOP)
+	var stand := mass * g / wheels.size()
 	var r := float(spec.wheel_r)
 	var b := float(spec.wheel_b)
 	var travel := float(spec.travel)
@@ -237,12 +264,17 @@ func _step(dt: float) -> void:
 		var e := -mount.x
 		var n := mount.z
 		var gy: float = ground.height(e, n)
-		if is_nan(gy):
-			wh.contact = false
-			continue
 		# The ground's normal, off the drawn surface 10 cm either way.
 		var hx: float = ground.height(e + 0.1, n) - ground.height(e - 0.1, n)
 		var hz: float = ground.height(e, n + 0.1) - ground.height(e, n - 0.1)
+		if is_nan(gy) or is_nan(hx) or is_nan(hz):
+			# The survey ends here: the vehicle goes no further.
+			at_edge = true
+			wh.contact = false
+			wh.compression = 0.0
+			wh.load = 0.0
+			wh.sinkage = 0.0
+			continue
 		var nrm := DQuat.nrm(DVec3.new(hx / 0.2, 1.0, -hz / 0.2))
 		var z := wh.sinkage
 		var comp := gy + r - z - mount.y
@@ -256,10 +288,11 @@ func _step(dt: float) -> void:
 		wh.contact = true
 		# The damper works on how fast the mount closes on the ground, not on the step's change in compression.
 		var mount_arm := mount.sub(pos)
-		var rate := -(vel.y + DVec3.new().cross_vectors(omega, mount_arm).y)
+		var rate := -vel.clone().add_in(DVec3.new().cross_vectors(omega, mount_arm)).dot(nrm) / nrm.y
 		wh.compression = comp
 		var spring := _k * comp + _c * rate
 		if comp > travel: spring += 40.0 * _k * (comp - travel)
+		spring = minf(spring, BUMP_MAX * stand)
 		var W := maxf(spring, 0.0) * maxf(nrm.dot(up_b), 0.2)
 		wh.load = W
 		wh.sinkage = minf(sinkage_for(W), r * 0.5)
@@ -285,29 +318,56 @@ func _step(dt: float) -> void:
 		var L := sqrt(2.0 * r * maxf(z, 1e-5))
 		var tau := b * L * float(soil.c) + W * tan_phi
 		var rim := wh.spin * r
-		var s := (rim - vx) / maxf(maxf(absf(rim), absf(vx)), V_EPS)
-		s = clampf(s, -1.0, 1.0)
+		var thrust := func(at_rim: float) -> Array:
+			var sl := clampf((at_rim - vx) / maxf(maxf(absf(at_rim), absf(vx)), slow), -1.0, 1.0)
+			return [signf(sl) * tau * shear_fraction(absf(sl) * L), sl]
+		var now: Array = thrust.call(rim)
+		var fx: float = now[0]
+		var s: float = now[1]
 		wh.slip = s
-		var fx := signf(s) * tau * shear_fraction(absf(s) * L)
-		var alpha := atan2(vy, absf(vx) + V_EPS)
+		# How stiffly the soil answers the wheel's speed, N per m/s: the spin below is stepped implicitly in it.
+		var dv := maxf(1e-3 * slow, 1e-6)
+		var stiff := maxf((float((thrust.call(rim + dv) as Array)[0]) - fx) / dv, 0.0)
+		var soft := 1.0 / (1.0 + stiff * r * r / wheel_i * dt)
+		var alpha := atan2(vy, absf(vx) + slow)
 		wh.side_slip = alpha
 		var fy := -signf(vy) * tau * shear_fraction(L * absf(tan(clampf(alpha, -1.4, 1.4))))
 		var mag := sqrt(fx * fx + fy * fy)
 		if mag > tau and mag > 0.0:
 			fx *= tau / mag
 			fy *= tau / mag
-		var roll := compaction(z) * (vx / maxf(absf(vx), V_EPS))
+		var roll := compaction(z) * (vx / maxf(absf(vx), slow))
+		if parked:
+			# Locked wheels on soil that has been loaded and not sheared through: it holds by its displacement
+			# (Janosi–Hanamoto's point form), which is let go with the brake.
+			wh.hold += Vector2(vx, vy) * dt
+			var j := wh.hold.length()
+			var K := float(soil.K)
+			if j > 6.0 * K:
+				wh.hold *= 6.0 * K / j
+				j = 6.0 * K
+			var tau_j := tau * (1.0 - exp(-j / K))
+			var damp := 0.6 * sqrt(tau / K * mass / wheels.size())
+			fx = -(wh.hold.x / maxf(j, 1e-9) * tau_j) - damp * vx
+			fy = -(wh.hold.y / maxf(j, 1e-9) * tau_j) - damp * vy
+			var held := sqrt(fx * fx + fy * fy)
+			if held > tau:
+				fx *= tau / held
+				fy *= tau / held
+			roll = 0.0
+		else:
+			wh.hold = Vector2.ZERO
 		# Coasting with the controller centred, and held by the parking brake once nearly still, as the crews
 		# set it; braking too when the controller is pulled against the motion (estimates of the torques).
 		var brake := 0.0
 		if parked: brake = float(spec.park_brake)
 		elif absf(throttle) >= 0.05 and signf(throttle) != signf(wh.spin) and absf(wh.spin) > 0.5: brake = float(spec.brake)
 		if str(drive_spec.kind) == "motor":
-			wh.spin += (drive_torque(throttle, wh.spin) - fx * r) / wheel_i * dt
+			wh.spin += (drive_torque(throttle, wh.spin) - fx * r) / wheel_i * dt * soft
 		else:
 			# A speed-controlled drive: the soil's torque acts, then the motor holds the commanded rate as far
 			# as its torque allows.
-			wh.spin -= fx * r / wheel_i * dt
+			wh.spin -= fx * r / wheel_i * dt * soft
 			if not parked:
 				# Each wheel commanded for its own arc about the turn's centre, as a rover's drive does.
 				var arc := 1.0
@@ -335,32 +395,56 @@ func _step(dt: float) -> void:
 		var push := OBSTACLE_K * (reach - dist) - OBSTACLE_C * closing
 		force.add_in(DVec3.new(out.x * push, 0.0, out.y * push))
 	vel.add_scaled_in(force, dt / mass)
+	if at_edge: _stop_at_edge()
 	pos.add_scaled_in(vel, dt)
 	# Angular: in body axes, where the inertia is diagonal.
 	var inv := q.clone().invert()
-	var wb := DQuat.rotate(omega.clone(), inv).to_v3()
-	var tb := DQuat.rotate(torque.clone(), inv).to_v3()
-	var Iw := wb * _inertia
-	var dw := (tb - wb.cross(Iw)) / _inertia
-	wb += dw * dt
-	omega.copy_from(DQuat.rotate(DVec3.from_v3(wb), q))
+	var wb := DQuat.rotate(omega.clone(), inv)
+	var tb := DQuat.rotate(torque.clone(), inv)
+	var ix := float(_inertia.x); var iy := float(_inertia.y); var iz := float(_inertia.z)
+	wb.set_v(wb.x + (tb.x - wb.y * wb.z * (iz - iy)) / ix * dt, wb.y + (tb.y - wb.z * wb.x * (ix - iz)) / iy * dt,
+		wb.z + (tb.z - wb.x * wb.y * (iy - ix)) / iz * dt)
+	omega.copy_from(DQuat.rotate(wb, q))
 	var ang := omega.length() * dt
 	if ang > 0.0:
 		var dq := DQuat.new()
 		dq.set_from_axis_angle(omega.clone().scale_in(1.0 / omega.length()), ang)
 		q.premultiply(dq).normalize_in()
 
+# Held where the survey ends, upright as it stands: past it there is no ground to drive on.
+func _stop_at_edge() -> void:
+	vel.set_v(0.0, 0.0, 0.0)
+	omega.set_v(0.0, 0.0, 0.0)
+	for wh: Wheel in wheels: wh.spin = 0.0
+	# Back toward the middle it may go.
+	var inward := Vector2(-pos.x, -pos.z).normalized()
+	var fwd := _body(Vector3(0, 0, 1))
+	if absf(throttle) >= 0.05 and inward.dot(Vector2(fwd.x, fwd.z)) * signf(throttle) > 0.2:
+		pos.add_scaled_in(DVec3.new(inward.x, 0.0, inward.y), 0.5)
+		pos.y = maxf(pos.y, ground.height(-pos.x, pos.z) + float(spec.com_height) if not is_nan(ground.height(-pos.x, pos.z)) else pos.y)
+	at_edge = false
+
 ## The drawn ground of a surveyed site, for a rover: SiteScene.drawn_height, the mesh's own triangles.
 class SiteGround:
+	## Over a stated sea the surface is its liquid's, at nought.
+	var sea := false
 	var grids: Array
 	var patch_y := 0.0
 	var radius := 1.7374e6
-	func _init(site_grids: Array, patch: float, R: float) -> void:
+	func _init(site_grids: Array, patch: float, R: float, has_liquid := false) -> void:
 		grids = site_grids
+		sea = has_liquid
 		patch_y = patch
 		radius = R
 	func height(e: float, n: float) -> float:
-		return SiteScene.drawn_height(grids, e, n, patch_y, radius, false)
+		var h := SiteScene.drawn_height(grids, e, n, patch_y, radius, false)
+		return maxf(h, -(e * e + n * n) / (2.0 * radius)) if sea and not is_nan(h) else h
+
+	## Is what is here a liquid's surface?
+	func liquid(e: float, n: float) -> bool:
+		if not sea: return false
+		var h := SiteScene.drawn_height(grids, e, n, patch_y, radius, false)
+		return not is_nan(h) and h <= -(e * e + n * n) / (2.0 * radius)
 
 ## A plane through the origin rising `slope` (rad) toward `toward` (rad from north toward east), for checks.
 class PlaneGround:

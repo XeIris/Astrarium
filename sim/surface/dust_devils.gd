@@ -8,9 +8,9 @@ extends RefCounted
 # orbiters have measured, and a stated `scale` multiplies the rate for a showcase. Site frame (x west, y up,
 # z north), m and s. docs/physics/surface.md#dust-devils.
 
-## Dusty devils born per km² per sol, and how far about the eye they are kept, m. One dusty encounter a sol over
-## the ~0.09 km² a devil sweeps within 30 m of a point (1.5 km of drift) is about 11.
-const RATE_KM2_SOL := 10.0
+## Dusty devils born per km² per sol, and how far about the eye they are kept, m. One dusty encounter a sol, over
+## the 0.15 km² a devil sweeps within 30 m of a point in a mean life (510 s) in Jezero's 5 m/s or so, is 6.5.
+const RATE_KM2_SOL := 6.5
 const FIELD_M := 2500.0
 ## A devil's life, s; its core diameter, m; its height, m (Mars: tens of metres across, hundreds up).
 const LIFE := [120.0, 900.0]
@@ -19,7 +19,7 @@ const HEIGHT := [150.0, 900.0]
 ## The swirl at the core's edge, m/s (MEDA's vortex encounters: up to about 20).
 const SWIRL := 14.0
 const PUFFS := 70
-const MAX := 12
+const MAX := 24
 
 var devils: Array = []        # [{id, at: Vector2 (east, north), born, life, d, h, phase, wander}]
 var scale := 1.0
@@ -27,6 +27,7 @@ var _rng := RandomNumberGenerator.new()
 var _t := 0.0
 var _owed := 0.0
 var _next_id := 0
+var _eye := Vector2.ZERO
 var view: MultiMeshInstance3D = null
 
 func _init(seed_ := 1) -> void:
@@ -44,6 +45,7 @@ func step(dt: float, elev: float, wind: Vector2, eye: Vector2, sol_s: float) -> 
 		_t = 1e-6
 		for i in int(LIFE[1] / 10.0): step(10.0, elev, wind, eye, sol_s)
 	_t += dt
+	_eye = eye
 	var area := PI * FIELD_M * FIELD_M / 1e6
 	# The day's devils packed into its hours of strong heating, about a quarter of a sol.
 	_owed += RATE_KM2_SOL * scale * area * heating(elev) / (0.25 * maxf(sol_s, 3600.0)) * dt
@@ -53,7 +55,9 @@ func step(dt: float, elev: float, wind: Vector2, eye: Vector2, sol_s: float) -> 
 		var r := FIELD_M * sqrt(_rng.randf())
 		var a := _rng.randf() * TAU
 		_next_id += 1
-		devils.append({"id": _next_id, "at": eye + Vector2(cos(a), sin(a)) * r, "born": _t,
+		# About as far upwind as they drift in half a life, so as many come in as go out.
+		var up := wind * (LIFE[0] + LIFE[1]) * 0.25
+		devils.append({"id": _next_id, "at": eye - up.limit_length(FIELD_M) + Vector2(cos(a), sin(a)) * r, "born": _t,
 			"life": _rng.randf_range(LIFE[0], LIFE[1]),
 			"d": exp(_rng.randf_range(log(DIAMETER[0]), log(DIAMETER[1]))),
 			"h": _rng.randf_range(HEIGHT[0], HEIGHT[1]), "phase": _rng.randf() * TAU,
@@ -61,15 +65,19 @@ func step(dt: float, elev: float, wind: Vector2, eye: Vector2, sol_s: float) -> 
 	for i in range(devils.size() - 1, -1, -1):
 		var d: Dictionary = devils[i]
 		d.at = (d.at as Vector2) + (wind + (d.wander as Vector2) * 0.8) * dt
-		if _t - float(d.born) > float(d.life) or (d.at as Vector2).distance_to(eye) > FIELD_M * 1.3:
+		var off := (d.at as Vector2) - eye
+		if _t - float(d.born) > float(d.life) or (off.length() > FIELD_M * EDGE and off.dot(wind) >= 0.0):
 			devils.remove_at(i)
 
-## How strong a devil is now, 0..1: it spins up and dies away.
+## A devil drifting off has faded out by this many field radii.
+const EDGE := 1.4
+
+## How strong a devil is drawn now, 0..1: it spins up and dies away, and thins out past the field.
 func strength(d: Dictionary) -> float:
 	var age := _t - float(d.born)
-	return smoothstep(0.0, 40.0, age) * (1.0 - smoothstep(float(d.life) - 60.0, float(d.life), age))
+	return smoothstep(0.0, 40.0, age) * (1.0 - smoothstep(FIELD_M, FIELD_M * EDGE, (d.at as Vector2).distance_to(_eye))) * (1.0 - smoothstep(float(d.life) - 60.0, float(d.life), age))
 
-## Draw them under `parent` (the site's group), in `tint` (sRGB, lit). `ground`: (east, north) -> the drawn
+## Draw them under `parent` (the site's group), in `tint` (linear, lit). `ground`: (east, north) -> the drawn
 ## height, m.
 func draw(parent: Node3D, tint: Color, ground: Callable) -> void:
 	if view == null:

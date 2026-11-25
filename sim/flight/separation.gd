@@ -104,7 +104,7 @@ static func start(spec: Dictionary, group: Node3D, nodes: Array, frame: Basis, c
 		bodies.append({"node": n, "base": n.transform, "side": side, "cg": cg,
 			"p": Vector3.ZERO, "v": v, "R": Basis(), "support": support})
 	var stack = sep.get("stack")
-	return {"t": 0.0, "frame": frame, "bodies": bodies, "sep": sep, "motors": sep.get("motors"),
+	return {"t": 0.0, "chuted": ctx.get("chuted", true), "frame": frame, "bodies": bodies, "sep": sep, "motors": sep.get("motors"),
 		# Pieces sit in the stage group, which rides with the craft; held-frame rotations
 		# turn about the craft's origin, so they need where the group is.
 		"offset": Vector3.ZERO if whole else group.position,
@@ -155,7 +155,7 @@ static func step(s: Dictionary, dt: float, basis: Basis, accel: Vector3, air := 
 	# aerodynamics that drive them are not modelled (the boosters' memo gives 3 s).
 	var spin_k := minf(float(s.t) / float(sep.get("spinUp", 3.0)), 1.0)
 	var off: Vector3 = s.offset
-	var canopy = sep.get("canopy")
+	var canopy = sep.get("canopy") if bool(s.get("chuted", true)) else null
 	var rho := float(air.get("rho", 0.0)) if canopy != null else 0.0
 	var v_air: Vector3 = F.inverse() * (air.get("v", Vector3.ZERO) as Vector3) if rho > 0.0 else Vector3.ZERO
 	for b: Dictionary in s.bodies:

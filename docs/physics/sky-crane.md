@@ -33,14 +33,15 @@ Perseverance's numbers where they are published, MSL's where not, and what is ne
 ## Why the shell goes up
 
 A dropped stage leaves at the difference of the non-gravitational accelerations (`Separation`). A spent booster has
-nearly none, so a stack under thrust leaves it behind. Here the shell has the parachute. With CdA = 225 m², ρ ≈ 0.014
+nearly none, so a stack under thrust leaves it behind. Here the shell has the parachute. With CdA = 225 m², ρ ≈ 0.013
 kg/m³ at 2.1 km, u = 81 m/s and 349 kg of backshell and parachute:
 
     a = ½ρu²·CdA / m = 0.5 · 0.013 · 81² · 225 / 349 ≈ 27 m/s²
 
 The descent stage free-falls with almost no drag of its own, so over the 1 s before ignition the shell gains about
 ½·27·1² ≈ 14 m, less as it slows. The flown value is 12 m, against a 4.5 m aeroshell. `look.sep.canopy` adds that
-drag, taken implicitly, since the shell slows in under a second.
+drag, taken implicitly, since the shell slows in under a second. A shell staged by hand before its parachute opened has
+none; one staged under it takes the parachute with it, and the descent stage flies on its engines.
 
 ## Why the divert is out of plane
 
@@ -53,7 +54,7 @@ plane, as far as the engines can carry her in the time to go, and never past 600
 Of those, the 24 whose ground varies least over a 26 m cross, and of those the one with least rock: each rock of a metre
 or more within 13 m counts against what she can stand over (0.6 m), the relief against a 25° slope. They are the rocks `SiteRocks` draws there, from the same
 generator; a map from orbit (HiRISE, 0.3 m a pixel) shows none smaller. Rocks are still not met by a wheel. Her
-position on that map is out by up to 40 m (JPL's requirement, taken as 3σ), drawn from the survey's seed, so she comes
+position on that map is out by up to 40 m (JPL's requirement, taken as 3σ), drawn from the run's seed, so she comes
 down that far off the spot she picked. Guidance itself is within 1 m of where it aims. The law is a = 6Δr/t² − (4v + 2v_f)/t, Huang et al.'s without its terminal acceleration.
 
 ## Why the sky crane takes 12 s
@@ -63,8 +64,10 @@ stage's own descent the rest:
 
     (17.3 − 7.5) / 0.75 ≈ 13 s
 
-The vessel's reference is the stack's, so `contact_altitude` is the wheels': alt + 1.05 − bridle. After the cut the
-reference comes down to her and her wheels stay where they are.
+The vessel's reference is the stack's, so `contact_altitude` is the wheels': alt + 1.05 − bridle. At the cut the
+descent stage leaves the vessel with its engines and propellant, and the reference comes down to her, her wheels staying
+where they are. The bridle out at touchdown (`landed_at.bridle`) is where the stage flies off from. The program engaged
+again part way down goes on from where the vehicle is in its sequence.
 
 ## The entry
 
@@ -96,12 +99,12 @@ the vessel and the ground and acts on neither.
 | Speed at backshell separation | 80.9 m/s | 85 m/s |
 | Backshell, when the engines light | 12.4 m up off the stack, never below it | it stays on the parachute |
 | Backshell separation to touchdown | 54.9 s | 60 s |
-| Rover separation to touchdown | 12.4 s | about 12 s |
-| Out of the shell's plane | 311 m, measured on the ground | 300 m (MSL), at most 600 m (Perseverance) |
-| Off the spot she picked | 14.2 m, her map position out by 13.7 m | under 40 m (requirement); 5 m flown |
-| Metre rocks about that spot | 0, where 42 of 60 others nearby have some | — |
+| Rover separation to touchdown | 12.3 s | about 12 s |
+| Out of the shell's plane | 298 m, measured on the ground | 300 m (MSL), at most 600 m (Perseverance) |
+| Off the spot she picked | 20.8 m, her map position out by 20.8 m | under 40 m (requirement); 5 m flown |
+| Metre rocks about that spot | 0, where 39 of 60 others nearby have some | — |
 | The descent stage's crash | 607 m, 20.0 s after the cut (calibrated) | 650 m, about 20 s |
-| Packed clearance | 14 cm over the heat shield, 8 mm inside the backshell | — |
+| Packed clearance | 14 cm over the heat shield, 2 mm inside the backshell's facets | — |
 
 Entered at fourteen longitudes round the equator, thirteen land, at 0.74 m/s and at most 0.01 m/s sideways. The fourteenth flies
 into high terrain at 837 m/s before the parachute's Mach: the air over Mars' highlands is too thin for this system.

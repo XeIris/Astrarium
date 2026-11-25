@@ -35,7 +35,8 @@ Tread 1.83 m is the handbook's 72 in; NSSDC does not give it. These are estimate
 ## Wheels in soil
 
 Each wheel is a rigid wheel on the drawn triangles (`SiteScene.drawn_height`), pressed by its spring and damper.
-The damper works on how fast the mount closes on the ground. Under load W, the wheel sinks by Bekker's rigid-wheel
+The damper works on how fast the mount closes on the ground along its normal, so driving down a slope is not a
+fall. Under load W, the wheel sinks by Bekker's rigid-wheel
 form,
 
     z = [3W / ((3 − n)(k_c/b + k_φ) b √D)]^(2/(2n+1)),
@@ -50,8 +51,11 @@ strength. The soil:
 - K, 1.8 cm, is an estimate in the range Wong gives for dry sands.
 
 The motors are a straight torque–speed line from stall to 10 000 rpm, peak power at half speed: an estimate of the
-series motor. The parking brake sets once the vehicle is nearly still with the controller centred. The vehicle that
-put the rover down stands in its way as a cylinder of its own diameter.
+series motor. The parking brake sets once the vehicle is nearly still with the controller centred. A wheel held still shears the
+soil under it up to its strength and stays sheared, so a parked rover holds a slope without creeping; once it has stood
+still with nothing asked of it, it sleeps. Near rest the slip has a floor on its denominator, and the wheel's spin is
+taken implicitly there. The vehicle that put the rover down stands in its way as a cylinder of its own diameter. At the
+surveyed ground's edge it stops.
 
 ## What tests it (`rovercheck`)
 
@@ -68,15 +72,17 @@ None of the record is an input.
 | Across 15°, downhill and uphill wheels | 1.95 and 1.63 cm | deeper downhill, "perhaps up to 3 or 4 centimeters" on steep slopes |
 | Full lock at walking pace | 3.16 m radius | 3.1 m |
 | Hard over at 10 km/h, rear side slip | 36° (8.6° at 4 km/h) | "a breakout of the rear wheels" at 10 km/h |
-| Parked on 15°, controller centred | 0.1 m in 20 s | statically stable on the slopes met |
+| Parked on 15°, controller centred | 0.0005 m in 20 s | statically stable on the slopes met |
+| Down 10° and 15° at full throttle | all four wheels on the ground, 4.9 cm of travel against the static 5.0 | — |
 | Roostertail, accelerating from rest | 4.2 m high | about 3 m, Apollo 15 |
 
 The rigid wheel overstates a flexible wire-mesh tyre's sinkage, which is spread over a longer contact. The straight
 torque line gives too little torque at low speed. It reaches 10 km/h twice as slowly as the crews did, and it stalls
 up 20° (printed by `rovercheck`, not judged), where Apollo 16 climbed with the pitch gauge pegged at 20°.
 
-`groundcheck` drives the LRV off the LM it lands: every wheel stands on the drawn triangles less its sinkage, to the
-metre's last digit, and nothing of it is left after the flight.
+`groundcheck` drives the LRV off the LM it lands: every wheel stands on the built mesh's own triangles less its sinkage,
+and nothing of it is left after the flight. The near grid's outer 8% is eased to the far grid as drawn, so crossing its
+edge is a step of under 3 m over a 50 m cell (the far grid's kinks), not the tens of metres its own relief would end in.
 
 ## Dust
 
@@ -100,8 +106,9 @@ relights it as relief from a height field:
 
 It is seen with parallax (a 12-step march down the eye ray) and shaded by its slope's light over the flat ground's,
 with a short march toward the Sun for the walls' shadow on the floor and less sky in the rut. Multiplying cannot
-lift the ground, so the berms only shade: the strip's own geometry stays on the surface. A wheel that left the ground
-starts a new strip. Drawing only. The soil does not yet remember being driven over (repetitive loading compacts it).
+lift the ground, so the berms only shade: the strip's own geometry stays on the surface. With the Sun down, or behind a
+storm's dust, the shading goes. The strip is meshed in chunks, so a long drive rebuilds only its last one. A wheel that
+left the ground starts a new strip. Drawing only. The soil does not yet remember being driven over (repetitive loading compacts it).
 
 ## Perseverance
 
@@ -124,10 +131,11 @@ Table 2 gives them, untuned there. Its K is labelled mm, and read here in metres
 | Test (`rovercheck`) | This model | The record |
 | --- | --- | --- |
 | Sinkage at rest in M90 | 1.95 cm (Bekker's exactly) | Curiosity's wheels went in about 1 cm on Gale's firmer ground ([Arvidson et al. 2014](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1002/2013JE004605)) |
-| Level sand, full speed | 138 m/h | 152 m/h on flat hard ground, less its 8% slip in sand |
-| Up 15° of sand | 93 m/h, 33% slip | — (25°: 39 m/h, 62% slip, printed) |
-| Full lock | 2.02 m radius | its corner wheels set for 2 m |
-| Parked across 40° | stands; would tip past 49° | a 45° tilt without tipping |
+| Level sand, full speed | 135 m/h, 10.9% slip | 152 m/h on flat hard ground, less its slip in sand |
+| Up 15° of sand | 85 m/h, 44% slip | — (25°: 17 m/h, 88% slip, printed) |
+| Full lock | 2.00 m radius | its corner wheels set for 2 m |
+| Parked on 15° of it | 0.00000 m in two minutes | — |
+| Parked across 40° of firm ground (φ 50°, as M90's 35° cannot hold 40°) | stands; would tip past 49° | a 45° tilt without tipping |
 
 ## The arm
 

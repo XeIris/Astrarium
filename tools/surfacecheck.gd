@@ -234,7 +234,21 @@ func weather() -> void:
 	var want := DustDevils.RATE_KM2_SOL * PI * pow(DustDevils.FIELD_M / 1000.0, 2.0) * DustDevils.heating(deg_to_rad(60.0)) * 6000.0 / (0.25 * 88775.0)
 	check("no dust devils at night (%d)" % night, night == 0)
 	check("by day about the stated rate (%d born over 100 min, %.0f expected; at most %d alive at once)" % [born, want, DustDevils.MAX],
-		born > 0 and born <= int(want * 1.6) + 3)
+		born >= int(want * 0.6) and born <= int(want * 1.6) + 3)
+	# In a dust storm's 18 m/s the field keeps its devils, and one leaves faded out, not at full strength.
+	var dd3 := DustDevils.new(7)
+	var alive := 0
+	var worst := 0.0
+	for i in 600:
+		var strength := {}
+		for d in dd3.devils: strength[d.id] = dd3.strength(d)
+		dd3.step(2.0, deg_to_rad(60.0), Vector2(18.0, 0.0), Vector2.ZERO, 88775.0)
+		alive += dd3.devils.size()
+		var ids := dd3.devils.map(func(d): return d.id)
+		for k in strength:
+			if not ids.has(k): worst = maxf(worst, strength[k])
+	check("in 18 m/s the field still holds %s at once, and none goes at over %s of its strength" % [U.fixed(alive / 600.0, 1), U.fixed(worst, 2)],
+		alive / 600.0 > 1.0 and worst < 0.1)
 	check("and they go with the wind", drift)
 	var moon_b: Body = stage.state.body_named("Moon")
 	var wn := SurfaceWeather.new()

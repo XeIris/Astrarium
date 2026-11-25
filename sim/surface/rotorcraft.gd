@@ -8,10 +8,12 @@ extends RefCounted
 # docs/physics/rotorcraft.md.
 
 const DT := 1.0 / 400.0
-## Induced power over the ideal (Leishman's κ for a real rotor), and a coaxial pair's further loss, its lower
-## rotor working in the upper's wake (Leishman & Syal 2008).
+## Induced power over the ideal (Leishman's κ for a real rotor). A coaxial pair's is 1.28 times two isolated rotors',
+## its lower one working in the upper's contracted wake (Leishman & Syal 2008); both on one disc, as the pair's inflow
+## is found here, is already √2 times them, so of that disc's power it is 1.28/√2.
 const KAPPA := 1.15
-const KAPPA_COAX := 1.28
+const COAX_OVER_ISOLATED := 1.28
+const KAPPA_COAX := COAX_OVER_ISOLATED / 1.4142135623730951
 ## Profile power grows with advance ratio as 1 + 4.65μ² (Leishman, "Principles of Helicopter Aerodynamics").
 const PROFILE_MU := 4.65
 ## A fixed-pitch rotor idles at this fraction of its top speed rather than stopping (an estimate).
@@ -96,6 +98,7 @@ var landed := true
 ## Leg compression, for drawing and checks.
 var leg_load := PackedFloat64Array()
 var _split := PackedFloat64Array()
+var _acc := 0.0
 
 func _init(on_ground_: Variant, gravity: float, density: float, speed_of_sound: float, vehicle: Dictionary) -> void:
 	ground = on_ground_
@@ -141,6 +144,14 @@ func advance(to: float) -> void:
 		_step()
 		t += DT
 
+## Run `dt` s of the flight's clock in fixed steps, what is left of one kept for the next call.
+func run(dt: float) -> void:
+	_acc += dt
+	while _acc >= DT:
+		_step()
+		t += DT
+		_acc -= DT
+
 ## Heading, rad from north toward east.
 func heading() -> float:
 	var f := DQuat.rotate(DVec3.new(0.0, 0.0, 1.0), q)
@@ -180,63 +191,55 @@ static func inflow(ct: float, mu: float, lc: float) -> float:
 		lam -= f / df
 	return lam
 
-## Set every rotor of pair `p` to share `thrust` N between them, the upper taking (1 + k)/2: each rotor's
-## control is found that gives it, at the inflow the pair's total thrust and the craft's air make (Glauert's
-## λ_i = C_T/2√(μ² + λ²), iterated), within its limits.
+## Set every rotor of pair `p` to share `thrust` N between them, the upper taking (1 + k)/2, in air meeting the disc
+## at `v_axial` (m/s, positive climbing) along the shaft and `v_disc` across it. The pair's one inflow, m/s, is what
+## its thrust makes (Glauert); each rotor's control, collective or speed, is what gives its share at that inflow. Where
+## a control stops short the thrust is less, and the inflow is found again for that.
 func _pair_state(p: int, thrust: float, k: float, v_axial: float, v_disc: float) -> void:
 	var R := float(spec.radius)
 	var A := PI * R * R
+	var sa := float(spec.solidity) * float(spec.cl_alpha) * 0.5
 	var members: Array[Rotor] = []
 	for r in rotors: if r.pair == p: members.append(r)
 	var coax := members.size() > 1
 	var shares := [0.5 * (1.0 + k), 0.5 * (1.0 - k)] if coax else [1.0]
-	for i in members.size():
-		var r := members[i]
-		var want := maxf(thrust * float(shares[i]), 0.0)
-		if str(spec.control) == "collective":
-			r.omega = float(spec.rpm) * TAU / 60.0
-		else:
-			# A fixed-pitch rotor makes its thrust by speed: first guess at hover inflow.
-			var ct0 := maxf(ct_of(r.theta, 0.05), 1e-4)
-			r.omega = clampf(sqrt(want / (rho * A * ct0)) / R, IDLE * float(spec.rpm_max) * TAU / 60.0, float(spec.rpm_max) * TAU / 60.0)
-	# Inflow and controls together.
-	for it in 8:
-		var tip := members[0].omega * R
-		var ct_pair := 0.0
-		for r in members: ct_pair += r.thrust / (rho * A * r.omega * r.omega * R * R) if r.omega > 0.0 else 0.0
-		var mu := absf(v_disc) / tip
-		var lc := v_axial / tip
-		var lam := inflow(maxf(ct_pair, 0.0), mu, lc)
-		var li := lam - lc
+	var total := maxf(thrust, 0.0)
+	var through := v_axial
+	for it in 24:
+		through = inflow(total / (rho * A), absf(v_disc), v_axial)
+		var made := 0.0
 		for i in members.size():
 			var r := members[i]
 			var want := maxf(thrust * float(shares[i]), 0.0)
-			r.lam = lam
-			r.mu = mu
 			r.saturated = false
 			if str(spec.control) == "collective":
-				var ct := want / (rho * A * tip * tip)
-				var th := 3.0 * (2.0 * ct / (float(spec.solidity) * float(spec.cl_alpha)) + lam * 0.5)
+				r.omega = float(spec.rpm) * TAU / 60.0
+				var tip := r.omega * R
+				var th := 3.0 * (want / (rho * A * tip * tip * sa) + through / tip * 0.5)
 				if th > float(spec.theta_max):
 					th = float(spec.theta_max); r.saturated = true
 				r.theta = th
-				r.thrust = maxf(ct_of(th, lam), 0.0) * rho * A * tip * tip
 			else:
-				var ct := maxf(ct_of(r.theta, lam), 1e-5)
+				# A fixed-pitch rotor makes its thrust by speed: T = ρAσa/2 (θ/3·x² − V x/2) in its tip speed x.
 				var om_max := float(spec.rpm_max) * TAU / 60.0
-				var om := maxf(sqrt(want / (rho * A * ct)) / R, IDLE * om_max)
+				var x := (through * 0.5 + sqrt(through * through * 0.25 + 4.0 * r.theta / 3.0 * want / (rho * A * sa))) / (2.0 * r.theta / 3.0)
+				var om := maxf(x / R, IDLE * om_max)
 				if om > om_max:
 					om = om_max; r.saturated = true
 				r.omega = om
-				r.thrust = ct * rho * A * om * om * R * R
+			var tip_now := r.omega * R
+			r.lam = through / tip_now
+			r.mu = absf(v_disc) / tip_now
+			r.thrust = maxf(ct_of(r.theta, r.lam), 0.0) * rho * A * tip_now * tip_now
+			made += r.thrust
+		if absf(made - total) <= 1e-9 * maxf(total, 1e-6): break
+		total = 0.5 * (total + made)
 	# Power and torque: induced (with the losses), climb, and profile.
 	for r in members:
 		var tip := r.omega * R
-		var ct := r.thrust / (rho * A * tip * tip) if tip > 0.0 else 0.0
-		var li := r.lam - v_axial / maxf(tip, 1e-6)
-		var cp := KAPPA * (KAPPA_COAX if coax else 1.0) * ct * li + ct * (v_axial / maxf(tip, 1e-6)) \
-			+ float(spec.solidity) * float(spec.cd0) / 8.0 * (1.0 + PROFILE_MU * r.mu * r.mu)
-		r.power = maxf(cp, 0.0) * rho * A * tip * tip * tip
+		var induced := KAPPA * (KAPPA_COAX if coax else 1.0) * r.thrust * (through - v_axial)
+		var profile := float(spec.solidity) * float(spec.cd0) / 8.0 * (1.0 + PROFILE_MU * r.mu * r.mu) * rho * A * tip * tip * tip
+		r.power = maxf(induced + r.thrust * v_axial + profile, 0.0)
 		r.torque = r.power / maxf(r.omega, 1e-6)
 
 ## The power the rotors need to hover at weight `w` N in still air, W, and the controls they settle at.
@@ -261,8 +264,8 @@ func _step() -> void:
 	var up_b := DQuat.rotate(DVec3.new(0.0, 1.0, 0.0), q)
 	var mass := float(spec.mass)
 	var inertia: Vector3 = spec.inertia
-	# Air through the rotors: the craft's velocity (still air) along and across the shaft.
-	var v_axial := -vel.dot(up_b)
+	# Air through the rotors: the craft's velocity (still air) along the shaft, positive climbing, and across it.
+	var v_axial := vel.dot(up_b)
 	var v_disc := vel.clone().add_scaled_in(up_b, -vel.dot(up_b)).length()
 	var force := DVec3.new(0.0, -mass * g, 0.0)
 	var torque_b := Vector3.ZERO
@@ -305,7 +308,8 @@ func _step() -> void:
 		var gy: float = ground.height(-p.x, p.z)
 		var depth := gy - p.y
 		leg_load[i] = 0.0
-		if depth <= 0.0: continue
+		# Nor is there ground to stand on where the survey ends.
+		if not (depth > 0.0): continue
 		on_ground = true
 		var w_s := DQuat.rotate(w.clone(), q)
 		var pv := vel.clone().add_in(w_s.cross(r_s))
@@ -347,12 +351,20 @@ func _control(up_b: DVec3, mass: float, inertia: Vector3) -> Dictionary:
 		hold_agl = -1.0
 	else:
 		var below := pos.y - float(ground.height(-pos.x, pos.z))
+		if is_nan(below): below = maxf(hold_agl, 1.0)
 		if hold_agl < 0.0: hold_agl = below
 		v_want.y = clampf((hold_agl - below) * 0.8, -float(spec.climb_max), float(spec.climb_max))
 		# Where the ground rises faster than it can climb, it slows across it.
 		var keep := clampf(below / maxf(hold_agl, 1.0) * 2.0 - 1.0, 0.1, 1.0)
 		v_want.x *= keep
 		v_want.z *= keep
+	# Where the survey ends there is nothing to fly over: it stops, and may come back.
+	var ahead := pos.clone().add_scaled_in(vel, 2.0)
+	if is_nan(float(ground.height(-ahead.x, ahead.z))) or is_nan(float(ground.height(-pos.x, pos.z))):
+		var inward := Vector3(-pos.x, 0.0, -pos.z).normalized()
+		if Vector3(v_want.x, 0.0, v_want.z).dot(inward) <= 0.0:
+			v_want.x = 0.0
+			v_want.z = 0.0
 	var v := vel.to_v3()
 	# On the ground a craft asked to stay down sits there; a climb command lifts it off.
 	var a := (v_want - v) * Vector3(1.2, 2.5, 1.2)

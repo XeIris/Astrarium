@@ -99,6 +99,7 @@ class StageState extends RefCounted:
 	var ignited: bool
 	var attached: bool = true
 	var dropped_met: float = -1.0  # proper time it left the stack, s; < 0 while attached
+	var chuted: bool = false       # whether its parachute was out as it left
 	var spent: bool
 	var restarts: int
 	var rcs_prop: float
@@ -597,8 +598,14 @@ func closing_rate(gv: DVec3) -> float:
 ## Survey the ground around `rr` (parent frame, m) for a landing there, where there is a ground to survey.
 func request_ground(rr: DVec3) -> void:
 	_sync_ground()
+	if ground != null and ground.outgrown(self, rr): _new_ground()
 	if ground != null: ground.request(self, rr)
 	if sea != null: sea.request(self, rr)
+
+# Another survey for another landing on the same world.
+func _new_ground() -> void:
+	ground.dispose()
+	ground = SurfaceGround.for_world(parent, env, ground_seed)
 
 func release_ground() -> void:
 	if ground != null: ground.dispose()
@@ -851,12 +858,19 @@ func _crane_spec() -> Dictionary:
 	return sk
 
 ## Landed on a bridle, the vessel's reference is still where the descent stage let her down from: once the
-## bridle is cut it comes down to the ground she stands on, her wheels staying where they are.
+## bridle is cut the stage goes (CraneFlyaway flies it, with its engines and propellant) and the reference comes to
+## the ground she stands on, her wheels staying where they are.
 func _settle_bridle(dt: float) -> void:
 	var sk := _crane_spec()
-	if sk.is_empty() or landed_at == null or bridle <= float(sk.wheelsY): return
+	if sk.is_empty() or landed_at == null: return
 	if met - float(landed_at.met) < SkyCraneRig.CUT_S: return
-	bridle = maxf(float(sk.wheelsY), bridle - 2.0 * dt)
+	for st in stages:
+		if st.attached and st.spec.get("look", {}).get("skycrane", false):
+			_let_go(st)
+			throttle = 0.0
+			_find_stage_index()
+	if is_equal_approx(bridle, float(sk.wheelsY)): return
+	bridle = move_toward(bridle, float(sk.wheelsY), 2.0 * dt)
 	DQuat.set_len(r, ground_r(r) + bridle - float(sk.wheelsY))
 
 ## Eject the balance masses: what is left flies at no angle of attack, so without lift.
@@ -1102,8 +1116,8 @@ func stage(force := false):
 		for o in stages:
 			if o != st and o.attached: others = true
 		if not others: break
-		st.attached = false; st.spent = true; st.dropped_met = met
-		dropped = st; stage_events += 1
+		_let_go(st)
+		dropped = st
 		log_event(("Fairing separation — %s away" if st.spec.sep == "fairing" else "Staging — %s away") % st.spec.name + _where())
 		break
 	# Light the next stage only if nothing is still burning.
@@ -1121,6 +1135,13 @@ func stage(force := false):
 		break
 	_find_stage_index()
 	return dropped
+
+# A stage leaves, and the parachute it carries with it.
+func _let_go(st: StageState) -> void:
+	st.attached = false; st.spent = true; st.dropped_met = met; stage_events += 1
+	if chute_open != null and st.spec.get("chute") != null:
+		st.chuted = true
+		chute_open = null
 
 func _find_stage_index() -> void:
 	stage_index = -1
@@ -1157,7 +1178,7 @@ func jettison(key: String):
 		if s.spec.key == key and s.attached:
 			st = s; break
 	if st == null: return null
-	st.attached = false; st.spent = true; st.dropped_met = met; stage_events += 1
+	_let_go(st)
 	_find_stage_index()
 	log_event("Separation — %s" % st.spec.name + _where())
 	return st
@@ -1372,8 +1393,10 @@ func step(dt: float, opts: Dictionary = {}) -> float:
 	var was_guarded := step_guard_hit
 	step_guard_hit = false
 	_sync_ground()
-	if ground != null and phase != PHASE.DESTROYED: ground.tick(self)
-	if sea != null and phase != PHASE.DESTROYED: sea.tick(self, dt)
+	if ground != null and phase != PHASE.DESTROYED:
+		if ground.left(self): _new_ground()
+		ground.tick(self)
+	if sea != null and phase != PHASE.DESTROYED: sea.tick(self)
 	if phase == PHASE.DESTROYED:
 		dt = _advance_world(dt, opts)
 		coord += dt
@@ -1903,7 +1926,7 @@ func contact(dt: float) -> void:
 	omega.set_v(0.0, 0.0, 0.0)
 	if phase != PHASE.LANDED:
 		phase = PHASE.LANDED
-		landed_at = { "met": met, "vVert": v_vert, "vHoriz": v_horiz }
+		landed_at = { "met": met, "vVert": v_vert, "vHoriz": v_horiz, "bridle": bridle }
 		log_event("Touchdown — %s m/s vertical, %s m/s lateral" % [U.fixed(absf(v_vert), 2), U.fixed(v_horiz, 2)])
 
 ## Main-gear touchdown of a stage with `rollout` data: the rollout starts, down the

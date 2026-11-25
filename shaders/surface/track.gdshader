@@ -5,12 +5,14 @@
 // imprints fade rather than shimmer far off. UV: x across the strip (the tread from TREAD0 to TREAD1), y the
 // path's length, m; UV2 the path's heading (x, z) in the site frame; COLOR.r the sinkage over 5 cm.
 shader_type spatial;
-render_mode blend_mul, unshaded, cull_disabled, depth_draw_never;
+render_mode blend_mul, unshaded, cull_disabled, depth_draw_never, fog_disabled;
 
 // The Sun, toward it, in the site's frame (x west, y up, z north).
 uniform vec3 uSun = vec3(0.3, 0.8, 0.2);
 // The strip's width, m; the grousers' pitch along the path, m, their imprint, m, and their sweep across it
 // (a chevron's 1.6 for the LRV's; Perseverance's are gently curved).
+// A dust storm's fog over the ground, 1/m: it hides the strip's shading with the ground under it.
+uniform float uFog = 0.0;
 uniform float uWidth = 0.34;
 uniform float uPitch = 0.107;
 uniform float uGrouser = 0.004;
@@ -89,7 +91,10 @@ void fragment() {
 	}
 	// What the sky lights: a rut's floor sees less of it.
 	float ao = 1.0 - clamp(-hc / 0.05, 0.0, 1.0) * 0.25;
-	k = clamp(mix(1.0, k, 0.85) * ao, 0.2, 1.6);
+	// With the Sun down the sky is all that lights it, and the slopes no longer show.
+	float direct = smoothstep(0.0, 0.1, st.z);
+	k = clamp(mix(1.0, k, 0.85 * direct) * ao, 0.2, 1.6);
+	k = mix(1.0, k, exp(-uFog * length(VERTEX)));
 	// The strip's own edge blends into the ground outside it.
 	float edge = smoothstep(0.0, 0.05, UV.x) * smoothstep(1.0, 0.95, UV.x);
 	ALBEDO = vec3(mix(1.0, k, edge));

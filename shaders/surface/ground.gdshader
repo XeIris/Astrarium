@@ -15,6 +15,8 @@ uniform vec3 uSunDir = vec3(0.0, 1.0, 0.0);   // site frame: x west, y up, z nor
 uniform float uDensity = 2.6e-5;
 uniform float uScaleH = 8500.0;
 uniform float uEye = 1.0;
+// The eye's height over the ground under it, m.
+uniform float uOver = 0.0;
 uniform float uHasAir = 1.0;
 uniform float uSkyI = 0.35;       // the flight ground's skylight
 uniform vec3 uFillTint = vec3(1.0);
@@ -243,10 +245,12 @@ void fragment() {
 		vec2 dv = p - c.xy;
 		float d = length(dv) / c.z;
 		if (d > 13.0) continue;
-		float th = atan(dv.y, dv.x);
+		// Round the circle, not along its angle: the noise has no seam where the angle wraps.
+		vec2 round_it = dv / max(length(dv), 1e-3);
 		uint cs = uint(c.w);
 		float blanket = 1.0 - smoothstep(1.0, 2.5, d);
-		float rays = smoothstep(0.35, 0.75, 0.5 + 0.5 * gnoise(vec2(th * 7.0, 0.0), cs) + 0.25 * gnoise(vec2(th * 23.0, d * 0.4), cs + 7u));
+		float rays = smoothstep(0.35, 0.75, 0.5 + 0.5 * gnoise(round_it * 7.0, cs) + 0.25 * gnoise(round_it * (23.0 + d * 0.4), cs + 7u));
+		rays = mix(rays, 0.5, smoothstep(0.05, 0.25, foot * 23.0 / max(length(dv), 1e-3)));
 		float fall = exp(-max(d - 1.0, 0.0) / 4.0) * smoothstep(13.0, 6.0, d);
 		col *= 1.0 + 0.55 * blanket + 0.45 * rays * fall * step(1.0, d);
 	}
@@ -279,7 +283,7 @@ void fragment() {
 	float rim = smoothstep(0.86, 0.99, max(abs(p.x), abs(p.y)) / uFarHalf);
 	// And from high up the whole site gives way to the patch, which draws the same world over the horizon in
 	// one light and one haze: it dissolves in between 15 and 8 km over the ground on the way down.
-	float gone = max(rim, smoothstep(8000.0, 15000.0, uEye));
+	float gone = max(rim, smoothstep(8000.0, 15000.0, uOver));
 	if (gone > 0.0) {
 		uvec2 fc = uvec2(FRAGCOORD.xy);
 		float dither = float(pcg2d(fc).x & 255u) / 255.0;

@@ -109,9 +109,9 @@ static func plan_relief(b: Body, where: PlanetPin, r: PlanetRelief, cells: int, 
 	var relief := SurfaceRelief.new()
 	relief.relief = r
 	relief.center = where.p
-	# East and north on the mesh's own ball, with its pole on +Y.
-	var ref := Vector3.UP if absf(where.p.y) < 0.999 else Vector3.RIGHT
-	relief.east = ref.cross(where.p).normalized()
+	# East and north on the mesh's own ball, with its pole on +Y: from the longitude, which says which way they
+	# point at a pole too.
+	relief.east = Vector3(-sin(where.lon), 0.0, -cos(where.lon))
 	relief.north = where.p.cross(relief.east).normalized()
 	relief.radius_m = b.radius * Rocketry.AU_M
 	relief.g = climate.gravity
@@ -154,8 +154,7 @@ var _map_sea := true
 # Whether the map has sea anywhere across the far grid, on a 9 × 9 lattice of it.
 static func _map_has_sea(b: Body, where: PlanetPin, radius_m: float) -> bool:
 	var half := minf(SurfaceRelief.FAR_HALF, radius_m * 0.08) / radius_m
-	var ref := Vector3.UP if absf(where.p.y) < 0.999 else Vector3.RIGHT
-	var east := ref.cross(where.p).normalized()
+	var east := Vector3(-sin(where.lon), 0.0, -cos(where.lon))
 	var north := where.p.cross(east).normalized()
 	for j in 9:
 		for i in 9:
@@ -281,7 +280,8 @@ func _build_scene() -> void:
 	# greyer, the dark of fresh rock showing only on their faces.
 	var stone := SiteScene._lin(int(pal.soil)).lerp(SiteScene._lin(int(pal.a)), 0.35)
 	var lum := stone.dot(Vector3(0.2126, 0.7152, 0.0722))
-	rocks = SiteRocks.build(body, relief, patch_y, stone.lerp(Vector3(lum, lum, lum), 0.45) * 1.15, crust.biota)
+	# None in the open sea, or on ice.
+	if not str(pin.ground.get("kind", "")) in ["sea", "sea ice", "ice sheet"]: rocks = SiteRocks.build(body, relief, patch_y, stone.lerp(Vector3(lum, lum, lum), 0.45) * 1.15, crust.biota)
 	if rocks != null: group.add_child(rocks.node)
 	# The sea's own temperature, at its level here, not the mountain's.
 	var freeze := float(Liquid.of(body.name).get("freeze_k", Climate.freezing_point(climate.salinity)))
@@ -547,9 +547,13 @@ func light_sea(sun_l: Vector3, sun_rgb: Vector3, sky_top: Vector3, haze: Vector3
 			["uHaze", haze], ["uDensity", density], ["uScaleH", scale_h], ["uCover", cover], ["uTide", tide_h]]:
 		_ocean_mat.set_shader_parameter(key_val[0], key_val[1])
 
-## The rocks laid out about the eye, at (east, north) m in the site's frame.
-func follow_eye(e: float, n: float) -> void:
-	if rocks != null: rocks.follow(e, n)
+## The eye at (east, north), `y` m in the site's frame: the rocks laid out about it, and the ground giving way to the
+## planet's patch by its height over the ground there.
+func follow_eye(e: float, n: float, y: float) -> void:
+	var g := SiteScene.drawn_height(relief.grids, e, n, patch_y, relief.radius_m, false)
+	var over := y - (patch_y if is_nan(g) else g)
+	if _mat != null: _mat.set_shader_parameter("uOver", maxf(over, 0.0))
+	if rocks != null: rocks.follow(e, n, over)
 
 ## The ground's light and air for this frame: `sun_l` in the site's frame, `eye_y` the eye's height in it.
 ## The flight pass's ground material supplies the air, as it does for the planet's patch.

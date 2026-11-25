@@ -83,15 +83,42 @@ static func lat_lon(m: DVec3) -> PackedFloat64Array:
 ## altitude over the figure less the measured height, or, over an adopted survey, the drawn terrain.
 func agl(v: Vessel, rr: DVec3) -> float:
 	to_mesh(rr, v.body_angle(v.coord), _m)
-	if adopted:
+	var up_c := _m.dot(c)
+	# The tangent plane's coordinates are small again at the antipode.
+	if adopted and up_c > 0.5 * datum_r:
 		var e := _m.dot(east)
 		var n := _m.dot(north)
 		var g := SiteScene.drawn_height(relief.grids, e, n, patch_y, relief.radius_m, false)
 		# A stated sea's floor is under its liquid, which is what stops a fall.
-		if relief.stated != "": g = maxf(g, 0.0)
-		if not is_nan(g): return _m.dot(c) - datum_r - g
+		if relief.stated != "" and not is_nan(g): g = maxf(g, 0.0)
+		if not is_nan(g):
+			var h := up_c - datum_r - g
+			# The grid's rim is eased down to the planet's patch (SurfaceRelief._ramp_rim), which the measured ground
+			# is not: a radar altimeter crossing it must not read a kilometre's step.
+			var half := float(relief.grids[1].half)
+			var t := smoothstep(1.0 - SurfaceRelief.RIM, 1.0, maxf(absf(e), absf(n)) / half)
+			if t <= 0.0: return h
+			var lr := lat_lon(_m)
+			return lerpf(h, v.altitude(rr) - coarse_m(lr[0], lr[1]), t)
 	var ll := lat_lon(_m)
 	return v.altitude(rr) - coarse_m(ll[0], ll[1])
+
+## Whether `rr` (flight frame, m) is over the surveyed grid.
+func covers(v: Vessel, rr: DVec3) -> bool:
+	return adopted and near_side(v, rr) and maxf(absf(_m.dot(east)), absf(_m.dot(north))) <= float(relief.grids[1].half)
+
+## Whether a landing at `rr` is off this survey, which is then done with.
+func outgrown(v: Vessel, rr: DVec3) -> bool:
+	return adopted and not covers(v, rr)
+
+var _visited := false
+## Flown twice the grid's half-width from a survey it has been over.
+func left(v: Vessel) -> bool:
+	if not adopted or v.phase == Vessel.PHASE.LANDED: return false
+	if covers(v, v.r): _visited = true
+	if not _visited: return false
+	to_mesh(v.r, v.body_angle(v.coord), _m)
+	return acos(clampf(_m.dot(c) / maxf(_m.length(), 1.0), -1.0, 1.0)) * datum_r > 2.0 * float(relief.grids[1].half)
 
 ## The ground's height over the figure at a latitude and longitude before a survey, m: measured, or the crust's
 ## as a pin reads it (PlanetPin.read_ground).
@@ -154,7 +181,14 @@ func tick(v: Vessel) -> void:
 	if relief.grids.is_empty(): return
 	patch_y = SurfaceSite.patch_level(relief.grids, false)
 	adopted = true
+	# Already down when it came: onto the ground as surveyed.
+	if v.phase == Vessel.PHASE.LANDED and not v.flown and not v.afloat():
+		DQuat.set_len(v.r, v.ground_r(v.r) - v.gear_off)
 	v.log_event("Standing on the surveyed ground")
+
+## Whether `rr` is on the pin's side of the world, where the site's plane means anything.
+func near_side(v: Vessel, rr: DVec3) -> bool:
+	return to_mesh(rr, v.body_angle(v.coord), _m).dot(c) > 0.5 * datum_r
 
 ## A flight-frame point in the adopted site's frame: (west, up, north), m, as the site's group is laid out.
 func site_point(v: Vessel, rr: DVec3) -> Vector3:

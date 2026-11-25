@@ -541,7 +541,7 @@ static func _build_vehicles() -> Dictionary:
 	"skycrane": {
 		"id": "skycrane", "name": "Mars EDL — Sky Crane", "role": "lander", "launchFrom": "Mars",
 		"era": "2012, 2021",
-		"blurb": "Entry at 5.8 km/s behind a heat shield, a supersonic chute at Mach 1.7, a free fall out of the backshell, a powered divert clear of it to flat ground, then a descent stage that lowers the rover on cables and flies away to crash somewhere else. Down, U takes Perseverance's wheel: W A S D drive, G puts the arm's turret on the ground ahead, C cycles to the mast camera. Then I sets Ingenuity down and flies it: W S and A D, E to climb and Q to descend.",
+		"blurb": "Entry at 5.8 km/s behind a heat shield, a supersonic chute at 420 m/s, a free fall out of the backshell, a powered divert clear of it to flat ground, then a descent stage that lowers the rover on cables and flies away to crash somewhere else. Down, U takes Perseverance's wheel: W A S D drive, G puts the arm's turret on the ground ahead, C cycles to the mast camera. Then I sets Ingenuity down and flies it: W S and A D, E to climb and Q to descend.",
 		# The rover is the stage that touched down: it drives off from where it stands (sim/surface/rover.gd).
 		"rover": "perseverance", "roverOffset": 0.0,
 		# No authored model: the rover drawn is the one that drives (RoverModel), the descent stage and the
@@ -562,7 +562,7 @@ static func _build_vehicles() -> Dictionary:
 				# An offset centre of mass trims the capsule to a lifting attitude.
 				# L/D 0.24 is the flown value for the MSL aeroshell.
 				"lift": { "LD": 0.24 }, "ballast": 150.0,
-				# 21.5 m nominal diameter (NASA). Cd 0.62 is an estimate: on it the stack comes down at 76 m/s at
+				# 21.5 m nominal diameter (NASA). Cd 0.62 is an estimate: on it the stack comes down at 81 m/s at
 				# 2.1 km against the press kit's 85 (docs/physics/sky-crane.md).
 				"chute": { "area": 363.0, "D0": 21.5, "deployMach": 1.7, "deployQ": 750.0, "Cd": 0.62 },
 				# The backshell leaves on its parachute: its own drag, not the stack's acceleration alone.
@@ -624,15 +624,14 @@ static func _build_vehicles() -> Dictionary:
 				# Flown at L/D 0.30 (NASA SP-4029), banked to steer as the MSL aeroshell is.
 				"lift": { "LD": 0.30 },
 				# The drogues first; the mains are in `edl`.
-				"chute": { "area": 9.94, "Cd": 0.55 },
+				"chute": Capsule.DROGUE,
 				"look": { "skin": "ablator", "cm": true } }),
 		],
 		"edl": {
 			"entry": { "alt": 121920.0, "v": 11032.0, "fpa": -6.48 },
-			# Baroswitches: drogues at 24,000 ft, mains at 10,700 ft (NASA). The mains' drag area is
-			# what Apollo's 22 mph on three implies, so that speed is an input here, not a result.
+			# Baroswitches: drogues at 24,000 ft, mains at 10,700 ft (NASA).
 			"chute": { "alt": 7315.0 },
-			"mains": { "alt": 3261.0, "area": 1526.0, "Cd": 0.54, "inflate": 8.0 },
+			"mains": { "alt": 3261.0, "area": Capsule.MAINS.area, "Cd": Capsule.MAINS.Cd, "inflate": 8.0 },
 		},
 	},
 

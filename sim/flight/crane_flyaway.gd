@@ -56,8 +56,9 @@ func step(dt: float, vessel: Vessel) -> void:
 		var h := minf(left, STEP)
 		_step(h, vessel)
 		left -= h
-	# Down, it turns with the ground it lies on.
+	# Down, it turns with the ground it lies on, to the frame's end, where the vessel already is.
 	if left > 0.0: DQuat.apply_axis_angle(r, _a.set_v(0.0, -1.0, 0.0), float(vessel.env.rotRate) * left)
+	if down and flown_m == 0.0: flown_m = r.sub(vessel.r).length()
 
 func _step(h: float, vessel: Vessel) -> void:
 	# The heading turns with the planet, as the ground it leaves does.
@@ -93,4 +94,3 @@ func _step(h: float, vessel: Vessel) -> void:
 		down = true
 		burn = 0.0
 		DQuat.set_len(r, vessel.ground_r(r))
-		flown_m = r.sub(vessel.r).length()

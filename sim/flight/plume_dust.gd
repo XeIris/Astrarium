@@ -8,15 +8,15 @@ extends RefCounted
 # still; drawn at the larger grains' 300–900); in air they
 # slow in a few seconds, rise in the jet's turbulence and spread into a cloud, as the descent stage's camera saw
 # under Perseverance (PIA24428). The onset and the spreads are estimates, set so that Apollo's LM (about 24 kN in
-# its hover) starts to raise dust near 30 m, where Apollo 11's crew first called it, and the descent stage does
-# at the 20 m of PIA24428. Site frame (x west, y up, z north), m and s. docs/physics/surface.md#a-landings-dust.
+# its hover) starts to raise dust near 30 m, where Apollo 11's crew first called it, and the descent stage (8.5 kN)
+# from about 28 m, just over the 20 m of PIA24428. Site frame (x west, y up, z north), m and s. docs/physics/surface.md#a-landings-dust.
 
 ## Grains are lifted from this ground pressure, Pa, at full rate from FULL_PA.
 const ONSET_PA := 5.0
 const FULL_PA := 100.0
 ## The jet's half-angle by the time it meets the ground, rad: it expands freely in vacuum.
 const SPREAD_VACUUM := 0.9
-const SPREAD_AIR := 0.35
+const SPREAD_AIR := 0.7
 ## Puffs a second at full rate, and at most this many alive.
 const RATE := 160.0
 const MAX := 900
@@ -91,7 +91,7 @@ func step(dt: float, hit: Vector3, h: float, thrust: float, wind := Vector3.ZERO
 			continue
 		i += 1
 
-## The puffs under `parent` (the site's group), in `tint` (sRGB).
+## The puffs under `parent` (the site's group), in `tint` (linear, lit).
 func draw(parent: Node3D, tint: Color) -> void:
 	if view == null:
 		view = MultiMeshInstance3D.new()

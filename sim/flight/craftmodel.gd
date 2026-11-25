@@ -1569,7 +1569,7 @@ static func build_aeroshell(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	# Backshell: a shallower cone closing the top, in white thermal blanket.
 	# Tall enough to hold the rover and the descent stage stacked on it.
 	var bs := _mesh(_cylinder(D * 0.19, D / 2.0, D * 0.5, 36, 1, true), M.white)
-	bs.position.y = D * 0.30 + D * 0.25; g.add_child(bs)
+	bs.position.y = D * 0.30 + D * 0.25; bs.name = "backshell"; g.add_child(bs)
 	# The joint ring between the two halves — they separate here.
 	var ring := _mesh(_torus(D / 2.0 * 1.005, D * 0.012, 6, 36), M.dirty)
 	ring.rotation.x = PI / 2.0; ring.position.y = D * 0.30; g.add_child(ring)
