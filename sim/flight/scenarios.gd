@@ -225,10 +225,10 @@ static func _build_list() -> Dictionary:
 		# Weather showcases: down in the Martian afternoon (25° and 15° past noon), the site's weather stated over
 		# the world's own.
 		_sc("skycrane", "dust_devils", "Dust devils, early afternoon", "Weather", _skycrane().merged({"sunAngle": 25.0}),
-			{"event": "Touchdown"}, {"agl": [-1.0, 2.0]}).merged({"weather": {"devils": 4.0},
+			{"event": "Touchdown"}, {"agl": [5.0, 8.0]}).merged({"weather": {"devils": 4.0},
 			"brief": "Down on Mars at 13:40 local time with the afternoon's dust devils, four times as many as Jezero's usual sol brings."}),
 		_sc("skycrane", "dust_storm", "A regional dust storm", "Weather", _skycrane().merged({"sunAngle": 15.0}),
-			{"event": "Touchdown"}, {"agl": [-1.0, 2.0]}).merged({"weather": {"storm": 0.9},
+			{"event": "Touchdown"}, {"agl": [5.0, 8.0]}).merged({"weather": {"storm": 0.9},
 			"brief": "Down on Mars under a regional dust storm: the dust it lifts dims the Sun and closes the horizon in."}),
 	]
 	out.apollocm = [
@@ -423,7 +423,7 @@ static func _descent_state(v: Vessel, b: Dictionary) -> void:
 ## Turn the whole descent about the world's axis so it comes down `angle` rad past the subsolar point, in the
 ## direction the ground turns: positive is afternoon. The equatorial Sky Crane's entry comes down DOWNRANGE east
 ## of where it starts (measured from this build's flight, rotation included).
-const DOWNRANGE := 0.1912
+const DOWNRANGE := 0.1906
 static func _turn_to_sun(f: Spaceflight, v: Vessel, angle: float) -> void:
 	var sun := f.sun_direction(DVec3.new())
 	var turn := wrapf(atan2(sun.z, sun.x) + angle - atan2(v.r.z, v.r.x) - DOWNRANGE, -PI, PI)

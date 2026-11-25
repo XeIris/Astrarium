@@ -11,6 +11,8 @@ var group: Node3D
 var wheels: Array = []        # [{pivot: Node3D (steer and travel), spin: Node3D}] in Rover.wheels' order
 ## Perseverance's arm: its joints' nodes, {az, lift, elbow, wrist}; empty for the LRV.
 var joints := {}
+## Perseverance's suspension and wheels; null for the LRV.
+var mobility: Node3D = null
 var _mats := {}
 
 static func _mat(rgb: Color, metal := 0.0, rough := 0.8) -> StandardMaterial3D:
@@ -153,6 +155,15 @@ func update(rover: Rover, arm: RoverArm = null) -> void:
 		pivot.basis = Basis(Vector3.UP, wh.steer)
 		(w.spin as Node3D).basis = Basis(Vector3.RIGHT, wh.angle)
 
+## Fold Perseverance's mobility up beside her body and in, by `k` (1 as packed over the heat shield, 0 deployed):
+## it comes down into place while the bridles pay out.
+const STOW_UP := 0.24
+const STOW_IN := 0.88
+func stow(k: float) -> void:
+	if mobility == null: return
+	mobility.position.y = STOW_UP * k
+	mobility.scale.x = lerpf(1.0, STOW_IN, k)
+
 ## The group's transform in the site's frame (x west, y up, z north).
 static func site_transform(rover: Rover) -> Transform3D:
 	return Transform3D(Basis(rover.q.to_quaternion()), rover.pos.to_v3())
@@ -238,6 +249,9 @@ func _build_perseverance(stowed := false) -> void:
 		_part(_box(0.06, 0.05, 0.06), dark, Vector3(x * 1.45, -0.05, 0.14), head)
 	# Wheels, each on its link: the rocker from the body's side to the front wheel and the bogie pivot, the bogie
 	# to the middle and rear; the corner wheels steer under their actuators.
+	mobility = Node3D.new()
+	mobility.name = "mobility"
+	group.add_child(mobility)
 	var r := float(spec.wheel_r)
 	var probe := Rover.new(Rover.PlaneGround.new(), 3.71, spec, Rover.MARS_SAND)
 	var bogie_z := (float(spec.axles[1]) + float(spec.axles[2])) * 0.5
@@ -245,7 +259,7 @@ func _build_perseverance(stowed := false) -> void:
 		var wh: Rover.Wheel = probe.wheels[i]
 		var pivot := Node3D.new()
 		pivot.position = wh.mount
-		group.add_child(pivot)
+		mobility.add_child(pivot)
 		var spin := Node3D.new()
 		pivot.add_child(spin)
 		var w := MeshInstance3D.new()
@@ -267,16 +281,16 @@ func _build_perseverance(stowed := false) -> void:
 		ws.sort_custom(func(a, b): return a.mount.z > b.mount.z)
 		var hub := Vector3(side * 0.74, base_y + 0.18, 0.2)
 		var bogie := Vector3(side * 0.86, base_y - 0.05, bogie_z)
-		_part(_cyl(0.07, 0.1, 12), ti, hub, group, Basis(Vector3.FORWARD, PI * 0.5))
+		_part(_cyl(0.07, 0.1, 12), ti, hub, mobility, Basis(Vector3.FORWARD, PI * 0.5))
 		if ws.size() >= 3:
 			var top := func(m: Vector3) -> Vector3: return Vector3(side * 0.88, m.y + 0.3, m.z)
-			_tube(hub, top.call(ws[0].mount), 0.042, ti, group)
-			_tube(top.call(ws[0].mount), Vector3(side * 0.88, ws[0].mount.y + 0.06, ws[0].mount.z), 0.035, ti, group)
-			_tube(hub, bogie, 0.042, ti, group)
-			_tube(bogie, top.call(ws[1].mount), 0.038, ti, group)
-			_tube(bogie, top.call(ws[2].mount), 0.038, ti, group)
+			_tube(hub, top.call(ws[0].mount), 0.042, ti, mobility)
+			_tube(top.call(ws[0].mount), Vector3(side * 0.88, ws[0].mount.y + 0.06, ws[0].mount.z), 0.035, ti, mobility)
+			_tube(hub, bogie, 0.042, ti, mobility)
+			_tube(bogie, top.call(ws[1].mount), 0.038, ti, mobility)
+			_tube(bogie, top.call(ws[2].mount), 0.038, ti, mobility)
 			for m: Vector3 in [ws[1].mount, ws[2].mount]:
-				_tube(top.call(m), Vector3(side * 0.88, m.y + 0.06, m.z), 0.033, ti, group)
+				_tube(top.call(m), Vector3(side * 0.88, m.y + 0.06, m.z), 0.033, ti, mobility)
 	# The differential bar across the deck that ties the two rockers.
 	_tube(Vector3(-0.74, top_y + 0.06, 0.2), Vector3(0.74, top_y + 0.06, 0.2), 0.03, ti, group)
 	# The arm: shoulder (azimuth, then lift), elbow, wrist, and the turret's tools on its face.

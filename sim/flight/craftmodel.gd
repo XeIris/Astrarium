@@ -604,6 +604,46 @@ static func grid_fin(size := 1.5) -> Node3D:
 		b.position = Vector3(0, size * 0.21, i * size * 0.15); g.add_child(b)
 	return g
 
+## A disk-gap-band parachute along +Y from its confluence point (the origin), Perseverance's: the disk, the gap
+## and the cylindrical band of Viking's proportions (0.726, 0.042 and 0.121 of the nominal diameter `D0`), inflated
+## to 0.68 D0 across, on suspension lines 1.7 D0 long. Orange and white by gore and ring; the real one's pattern is
+## a code in its gores, not copied. The inflated shape is a drawn proportion.
+static func disk_gap_band(D0: float) -> Node3D:
+	var white := _mat("nylon_white", 0xe9e4d8, 0.9, 0.0).duplicate() as StandardMaterial3D
+	var orange := _mat("nylon_orange", 0xc8581f, 0.9, 0.0).duplicate() as StandardMaterial3D
+	for m: StandardMaterial3D in [white, orange]: m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var cord := _mat("cord", 0xcfc8b8, 0.95, 0.0)
+	var g := _grp()
+	const GORES := 40
+	var rp := 0.34 * D0
+	var lines_l := 1.7 * D0
+	var y_band0 := sqrt(maxf(lines_l * lines_l - rp * rp, 0.0))
+	var y_band1 := y_band0 + 0.121 * D0
+	var y_disk := y_band1 + 0.042 * D0
+	var dome := 0.17 * D0
+	var geo := [Geo.new(), Geo.new()]
+	var quad := func(which: int, p: Array) -> void:
+		var b: int = geo[which].pos.size()
+		for q: Vector3 in p:
+			geo[which].pos.append(q); geo[which].nrm.append(Vector3.ZERO)
+		geo[which].idx.append_array([b, b + 1, b + 2, b, b + 2, b + 3])
+	var ring := func(r: float, y: float, k: float) -> Vector3:
+		var a := TAU * k / GORES
+		return Vector3(r * cos(a), y, r * sin(a))
+	for k in GORES:
+		quad.call((k / 2) % 2, [ring.call(rp, y_band0, k), ring.call(rp, y_band0, k + 1), ring.call(rp, y_band1, k + 1), ring.call(rp, y_band1, k)])
+		for j in 5:
+			# From the vent (7% of the diameter) out to the skirt.
+			var s0 := lerpf(0.07, 1.0, j / 5.0); var s1 := lerpf(0.07, 1.0, (j + 1) / 5.0)
+			var y0 := y_disk + dome * (1.0 - s0 * s0); var y1 := y_disk + dome * (1.0 - s1 * s1)
+			quad.call(1 if (k / 2 + j) % 2 == 0 else 0, [ring.call(rp * s0, y0, k), ring.call(rp * s0, y0, k + 1), ring.call(rp * s1, y1, k + 1), ring.call(rp * s1, y1, k)])
+	for i in 2:
+		_compute_normals(geo[i])
+		g.add_child(_mesh(geo[i], [white, orange][i]))
+	for k in range(0, GORES, 2):
+		g.add_child(beam(Vector3.ZERO, ring.call(rp, y_band0, float(k)), 0.02, cord, 4))
+	return g
+
 ## A strut between two points. Structure is most of what makes a vehicle of
 ## parts read as one object rather than as parts.
 static func beam(p1: Vector3, p2: Vector3, r: float, material: Material = null, seg := 6) -> MeshInstance3D:
@@ -1664,7 +1704,9 @@ static func build_rover(spec: Dictionary, parts: Dictionary) -> Dictionary:
 	var g := _grp()
 	var rm := RoverModel.build(Rover.PERSEVERANCE, true)
 	rm.group.position.y = float(Rover.PERSEVERANCE.com_height)
+	rm.stow(1.0)
 	g.add_child(rm.group)
+	g.set_meta("rover_model", rm)
 	return {"group": g, "parts": parts}
 
 static func build_ion_bus(spec: Dictionary, parts: Dictionary) -> Dictionary:
@@ -2085,7 +2127,7 @@ class Craft extends RefCounted:
 	## flap (float or Array, rad), finTwist (Array, rad), gearStage, accel (the stack's
 	## non-gravitational acceleration, m/s², a Vector3 in the craft frame or a float
 	## along +Y, which separated stages fall behind at), simDt (simulated seconds this
-	## frame, which separated stages fly on; dt when absent), release (Callable(stage,
+	## frame, which separated stages fly on; dt when absent), air (Separation.step's), release (Callable(stage,
 	## sep): takes the pieces of a stage with a fate, `look.fall`, once Separation is
 	## done with them; without it they stay drawn for Separation.SHOWN), chute: {key: {t,
 	## gone, dir, gs}} for a drag chute out (drive_chute)}.
@@ -2107,7 +2149,7 @@ class Craft extends RefCounted:
 				var left := float(s.get("simDt", dt))
 				while left > 0.0 and go:
 					var h := minf(left, Separation.STEP)
-					go = Separation.step(st.sep, h, group.basis, a_stack)
+					go = Separation.step(st.sep, h, group.basis, a_stack, s.get("air", {}))
 					left -= h
 				if go and release is Callable and (release as Callable).is_valid() \
 						and st.spec.get("look", {}).has("fall") and float(st.sep.t) >= Separation.handoff_time(st.sep):

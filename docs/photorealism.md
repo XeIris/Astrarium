@@ -29,9 +29,9 @@ lowered under it.
   - **The descent stage:** an open octagonal frame with its propellant and pressurant spheres in crinkled MLI, the
     radar plate and the bridle-umbilical device, and eight MLEs in canted pairs on four outriggers.
   - **The rover:** the same `RoverModel` that drives, built stowed.
-  - **The drawn sequence (`SkyCraneRig`):** the heat shield drops at 8 km, and the drawn stack moves to her wheels
-    once the shell has gone. The bridles pay out to 7.5 m and are cut a second after touchdown. Then the stage climbs,
-    pitches over and flies about 650 m to crash, and smoke rises where it hits.
+  - **The sequence** is flown, not drawn over: parachute, heat shield, the backshell left hanging as the stage drops
+    out, free fall, divert, vertical descent and the bridles ([its physics and sources](physics/sky-crane.md)). Only the
+    flyaway and its smoke are drawn.
 - **The rover model's** metals drew mirror-dark: the flight scene has no reflection probe, so metallic surfaces reflect
   only a dark ambient. The photographs show the metals light and nearly matte under the dust.
 - **The rover's wheels** were inside-out in places: winding is now set from each face's outward direction, and the

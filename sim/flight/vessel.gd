@@ -111,6 +111,7 @@ class StageState extends RefCounted:
 	var gear_out: bool = false    # spaceflight's G key toggles it
 	var recession: float = 0.0    # an ablator's surface recession at the stagnation point, m
 	var ablated: float = 0.0      # the mass it has lost, kg
+	var shield_off := false       # the heat shield has been jettisoned
 
 	func _init(s: Dictionary, i: int) -> void:
 		spec = s; index = i
@@ -244,6 +245,9 @@ var held_down: bool = false
 var launch_site = null              # {lat, lon, r: DVec3, v: DVec3} or null
 var chute_open = null               # the stage's chute Dictionary while deployed
 var chute_deploy: float = 0.0       # 0..1 inflation
+## A Sky Crane's bridle paid out, m: how far the rover hangs below where she is stowed, and so where the
+## vessel meets the ground (contact_altitude).
+var bridle: float = 0.0
 var bank = null                     # lift bank angle, rad; null = π/3
 var auto_stage: bool = false
 var catch_tower = null              # CatchTower this vessel can be caught by, or null
@@ -831,8 +835,41 @@ static func winged_alpha(cl: float, mach: float, hw: float = INF) -> float:
 func contact_altitude() -> float:
 	var alt := height_above_ground()
 	var st = _first_attached()
+	var sk := _crane_spec()
+	if not sk.is_empty(): return alt + float(sk.wheelsY) - bridle
 	if st == null or st.spec.get("gear") == null or st.spec.gear.get("point") == null: return alt
 	return alt + _stage_offset(st, st.spec.gear.point, _gp).dot(DQuat.nrm(_gu.copy_from(r)))
+
+## The vehicle's `edl.skycrane` once its aeroshell has gone and the rover's wheels are what will touch, else {}.
+func _crane_spec() -> Dictionary:
+	if vehicle == null or vehicle.get("edl") == null: return {}
+	var sk: Dictionary = vehicle.edl.get("skycrane", {})
+	if not sk.has("wheelsY"): return {}
+	for st in stages:
+		if st.attached and st.spec.get("look", {}).get("aeroshell", false): return {}
+	return sk
+
+## Landed on a bridle, the vessel's reference is still where the descent stage let her down from: once the
+## bridle is cut it comes down to the ground she stands on, her wheels staying where they are.
+func _settle_bridle(dt: float) -> void:
+	var sk := _crane_spec()
+	if sk.is_empty() or landed_at == null or bridle <= float(sk.wheelsY): return
+	if met - float(landed_at.met) < SkyCraneRig.CUT_S: return
+	bridle = maxf(float(sk.wheelsY), bridle - 2.0 * dt)
+	DQuat.set_len(r, ground_r(r) + bridle - float(sk.wheelsY))
+
+## Jettison the heat shield of the lowest attached stage that has one with a stated mass.
+func jettison_shield() -> bool:
+	for st in stages:
+		if not st.attached or st.shield_off: continue
+		var hs = st.spec.get("heatShield")
+		if hs == null or hs.get("mass") == null: continue
+		st.shield_off = true
+		# All of it gone, what had ablated included.
+		st.ablated = float(hs.mass)
+		log_event("Heat shield away" + _where())
+		return true
+	return false
 
 ## A point `p` of stage `st` (its frame, m) as an offset from the vessel's reference
 ## point, world axes, at the current attitude.
@@ -1359,6 +1396,8 @@ func step(dt: float, opts: Dictionary = {}) -> float:
 			_dq.set_from_axis_angle(_w1.set_v(0.0, -1.0, 0.0), w)
 			q.premultiply(_dq).normalize_in()
 		step_clocks(dt)
+		# After the clock: the ground under her is read at the planet's angle now.
+		_settle_bridle(dt)
 		sample(0.0)
 		return dt
 
@@ -1618,7 +1657,7 @@ func _ablate(q: float, h: float) -> void:
 	var q_net := q - 0.85 * 5.670374419e-8 * pow(ABLATE_T_RR, 4.0)
 	if q_net <= 0.0: return
 	for st in stages:
-		if not st.attached: continue
+		if not st.attached or st.shield_off: continue
 		var hs = st.spec.get("heatShield")
 		if hs == null or not hs.get("ablator", false) or hs.get("qstar") == null: continue
 		var ds := q_net / (float(hs.rho) * float(hs.qstar)) * h
@@ -1629,7 +1668,7 @@ func _ablate(q: float, h: float) -> void:
 ## The ablator's recession and thickness, m, or null without one.
 func shield_state() -> Variant:
 	for st in stages:
-		var hs = st.spec.get("heatShield") if st.attached else null
+		var hs = st.spec.get("heatShield") if st.attached and not st.shield_off else null
 		if hs != null and hs.get("thickness") != null: return [st.recession, float(hs.thickness)]
 	return null
 

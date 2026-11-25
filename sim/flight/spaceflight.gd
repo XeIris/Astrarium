@@ -140,7 +140,6 @@ var rover_keys := true
 ## draws it, and whether it has the keys and the camera.
 var heli: Rotorcraft = null
 var crane_rig: SkyCraneRig = null  # the Sky Crane's bridles, heat shield and flyaway, drawn only
-var _crane_marks := {}             # met of the heat shield's drop, the bridles' start and touchdown
 var heli_model: RotorcraftModel = null
 var flying := false
 ## A flyer let go from its shell (Dragonfly) flies itself down before it is given the keys: under this height
@@ -369,7 +368,6 @@ func begin(vehicle_key: String, opts: Dictionary = {}):
 	craft = CraftModel.build_craft(veh)
 	local.craft_root.add_child(craft.group)
 	crane_rig = SkyCraneRig.attach(craft)
-	_crane_marks = {}
 	local.place(local.craft_root, craft_pos)
 	# Frame the stack by its height: d = (H/2)/tan(fov·0.34), camera a third of the
 	# way up.
@@ -1068,6 +1066,7 @@ func run_program(p: String) -> void:
 	var ap = autopilot
 	ap.plan = null; ap.node = null; ap.site = null; ap.burning = false
 	ap.slamming = false; ap.entry_done = false; ap.q_guarding = false; ap.shield_gone = false; ap.crane_out = false
+	ap._sep_met = -1.0; ap._chute_met = -1.0; ap._t_go = 0.0; vessel.bridle = 0.0
 	if p == "ascent" and vessel.phase == Vessel.PHASE.PRELAUNCH:
 		start_count()
 		return
@@ -1376,27 +1375,19 @@ func update(dt: float, _frame = null, advance_world: Callable = Callable()) -> f
 	if not advance_world.is_valid(): finish_frame(dt, sim_seconds)
 	return sim_seconds
 
-# The Sky Crane's moments, from the flight: the heat shield goes at the edl's `shieldJett` height under the
-# chute, the bridles pay out from guidance's sky-crane call, and the flyaway counts from touchdown.
-func _draw_crane(alt: float) -> void:
-	var met := vessel.met
+# The Sky Crane's moments, from the flight: what has gone, the bridle out, the canopy's inflation, and the time
+# since touchdown (the vessel's own record, so a landing flown undrawn still times the flyaway from it).
+func _draw_crane(sim_seconds: float, accel: Vector3, air: Dictionary) -> void:
 	var shell_on := false
+	var shield_on := true
 	for st in vessel.stages:
-		if crane_rig.shell != null and str(st.spec.key) == crane_rig.shell.key: shell_on = st.attached
-	var jett = vessel.vehicle.get("edl", {}).get("shieldJett")
-	if jett != null and shell_on and vessel.chute_open != null and alt < float(jett.alt) and not _crane_marks.has("shield"):
-		_crane_marks.shield = met
-	# Touchdown from the vessel's own record, so a landing flown undrawn still times the flyaway from it, the
-	# bridles by then all out.
-	if vessel.phase == Vessel.PHASE.LANDED and vessel.landed_at != null and not _crane_marks.has("down"):
-		_crane_marks.down = float(vessel.landed_at.met)
-		if not _crane_marks.has("crane"): _crane_marks.crane = -INF
-	if autopilot != null and autopilot.crane_out and not _crane_marks.has("crane"): _crane_marks.crane = met
-	var cable := float(vessel.vehicle.get("edl", {}).get("skycrane", {}).get("cable", 7.5))
-	crane_rig.update({"shell": shell_on,
-		"shieldT": met - float(_crane_marks.shield) if _crane_marks.has("shield") else -1.0,
-		"crane": minf((met - float(_crane_marks.crane)) * SkyCraneRig.PAYOUT_RATE, cable) if _crane_marks.has("crane") else 0.0,
-		"flyaway": met - float(_crane_marks.down) if _crane_marks.has("down") else -1.0})
+		if crane_rig.shell != null and str(st.spec.key) == crane_rig.shell.key:
+			shell_on = st.attached
+			shield_on = not st.shield_off
+	var down: bool = vessel.phase == Vessel.PHASE.LANDED and vessel.landed_at != null
+	crane_rig.update({"shell": shell_on, "shield": shield_on, "dt": sim_seconds, "accel": accel, "air": air,
+		"canopy": vessel.chute_deploy if vessel.chute_open != null and shell_on else -1.0,
+		"bridle": vessel.bridle, "flyaway": vessel.met - float(vessel.landed_at.met) if down else -1.0})
 
 ## Can the vehicle put its rover down here: landed, on a surveyed ground, carrying one.
 func can_deploy_rover() -> bool:
@@ -1817,7 +1808,7 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 	for st in vessel.stages:
 		var cs = craft.stage(str(st.spec.key))
 		if not st.attached and cs != null and cs.sep == null and not cs.handed and cs.group.visible:
-			craft.separate(str(st.spec.key), {"mass": vessel.mass,
+			craft.separate(str(st.spec.key), {"mass": vessel.mass, "own": float(st.spec.dry) - st.ablated,
 				"support": -g_craft if vessel.phase == Vessel.PHASE.LANDED else Vector3.ZERO})
 	# The drag chute streams downstream of the vehicle, in the air it moves through.
 	var chute := {}
@@ -1828,10 +1819,15 @@ func update_visual(dt: float, sim_seconds: float) -> void:
 		chute[str(st0.spec.key) if st0 != null else ""] = {"t": rs.chute_t,
 			"gone": vessel.met - rs.chute_gone_met if rs.chute_gone else -1.0,
 			"dir": to_craft * -wind.normalized() if wind.length() > 1.0 else Vector3.DOWN, "gs": wind.length()}
-	craft.update({"dt": dt, "simDt": sim_seconds, "properTime": vessel.met, "attached": attached, "deploy": deploy, "gear": gear,
+	# The air the craft moves through, for what leaves it on a parachute of its own.
+	var sep_air := {}
+	if vessel.env.atm != null and vessel.phase != Vessel.PHASE.LANDED and kerr_demo.is_empty():
+		sep_air = {"v": to_craft * vessel.airspeed(vessel.r, vessel.v, DVec3.new()).to_v3(),
+			"rho": Rocketry.density(vessel.env.atm, maxf(vessel.altitude(), 0.0))}
+	craft.update({"dt": dt, "simDt": sim_seconds, "air": sep_air, "properTime": vessel.met, "attached": attached, "deploy": deploy, "gear": gear,
 		"gimbal": {"x": gx, "z": 0.0}, "flap": flaps, "finTwist": twist, "accel": accel, "release": _release,
 		"chute": chute})
-	if crane_rig != null: _draw_crane(alt)
+	if crane_rig != null: _draw_crane(sim_seconds, accel, sep_air)
 	if docking!=null and drawn:
 		var offset:=docking.carrier.r.clone().sub_in(vessel.r)
 		docking.render_pos.copy_from(craft_pos).add_in(DVec3.new(offset.dot(east),offset.dot(up),offset.dot(north)))

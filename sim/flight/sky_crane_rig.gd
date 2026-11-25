@@ -1,18 +1,13 @@
 class_name SkyCraneRig
 extends RefCounted
 
-# What the Sky Crane does with its pieces that the stack does not, drawn on the CraftModel's stages:
-# - the heat shield falls away at 8 km (the edl's `shieldJett`), ahead of the backshell;
-# - once the shell has gone the stack is drawn from the rover's wheels (her stage's `look.datum`), which is the
-#   point the vessel's physics brings to the ground, the shift hidden by the shell falling away at 1.8 km;
-# - from the sky-crane moment the descent stage rises over her on three bridles and the umbilical as they pay
-#   out to 7.5 m (PIA24428 shows them from the descent stage's camera);
-# - a second after touchdown the bridles are cut, and the stage climbs, pitches over and flies some 650 m off to
-#   crash, its smoke rising where it hits (PIA24425 shows the plume from Perseverance's Hazcam).
-# Drawing only: the vessel's physics is the stack's. Craft frame, y up, m.
+# What the Sky Crane does with its pieces that the stack does not, drawn on the CraftModel's stages from the
+# vessel's state: the parachute over the backshell; the heat shield falling away ahead of it; the backshell left
+# hanging on the parachute as the descent stage drops out below (Separation, with the shell's own drag); the rover
+# going down the bridles by what the vessel has paid out; and, after touchdown, the cut, and the stage's climb,
+# pitch-over and crash some 650 m off, its smoke rising where it hits (PIA24425). The flyaway is drawn, not flown.
+# Craft frame, y up, m. docs/physics/sky-crane.md.
 
-## Paid out at this rate to its full length, m/s and m (Mars 2020: 7.5 m in about seven seconds).
-const PAYOUT_RATE := 1.0
 ## The flyaway's timeline, s after touchdown: the cut, the climb, the pitch-over, gone from view.
 const CUT_S := 1.0
 const CLIMB_S := 2.0
@@ -28,6 +23,10 @@ var rover: CraftModel.CraftStage
 var shield: Array = []
 var bridles: Array[MeshInstance3D] = []
 var umbilical: MeshInstance3D
+var canopy: Node3D = null
+var _shield_sep = null
+var _cable := 7.5
+var _wheels := 0.0
 var smoke: GPUParticles3D = null
 ## The rover has driven off on her own model: hers is no longer drawn here.
 var deployed := false
@@ -47,6 +46,13 @@ static func attach(c: CraftModel.Craft) -> SkyCraneRig:
 	if r.shell != null:
 		for n in r.shell.group.find_children("*", "Node3D", true, false):
 			if n.name.begins_with("heatshield") or n.name.begins_with("gore"): r.shield.append(n)
+	if r.shell != null:
+		var ch: Dictionary = r.shell.spec.get("chute", {})
+		r.canopy = CraftModel.disk_gap_band(float(ch.get("D0", 21.5)))
+		r.canopy.position.y = float(r.shell.spec.D)
+		r.canopy.visible = false
+		r.shell.group.add_child(r.canopy)
+	r._wheels = r.rover.base_y
 	var cable := StandardMaterial3D.new()
 	cable.albedo_color = Color(0.85, 0.83, 0.78)
 	cable.roughness = 0.8
@@ -76,15 +82,31 @@ static func _unit_cyl(radius: float) -> CylinderMesh:
 	m.rings = 1
 	return m
 
-## Draw the moment. `s`: {shell (bool, attached), shieldT (s since the heat shield went, or < 0), crane (m paid
-## out), flyaway (s since touchdown, or < 0)}.
+## The heat shield's own drag area as it falls blunt end first: a 70° sphere-cone's subsonic Cd is about 1 over
+## its 15.9 m² (an estimate).
+const SHIELD_CDA := 15.9
+
+## Draw the moment. `s`: {shell, shield (attached), dt (simulated s), accel (the stack's non-gravitational
+## acceleration, craft frame), air (Separation.step's), canopy (0..1 inflation, or < 0 with none out), bridle (m
+## paid out), flyaway (s since touchdown, or < 0)}.
 func update(s: Dictionary) -> void:
-	var shift := 0.0 if bool(s.get("shell", true)) else -rover.base_y
-	rover.group.position.y = rover.base_y + shift
+	var bridle := float(s.get("bridle", 0.0))
+	rover.group.position.y = rover.base_y - bridle
 	if deployed: rover.group.visible = false
-	var pay := clampf(float(s.get("crane", 0.0)), 0.0, 7.5)
+	# Her wheels come down into place as the cables unreel.
+	var rm: RoverModel = rover.group.get_meta("rover_model") if rover.group.has_meta("rover_model") else null
+	if rm != null: rm.stow(1.0 - smoothstep(0.5, 4.0, bridle))
+	if canopy != null:
+		var open := float(s.get("canopy", -1.0))
+		if open >= 0.0:
+			canopy.visible = true
+			# Out to its length first, then wide as the root of the drag area it gives.
+			var w := maxf(sqrt(clampf(open, 0.0, 1.0)), 0.06)
+			canopy.scale = Vector3(w, 1.0, w)
 	var fly := float(s.get("flyaway", -1.0))
-	var d_pos := Vector3(0.0, desc.base_y + shift + pay, 0.0)
+	# Landed on the cable, the vessel's reference comes down to her once it is cut; the stage does not.
+	var up0 := _cable - bridle if fly >= CUT_S else 0.0
+	var d_pos := Vector3(0.0, desc.base_y + up0, 0.0)
 	var d_basis := Basis()
 	if fly > CUT_S:
 		var tau := fly - CUT_S
@@ -102,20 +124,11 @@ func update(s: Dictionary) -> void:
 		desc.group.visible = false
 		# Nothing of the craft is left to draw once she has driven off.
 		if deployed: craft.group.visible = false
-	# The heat shield, falling away below the capsule and turning as it goes.
-	var st := float(s.get("shieldT", -1.0))
-	for n: Node3D in shield:
-		if not n.has_meta("rest"): n.set_meta("rest", n.transform)
-		var rest: Transform3D = n.get_meta("rest")
-		if st < 0.0:
-			n.transform = rest
-			n.visible = true
-		else:
-			n.transform = Transform3D(Basis(Vector3(1, 0, 0.4).normalized(), st * 0.3), Vector3(st * 0.6, -1.6 * st * st, 0.0)) * rest
-			n.visible = st < 8.0
+	_fly_shield(s)
 	# Bridles: from the descent stage's spool to her deck, three and the umbilical.
-	var hang := pay > 0.05 and fly < CUT_S
-	var deck_y := rover.base_y + shift + 1.12
+	var hang := bridle > 0.05 and fly < CUT_S
+	if hang: _cable = maxf(bridle, 0.0)
+	var deck_y := rover.group.position.y + 1.12
 	var spool := desc.group.transform * Vector3(0.0, 0.0, 0.0)
 	for i in 3:
 		var a := TAU * i / 3.0 + 0.4
@@ -124,6 +137,29 @@ func update(s: Dictionary) -> void:
 		_span(bridles[i], top, bottom, hang)
 	_span(umbilical, spool, Vector3(0.3, deck_y, -0.35), hang)
 	if fly > CUT_S + CLIMB_S + sqrt(CRASH_M / 3.0) and smoke == null: _crash()
+
+# The heat shield once it is let go: Separation, with its own drag against the stack's on the parachute.
+func _fly_shield(s: Dictionary) -> void:
+	if shield.is_empty(): return
+	var n: Node3D = shield[0]
+	if not n.has_meta("rest"): n.set_meta("rest", n.transform)
+	if bool(s.get("shield", true)):
+		_shield_sep = null
+		n.transform = n.get_meta("rest")
+		n.visible = true
+		return
+	if _shield_sep == null:
+		n.transform = n.get_meta("rest")
+		var hs: Dictionary = shell.spec.get("heatShield", {})
+		_shield_sep = Separation.start({"dry": float(hs.get("mass", 385.0)), "look": {"sep": {"canopy": {"CdA": SHIELD_CDA}}}},
+			shell.group, [n], craft.group.basis)
+	var left := float(s.get("dt", 0.0))
+	var go := true
+	while left > 0.0 and go:
+		var h := minf(left, Separation.STEP)
+		go = Separation.step(_shield_sep, h, craft.group.basis, s.get("accel", Vector3.ZERO), s.get("air", {}))
+		left -= h
+	n.visible = go and bool(s.get("shell", true))
 
 func _span(m: MeshInstance3D, a: Vector3, b: Vector3, on: bool) -> void:
 	m.visible = on

@@ -541,7 +541,7 @@ static func _build_vehicles() -> Dictionary:
 	"skycrane": {
 		"id": "skycrane", "name": "Mars EDL — Sky Crane", "role": "lander", "launchFrom": "Mars",
 		"era": "2012, 2021",
-		"blurb": "Entry at 5.8 km/s behind a heat shield, a supersonic chute at Mach 1.7, then a descent stage that lowers the rover on cables and flies away to crash somewhere else. Down, U takes Perseverance's wheel: W A S D drive, G puts the arm's turret on the ground ahead, C cycles to the mast camera. Then I sets Ingenuity down and flies it: W S and A D, E to climb and Q to descend.",
+		"blurb": "Entry at 5.8 km/s behind a heat shield, a supersonic chute at Mach 1.7, a free fall out of the backshell, a powered divert clear of it to flat ground, then a descent stage that lowers the rover on cables and flies away to crash somewhere else. Down, U takes Perseverance's wheel: W A S D drive, G puts the arm's turret on the ground ahead, C cycles to the mast camera. Then I sets Ingenuity down and flies it: W S and A D, E to climb and Q to descend.",
 		# The rover is the stage that touched down: it drives off from where it stands (sim/surface/rover.gd).
 		"rover": "perseverance", "roverOffset": 0.0,
 		# No authored model: the rover drawn is the one that drives (RoverModel), the descent stage and the
@@ -560,8 +560,11 @@ static func _build_vehicles() -> Dictionary:
 				# An offset centre of mass trims the capsule to a lifting attitude.
 				# L/D 0.24 is the flown value for the MSL aeroshell.
 				"lift": { "LD": 0.24 },
-				"chute": { "area": 200.0, "deployMach": 1.7, "deployQ": 750.0, "Cd": 0.62 },
-				"look": { "skin": "ablator", "aeroshell": true } }),
+				# 21.5 m nominal diameter (NASA). Cd 0.62 is an estimate: on it the stack comes down at 76 m/s at
+				# 2.1 km against the press kit's 85 (docs/physics/sky-crane.md).
+				"chute": { "area": 363.0, "D0": 21.5, "deployMach": 1.7, "deployQ": 750.0, "Cd": 0.62 },
+				# The backshell leaves on its parachute: its own drag, not the stack's acceleration alone.
+				"look": { "skin": "ablator", "aeroshell": true, "sep": { "canopy": { "CdA": 225.0 } } } }),
 			stage({ "key": "desc", "name": "Descent stage", "dry": 829.0, "prop": 390.0,
 				"engine": E.MLE, "count": 8, "L": 2.0, "D": 3.2, "sep": "skycrane",
 				"rcs": { "thrust": 60.0, "isp": 220.0, "prop": 25.0, "count": 8 },
@@ -579,9 +582,16 @@ static func _build_vehicles() -> Dictionary:
 		"edl": {
 			"entry":      { "alt": 125000.0, "v": 5800.0, "fpa": -15.5 },
 			"chute":      { "mach": 1.7, "altMax": 11000.0 },
-			"shieldJett": { "alt": 8000.0 },
-			"backshell":  { "alt": 1800.0, "v": 100.0 },
-			"skycrane":   { "alt": 20.0, "cable": 7.5, "vTouch": -0.75 },
+			# Perseverance's press kit: the heat shield 20 s after the parachute, the backshell at 2.1 km.
+			"shieldJett": { "after": 20.0 },
+			# `drop`: Tianwen-1 lit its engine about 1 s after its backshell went (Huang et al. 2022).
+			"backshell":  { "alt": 2100.0, "v": 50.0, "drop": 1.0 },
+			# The divert leaves the old trajectory's plane by MSL's 300 m, and no more than the 600 m
+			# Perseverance could shift its touchdown; then straight down at MSL's 32 m/s.
+			"divert":     { "min": 300.0, "max": 600.0, "vVert": 32.0 },
+			# MSL's rover separation: the descent stage 18.6 m up, 0.75 m/s, 7.5 m of bridle. `stageY` and
+			# `wheelsY` are the mounts of the descent stage and the rover in the stack; `payout`, m/s, is an estimate.
+			"skycrane":   { "alt": 18.6, "cable": 7.5, "vTouch": -0.75, "payout": 1.0, "stageY": 2.35, "wheelsY": 1.05 },
 		},
 	},
 
