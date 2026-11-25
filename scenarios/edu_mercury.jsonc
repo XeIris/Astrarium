@@ -1,0 +1,27 @@
+// MERCURY'S PERIHELION: the Sun and Mercury alone (a = 0.387098 AU, e = 0.205630,
+// Standish's J2000 elements), so its apsides turn only by 1PN: 42.98″ per century.
+// The 4th-order step's own apsidal drift goes as h⁴: 8.7″/cy at 4e-4 yr, 0.08″/cy at
+// 1.25e-4 (1/1900 of Mercury's year).
+{
+  "format": 1,
+  "name": "Mercury alone",
+  "blurb": "The Sun and Mercury on Mercury's real orbit, and nothing else. With Newton's gravity the ellipse closes; with Einstein's first post-Newtonian terms its perihelion turns by 43 arcseconds a century, the anomaly Le Verrier measured in 1859 and general relativity explained in 1915.",
+  "sky": { "env": "disc", "galactic": "j2000" },
+  "sceneScale": 60,
+  "bodyScale": 0.6,
+  "camRadius": 40,
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 5,
+  "maxStep": 0.000125,
+  "bodies": [
+    {
+      "type": "star", "name": "Sun", "mass": 1, "radiusSun": 1, "teff": 5772, "luminosity": 1,
+      "pos": [0, 0, 0], "vel": [0, 0, 0]
+    },
+    {
+      "type": "planet", "name": "Mercury", "mass": 1.6601e-07, "radiusKm": 2439.7, "albedo": 0.14, "crater": 1,
+      "hot": true, "regolith": "#8c8378", "pos": [0.46669696173999997, 0, 0], "vel": [0, 0, 8.197356726086156]
+    },
+  ]
+}

@@ -177,7 +177,8 @@ func _valid_saved_bindings(data: Dictionary) -> bool:
 
 ## Actions added after controls.json first shipped. A file written before them cannot
 ## hold them, so their defaults give way to its keys rather than reject it.
-const ADDED := ["dock_command", "space_map", "flight_follow", "site_previous", "site_next", "site_observe"]
+const ADDED := ["dock_command", "space_map", "flight_follow", "site_previous", "site_next", "site_observe",
+	"rover", "drive_forward", "drive_back", "steer_left", "steer_right", "helicopter", "climb", "descend"]
 
 ## A saved file's bindings, with defaults for what it leaves out. An ADDED action it
 ## lacks keeps its default key unless the file already uses it in the same context;

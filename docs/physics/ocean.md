@@ -63,11 +63,16 @@ on a lattice is drawn once at the start, two unit normals seeded from the site, 
 without redrawing its phase.
 
 - **Directions.** [Donelan et al. 1985](https://doi.org/10.1098/rsta.1985.0054)'s sech²(βθ) about the wind, with
-  Banner 1990's β past 1.6 ω_p, normalised over a full turn: D = β/(2 tanh βπ) sech²(βθ).
+  Banner 1990's β past 1.6 ω_p, β = 10^(−0.4 + 0.8393 e^(−0.567 ln (ω/ω_p)²)), normalised over a full turn:
+  D = β/(2 tanh βπ) sech²(βθ).
 - **On the lattice.** S(k) = S(ω) D(θ) (dω/dk)/k per unit k-area, times the lattice's Δk² per mode.
   ⟨|h̃₀|²⟩ is half of that, since a mode and its −k partner each carry |h̃₀|² of variance.
 - **In time.** h̃(k, t) = h̃₀(k) e^{−iωt} + h̃₀*(−k) e^{iωt}, a wave going along k, and the field is the inverse DFT
   of it, x_n = Σ F_m e^{+2πi mn/N}, real because each mode has its conjugate at −k.
+- **Repeating.** Each ω is rounded to a whole number of turns in 8192 s, at most 4e-4 rad/s from its dispersion, and the
+  GPU takes its float32 phase from the time within that. A day at sea is as exact as its first minute.
+- **A new wind** keeps the lattices unless its longest tile would be over 1.5 times the old one's, when they are laid
+  out again.
 - **Sideways.** The water moves as Lagrange's first order moves it, D̂ = i(k/|k|)h̃: a Gerstner wave, crests closed
   up and troughs opened, at Tessendorf's λ = 1.
 - **What none of them draws** goes to the glint's roughness: the mean-square slope of the same spectrum from the last
@@ -144,7 +149,7 @@ Not modelled: added mass, the waves a hull makes reaching the drawn sea, green w
   compressors fill in 4 minutes (an estimate).
 
 The return: Apollo 11's entry interface, 400,000 ft at 36,194 ft/s inertial and 6.48° down (NASA SP-4029). It
-flies at L/D 0.30, banked 60°, and its Avcoat ablates. Baroswitches fire two 16.5 ft drogues at 24,000 ft and
+flies at L/D 0.30, banked 60°, and its Avcoat ablates. Baroswitches fire two 16.5 ft drogues (39.7 m²) at 24,000 ft and
 three 83.5 ft ringsail mains at 10,700 ft. The mains' drag area is what Apollo's 22 mph on three implies (C_D 0.54
 on the nominal area), so the splash speed is an input, not a result.
 
@@ -186,7 +191,8 @@ latitude is 9.5° and the Sun is 19.5° up over Ligeia at splashdown. Lorenz & M
 chute will bring it down: the pin, the site's weather (`SurfaceWeather`), and an FFT field for its wind. The fetch is
 an open ocean's with 4 km of depth, or across a stated mare at its depth under the point. Twenty flight-seconds later it stands on it, drawn or not. Fifteen metres above the mean sea the
 Floater takes the vessel at its place, velocity and attitude, under its mains; the crew cut them 2 s after
-splashdown (an estimate). The vessel stays landed where it came down, and the craft is drawn where the Floater has
+splashdown (an estimate). Its height is over the mean sea under it, which by then can be kilometres from the survey's pin
+and metres under the pin's tangent plane; the drift the HUD gives is from the splash. The vessel stays landed where it came down, and the craft is drawn where the Floater has
 it. On land there is no sea, and the capsule meets the ground as any vehicle does. G starts the CM's bags'
 compressors; TiME has none.
 

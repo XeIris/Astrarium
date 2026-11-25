@@ -50,13 +50,18 @@ static func ground_y(grids: Array, e: float, n: float, R: float) -> float:
 		var ty := fy - j
 		var h: PackedFloat32Array = g.h
 		var w: int = g.n
-		var h00 := h[j * w + i]
-		var h10 := h[j * w + i + 1]
-		var h01 := h[(j + 1) * w + i]
+		# The far grid as it is drawn, tucked under the near one: its cells across that edge slope down to it.
+		var near_half := 0.0 if is_same(g, grids[0]) else float(grids[0].half)
+		var at := func(a: int, b: int) -> float:
+			var tuck := absf(-half + a * step) < near_half and absf(-half + b * step) < near_half
+			return h[b * w + a] - (SiteScene.TUCK if tuck else 0.0)
+		var h00: float = at.call(i, j)
+		var h10: float = at.call(i + 1, j)
+		var h01: float = at.call(i, j + 1)
 		var y: float
 		if tx + ty <= 1.0: y = h00 + tx * (h10 - h00) + ty * (h01 - h00)
 		else:
-			var h11 := h[(j + 1) * w + i + 1]
+			var h11: float = at.call(i + 1, j + 1)
 			y = h11 + (1.0 - tx) * (h01 - h11) + (1.0 - ty) * (h10 - h11)
 		return y - (e * e + n * n) / (2.0 * R)
 	return NAN

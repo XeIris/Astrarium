@@ -141,8 +141,49 @@ func build() -> void:
 	channel_near = _carve(near, near_half, 0.55, 1.0, false)
 	if cancelled: return
 	if not has_sea: _ramp_rim(far)
+	_ramp_seam(near, near_half, far, far_half)
 	grids = [{"n": cells, "half": near_half, "h": near}, {"n": cells, "half": far_half, "h": far}]
 	progress = 1.0
+
+# The near grid's outer SEAM eases to the far grid as drawn just past its edge (SiteScene tucks the far one under
+# it), so the ground a wheel crosses there has no step.
+const SEAM := 0.08
+func _ramp_seam(near: PackedFloat32Array, near_half: float, far: PackedFloat32Array, far_half: float) -> void:
+	var step := 2.0 * near_half / (cells - 1)
+	var pair := [{"n": cells, "half": near_half, "h": near}, {"n": cells, "half": far_half, "h": far}]
+	for j in cells:
+		for i in cells:
+			var e := -near_half + i * step
+			var n := -near_half + j * step
+			var edge := 1.0 - maxf(absf(e), absf(n)) / near_half
+			if edge >= SEAM: continue
+			var far_h := _seam_lookup(pair, e, n)
+			var k := j * cells + i
+			near[k] = lerpf(far_h, near[k], smoothstep(0.0, SEAM, edge))
+
+# The far grid's height at (e, n) on the triangles SiteScene draws, its vertices inside the near grid tucked.
+func _seam_lookup(pair: Array, e: float, n: float) -> float:
+	var g: Dictionary = pair[1]
+	var half: float = g.half
+	var c: int = int(g.n) - 1
+	var step := 2.0 * half / c
+	var fx := (e + half) / step
+	var fy := (n + half) / step
+	var i := mini(int(fx), c - 1)
+	var j := mini(int(fy), c - 1)
+	var tx := fx - i
+	var ty := fy - j
+	var at := func(a: int, b: int) -> float:
+		var de := -half + a * step
+		var dn := -half + b * step
+		return SiteScene._drawn_vertex(pair, 1, a, b, -1e9, radius_m, false) + (de * de + dn * dn) / (2.0 * radius_m)
+	var h10: float = at.call(i + 1, j)
+	var h01: float = at.call(i, j + 1)
+	if tx + ty <= 1.0:
+		var h00: float = at.call(i, j)
+		return h00 + tx * (h10 - h00) + ty * (h01 - h00)
+	var h11: float = at.call(i + 1, j + 1)
+	return h11 + (1.0 - tx) * (h01 - h11) + (1.0 - ty) * (h10 - h11)
 
 # Unit direction at metres east and north of the pin, on the ball.
 func _dir(e: float, n: float) -> Vector3:

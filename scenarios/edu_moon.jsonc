@@ -1,0 +1,42 @@
+// PHASES AND ECLIPSES: half the Moon is always lit; a phase is how much of that
+// half faces us. The real 5.14° inclination is why eclipses are rare.
+// A lunar month in about twelve seconds. The Moon's orbit is the clock this
+// scenario is about, so it is the one the pace is chosen for.
+// The 5.14° tilt, applied to the moon's state RELATIVE to the Earth so
+// the inclination is of the lunar orbit and not of the Earth's.
+// rotate about the x axis (the line of nodes, put along x by construction)
+{
+  "format": 1,
+  "name": "Phases, and why eclipses are rare",
+  "group": "learning",
+  "blurb": "The Earth–Moon system at its real separation — 384 400 km, thirty Earth diameters, which is already further apart than almost every diagram draws it. The Sun lights exactly half the Moon at every instant; the phase is how much of that half you can see from here. When an alignment comes, the shadow is drawn, umbra and penumbra. Earth’s rotation is slowed to 80 turns per year. The orbit carries its real 5.14° tilt to the ecliptic, which is the entire reason there is not an eclipse every month: at most new moons the shadow misses by several Earth diameters.",
+  "sky": { "env": "disc", "roll": 2.1, "tilt": 0.38 },
+  "sceneScale": 900,
+  "bodyScale": 0.25,
+  "trueScale": true,
+  "camRadius": 6.5,
+  "focus": "Earth",
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.006,
+  "maxStep": 0.0002,
+  "surface": true,
+  "climate": { "T0": 288, "mixedLayer": 60 },
+  "bodies": [
+    {
+      "type": "star", "name": "Sun", "mass": 1, "color": "#fff2cc", "glow": "#ffaa33", "pos": [0, 0, 0],
+      "vel": [0, 0, 0]
+    },
+    {
+      "type": "world", "name": "Earth", "mass": 3.0035e-06, "radiusKm": 6371, "albedo": 0.306,
+      "atmosphere": true, "biota": 1, "cloudCover": 0.44, "dayLength": 109.575, "home": true, "k2": 0.299,
+      "land": 0.29, "obliquity": 23.44, "season": 11, "tideLagS": 638, "pos": [1, 0, 0],
+      "vel": [0, 0, 6.283185307179586]
+    },
+    {
+      "type": "planet", "name": "Moon", "mass": 3.6923e-08, "radiusKm": 1737.4, "albedo": 0.12, "crater": 1,
+      "hot": true, "obliquity": 1.5355268909506063, "regolith": "#9a958c", "tidalLock": "Earth",
+      "pos": [1.0025695552898, 0, 0], "vel": [0, -0.01938192108889795, 6.498445912297509]
+    },
+  ]
+}

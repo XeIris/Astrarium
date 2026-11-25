@@ -20,6 +20,7 @@ func _init() -> void:
 	_one_wave()
 	_hydrostatics()
 	_capsule()
+	_winding()
 	_dynamics()
 	_titan_seas()
 	_time()
@@ -203,6 +204,26 @@ func _capsule() -> void:
 
 static func heel(f: Floater) -> float:
 	return rad_to_deg(acos(clampf(f.rot[4], -1.0, 1.0)))
+
+# The drawn shells face out: every triangle's front, clockwise in Godot, away from the axis or the craft's middle.
+func _winding() -> void:
+	var parts := {}
+	for key in ["legs", "fins", "arrays", "doors", "halves", "gimbals", "flaps", "chutes", "pieces", "rotors", "arms"]: parts[key] = []
+	for built: Array in [["the command module", Capsule, Capsule.build_model({}, parts).group], ["TiME", TimeCapsule, TimeCapsule.build_model({}, parts).group]]:
+		var worst := 1.0
+		var n := 0
+		var mid := Vector3(0.0, built[1].span() * 0.45, 0.0)
+		for mi: MeshInstance3D in (built[2] as Node3D).find_children("*", "MeshInstance3D", true, false):
+			if not mi.has_meta("lathe"): continue
+			var a: Array = mi.mesh.surface_get_arrays(0)
+			var v: PackedVector3Array = a[Mesh.ARRAY_VERTEX]
+			for t in range(0, v.size(), 3):
+				var nrm := (v[t + 2] - v[t]).cross(v[t + 1] - v[t])
+				if nrm.length() < 1e-9: continue
+				n += 1
+				worst = minf(worst, nrm.normalized().dot(((v[t] + v[t + 1] + v[t + 2]) / 3.0 - mid).normalized()))
+		ok("%s's shell faces out" % built[0], n > 100 and worst > 0.0, "%d triangles, worst %s" % [n, U.fixed(worst, 2)])
+		(built[2] as Node3D).free()
 
 func _dynamics() -> void:
 	var sea := Liquid.of("Earth")
