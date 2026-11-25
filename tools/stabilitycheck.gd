@@ -124,6 +124,10 @@ func _run() -> void:
 			reject("%s must be a number" % key)
 			quit(1)
 			return
+	if not Presets.PRESETS.has("trisolaris"):
+		reject("scenarios/trisolaris.jsonc did not load")
+		quit(1)
+		return
 	var preset: Dictionary = Presets.PRESETS.trisolaris
 	var target_years := float(args.get("years", DEFAULT_YEARS))
 	var max_step := float(args.get("max_step", preset.maxStep))
@@ -157,7 +161,19 @@ func _run() -> void:
 		quit(1)
 		return
 	var initial_masses := {}
-	var specs: Array = Presets._build_trisolaris(world_eccentricity) if world_eccentricity != null else preset.build.call()
+	var specs: Array = preset.build.call()
+	if world_eccentricity != null:
+		var override := world_override(world_eccentricity)
+		if not override.error.is_empty():
+			reject(override.error)
+			quit(1)
+			return
+		specs = override.specs
+	specs = by_role(specs)
+	if specs.is_empty():
+		reject("scenarios/trisolaris.jsonc must hold exactly %s" % ", ".join(ROLES))
+		quit(1)
+		return
 	for spec in specs:
 		var body := Derive.new_body(bodies.size() + 1, spec)
 		bodies.append(body)
@@ -246,7 +262,7 @@ func _run() -> void:
 	if failures == 0 and (years != target_years or clock.year_remainder != 0.0): reject("incomplete target integration")
 	var report := {"mode": mode, "authored_max_step": float(preset.maxStep), "max_step": max_step,
 		"step_divisor": step_divisor, "world_eccentricity_override": world_eccentricity,
-		"world_eccentricity_override_convention": "same Presets._build_trisolaris constructor with only world eccentricity replaced",
+		"world_eccentricity_override_convention": "scenarios/trisolaris.jsonc with only Trisolaris's orbit.e replaced",
 		"godot_version": Engine.get_version_info(), "operating_system": OS.get_name(), "architecture": Engine.get_architecture_name(),
 		"force_model": "symmetric RMS-Plummer ordinary pairs; conservative Newtonian motion; GW boost zero",
 		"clock_method": "SimState.advance_years compensated accepted intervals; final budget includes remainder",
@@ -276,3 +292,28 @@ func _run() -> void:
 		" max_relative_energy_drift=", max_drift, " max_momentum_error=", max_momentum_error, " frames=", frames, " substeps=", steps)
 	print(marker, " DONE mode=", mode, " target_years=", target_years, " accepted_years=", years, " failures=", failures)
 	quit(1 if failures else 0)
+
+# The authored file with only the world's eccentricity changed: { specs, error }.
+func world_override(e: float) -> Dictionary:
+	var parsed := Jsonc.parse(FileAccess.get_file_as_string("res://scenarios/trisolaris.jsonc"))
+	if not parsed.error.is_empty():
+		return {"error": "scenarios/trisolaris.jsonc: line %d: %s" % [parsed.line, parsed.error]}
+	var listed = parsed.data.get("bodies") if parsed.data is Dictionary else null
+	for b in (listed if listed is Array else []):
+		if b is Dictionary and b.get("name") == "Trisolaris" and b.get("orbit") is Dictionary:
+			b.orbit.e = e
+			var r := ScenarioFile.from_data(parsed.data, true, parsed.lines)
+			if not r.ok: return {"error": "world_eccentricity=%s: %s" % [e, "; ".join(r.errors)]}
+			return {"specs": r.preset.build.call(), "error": ""}
+	return {"error": "scenarios/trisolaris.jsonc no longer places Trisolaris by an orbit"}
+
+# The checks below read the bodies by role, so the file may list them in any order.
+const ROLES := ["Alpha", "Beta", "Gamma", "Trisolaris"]
+func by_role(specs: Array) -> Array:
+	if specs.size() != ROLES.size(): return []
+	var out := []
+	for role in ROLES:
+		var hits := specs.filter(func(s): return s is Dictionary and s.get("name") == role)
+		if hits.size() != 1: return []
+		out.append(hits[0])
+	return out

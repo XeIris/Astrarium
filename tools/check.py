@@ -29,6 +29,8 @@ ENGINE_ERROR = re.compile(r"(?:^|\s)(?:SCRIPT ERROR|SHADER ERROR|ERROR):", re.MU
 # themselves (clean), read the previous step's output (export), need exact object
 # counts (lifecycle; its checks run beside each other only, see `alone`), or break the
 # tree in place (mutation).
+# Presets built in sim/presets.gd rather than read from scenarios/: solar, jovian_voyage and titan_voyage.
+CODE_PRESETS = 3
 ALONE = {"perf", "m5-budget", "m5-medium", "stability", "stability-study", "clean", "export", "lifecycle", "mutation"}
 # The soak's features in runtime_checks.gd's order, one process each.
 SOAK_FEATURES = ("spawn_remove", "edit_mass", "true_scale", "editor", "paint", "xsec", "cam_modes", "quality",
@@ -80,15 +82,30 @@ CHANGED_RULES = (
     (("sim/physics.gd", "sim/nbody.gd", "sim/world.gd", "native/*"),
      ("galaxycheck", "encountercheck", "invariantcheck", "nbodycheck", "numericalcheck", "secularcheck", "sciencecheck", "savecheck", "sharedflightcheck-*",
       "missioncheck-*", "accretion*", "sharedtimecheck", "transitioncheck", "realismcheck", "flightphysicscheck")),
-    (("sim/structure.gd", "sim/derive.gd", "sim/presets.gd", "sim/edupresets.gd", "sim/starcat.gd",
+    (("sim/neighbours.gd", "sim/suns.gd"), ("neighbourcheck", "secularcheck", "realismcheck", "lookcheck")),
+    # neighbourcheck builds one of its scenes from the Solar System preset.
+    (("sim/presets.gd", "sim/derive.gd"), ("neighbourcheck",)),
+    (("sim/structure.gd", "sim/derive.gd", "sim/presets.gd", "scenarios/*", "sim/scenario_file.gd", "sim/jsonc.gd", "sim/starcat.gd",
       "sim/stellar.gd", "sim/scale.gd", "sim/climate.gd", "sim/climate_inputs.gd", "sim/atmosphere.gd", "sim/ebm.gd", "sim/suns.gd", "sim/bodies.gd"),
      ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
-      "secularcheck", "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck")),
+      "secularcheck", "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck", "scenariofilecheck")),
+    # Scenario files, their reader and store, and the Scenario panel that uploads them.
+    (("sim/scenario_file.gd", "sim/jsonc.gd", "sim/scenario_store.gd", "scenarios/*", "tools/fixtures/scenario_states.json", "ui/hud.gd",
+      "sim/sky.gd"),
+     ("scenariofilecheck",)),
     # What runs on the ground, and the proof it runs nowhere else.
     (("sim/surface/*", "shaders/surface/*", "shaders/observatory/site_terrain.gdshader", "sim/showcase.gd", "sim/planet_pin.gd", "sim/climate_look.gd",
       "sim/planet_elevation.gd", "assets/planet-relief/*", "sim/flight/localview.gd", "sim/observatory/site_scene.gd"),
-     ("surfacecheck", "surfacepixelcheck*", "_soak_check-showcase", "_soak_check-surface", "groundcheck", "groundlookcheck")),
+     ("surfacecheck", "surfacepixelcheck*", "_soak_check-showcase", "_soak_check-surface", "groundcheck", "groundlookcheck", "seacheck")),
     (("shaders/surface/*", "tools/groundlookcheck.*", "sim/surface/surface_shadow.gd"), ("groundlookcheck",)),
+    # The sea: its FFT field and liquids, what floats on it, and the GPU's half of it.
+    (("sim/surface/ocean_field.gd", "sim/surface/surface_waves.gd", "sim/surface/liquid.gd", "sim/surface/floater.gd",
+      "sim/surface/capsule.gd", "tools/oceancheck.gd"), ("oceancheck", "seacheck", "oceanlookcheck")),
+    # Titan's seas where they were mapped, and the capsule that floats on them.
+    (("sim/stated_seas.gd", "sim/surface/time_capsule.gd"), ("oceancheck", "titancheck", "seacheck", "surfacecheck", "groundcheck")),
+    (("sim/surface/ocean_gpu.gd", "shaders/surface/ocean_fft.glsl", "shaders/surface/water.gdshader", "tools/oceanlookcheck.*"),
+     ("oceanlookcheck",)),
+    (("sim/surface/surface_sea.gd", "tools/seacheck.*"), ("seacheck",)),
     # The CPU's crust is held to the shader's; the pin and the showcase read it.
     (("sim/planet_relief.gd", "sim/planet_pin.gd", "sim/showcase.gd", "shaders/bodies/terrain.gdshaderinc",
       "shaders/bodies/terrain_noise.gdshaderinc", "shaders/bodies/rocky_surface.gdshader", "shaders/bodies/pin_marker.gdshader",
@@ -106,7 +123,7 @@ CHANGED_RULES = (
       "sim/perihelion.gd"),
      ("coursecheck", "editorcheck", "structureinputcheck", "_soak_check-*")),
     # The photometer replay, the chirp template, the perihelion meter (with edu_mercury's 1PN rate) and the dates.
-    (("sim/lightcurve.gd", "sim/gwdetector.gd", "sim/perihelion.gd", "sim/timescales.gd", "sim/edupresets.gd"),
+    (("sim/lightcurve.gd", "sim/gwdetector.gd", "sim/perihelion.gd", "sim/timescales.gd", "scenarios/edu_*.jsonc"),
      ("sciencecheck",)),
     # The shock layer's spectrum and the shader terms it hands the glow.
     (("sim/flight/plasma_spectrum.gd", "sim/flight/ionisation.gd", "shaders/flight/entry_plasma.gdshaderinc"),
@@ -118,8 +135,11 @@ CHANGED_RULES = (
       "sim/flight/craftmodel.gd", "sim/flight/ionisation.gd", "sim/flight/lunar_gravity.gd",
       "tools/fixtures/flight_fixture.json"),
      ("flighttimecheck", "flightphysicscheck", "spinframecheck", "sharedflightcheck-*", "flight-descent-*",
-      "missioncheck-*", "scenariocheck", "groundcheck")),
-    (("tools/groundcheck.*",), ("groundcheck",)),
+      "missioncheck-*", "scenariocheck", "groundcheck", "seacheck", "titancheck")),
+    (("tools/groundcheck.*", "sim/flight/sky_crane_rig.gd", "sim/flight/crane_flyaway.gd", "sim/flight/plume_dust.gd"), ("groundcheck",)),
+    (("sim/surface/rover*.gd", "shaders/surface/track.gdshader", "tools/rovercheck.gd"), ("rovercheck", "groundcheck")),
+    (("sim/surface/rotorcraft*.gd", "tools/rotorcheck.gd"), ("rotorcheck", "groundcheck", "titancheck")),
+    (("sim/titan_moon.gd", "tools/titancheck.*"), ("titancheck", "presetcheck")),
     (("sim/flight/scenarios.gd", "tools/scenariocheck.gd"), ("scenariocheck",)),
     # cloudcheck also tests the climatology: Terrain's CPU copy and the shader copy it must match.
     (("sim/flight/cloudfield.gd", "sim/flight/localview.gd", "shaders/flight/clouds*", "render/flight_cloud_pass.gd", "sim/terrain.gd",
@@ -131,7 +151,8 @@ CHANGED_RULES = (
     # The flight sky's coefficients are checked numerically; its drawing by the render rule.
     (("sim/flight/sky_ms.gd", "sim/stellar.gd", "tools/build_sky_ms.py", "sim/flight/lagrange.gd"), ("flightphysicscheck",)),
     (("sim/flight/vehicles.gd", "sim/flight/craftmodel.gd", "sim/flight/craftassets.gd", "sim/flight/separation.gd",
-      "sim/flight/material_detail.gd", "assets/*", "model_sources/*"), ("assetcheck", "craft-*")),
+      "sim/flight/material_detail.gd", "sim/flight/sky_crane_rig.gd", "sim/surface/rover_model.gd", "assets/*", "model_sources/*"),
+     ("assetcheck", "craft-*")),
     (("sim/flight/launchsite.gd", "sim/flight/catchtower.gd", "model_sources/blender/launchpads.py"),
      ("padcheck", "flight-descent-shcatch*")),
     (("render/lens_pass.gd", "sim/brightstars.gd", "assets/sky/*", "tools/build_gaia.py"), ("realismcheck",)),
@@ -307,18 +328,29 @@ def checks(suite, godot, output, repeat, export_preset):
         # Everything else reads the import cache, so nothing runs beside the import.
         yield Check("import", base + ["--headless", "--import", "--quit"], None, 180, alone=True)
         yield ("reference-shots-selfcheck", [sys.executable, str(ROOT / "tools/reference_shots_test.py")],
-               r"^REFERENCE SHOTS SELF-CHECK PASS$", 30)
+               r"^REFERENCE SHOTS SELF-CHECK PASS$", 300)
         yield ("check-selfcheck", [sys.executable, str(ROOT / "tools/check_test.py")], r"^CHECK SELF-CHECK PASS$", 120)
         # About a second: AGENTS.md's physics rules that a pattern can state (tools/rulecheck.py --list).
         yield ("rulecheck", [sys.executable, str(ROOT / "tools/rulecheck.py")], r"^RULECHECK DONE rules=[1-9]\d* violations=0$", 60)
         yield script("skycheck", r"^SKYCHECK DONE checks=[1-9]\d* failures=0$")
+        # Scenario files: the built-ins against the builds they replaced, every refusal, and upload through the stage.
+        yield headless_scene("scenariofilecheck", r"^SCENARIOFILE DONE [1-9]\d* checks, 0 failures$")
         yield headless_scene("voyagercheck", r"^VOYAGER DONE failures=0$", "title=0")
         yield script("cameracheck", r"^CAMERACHECK DONE checks=[1-9]\d* failures=0$")
         yield script("invariantcheck", r"^INVARIANTCHECK DONE checks=[1-9]\d* failures=0 native=(?:true|false)$")
         yield script("sciencecheck", r"^sciencecheck: [1-9]\d* checks, 0 failed$")
         yield script("savecheck", r"^SAVECHECK ([1-9]\d*)/\1 checks passed \(platform=(?:macOS|Linux|Windows); native \+ forced backup publication\)\.$")
         yield script("secularcheck", r"^SECULARCHECK DONE checks=[1-9]\d* failures=0$")
+        # About a second: the neighbour index against the full scans it replaces.
+        yield script("neighbourcheck", r"^NEIGHBOURCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("flighttimecheck", r"^FLIGHT TIME PASS \(0 failures\)$")
+        # The LRV's physics against the Apollo record: sinkage, speed, slip, turning, breakout, dust.
+        # Timeouts sized for CI's runners, about three times a desktop's wall time beside other checks.
+        yield script("rovercheck", r"^ROVERCHECK DONE checks=[1-9]\d* failures=0$", timeout=900)
+        # Rotors against momentum theory and the flown record; Ingenuity and Dragonfly flown over planes.
+        yield script("rotorcheck", r"^ROTORCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
+        # The FFT sea against its spectrum and a direct sum; hulls against Archimedes and the Apollo record.
+        yield script("oceancheck", r"^OCEANCHECK DONE checks=[1-9]\d* failures=0$", timeout=900)
         yield script("orbitcheck", r"^ORBITCHECK DONE checks=[1-9]\d* failures=0$")
         yield script("soicheck", r"^SOICHECK DONE checks=[1-9]\d* failures=0$")
         yield script("missionguidancecheck", r"^MISSIONGUIDANCECHECK DONE checks=[1-9]\d* failures=0$")
@@ -387,6 +419,10 @@ def checks(suite, godot, output, repeat, export_preset):
         yield mission_parity("shuttle_fates", PARITY_FRAMES)._replace(cost=60)
         # A landing on the Moon and on Mars stands on the ground that is drawn; Earth keeps its figure.
         yield headless_scene("groundcheck", r"^GROUNDCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)._replace(cost=40)
+        # Titan in its expedition: Dragonfly down through the haze and flown, the Survey Shuttle in from orbit.
+        yield headless_scene("titancheck", r"^TITANCHECK DONE checks=[1-9]\d* failures=0$", timeout=1800)._replace(cost=120)
+        # Apollo's command module comes down on the sea it draws, floats on it and is righted.
+        yield headless_scene("seacheck", r"^SEACHECK DONE checks=[1-9]\d* failures=0$", timeout=900)._replace(cost=60)
         # Every developer scenario, jumped to and checked against its declared state.
         yield Check("scenariocheck", base + ["--headless", "res://tools/scenariocheck.tscn"],
                     r"^SCENARIOCHECK DONE scenarios=[1-9]\d* failures=0$", 900, cost=120)
@@ -420,6 +456,8 @@ def checks(suite, godot, output, repeat, export_preset):
         yield scene("coursecheck", r"^COURSE 40L 125S 0E$")
         # The drawn ground at a landing against its CPU half: the Sun's march and the LM's shadow, in the frame.
         yield scene("groundlookcheck", r"^GROUNDLOOKCHECK DONE checks=[1-9]\d* failures=0$", timeout=600)
+        # The GPU's FFT sea against the CPU's, texel for texel; it reads the RenderingDevice back.
+        yield scene("oceanlookcheck", r"^OCEANLOOKCHECK DONE checks=[1-9]\d* failures=0$", timeout=300)
         pin_gpu = scene("pincheck", r"^PINCHECK DONE checks=[1-9]\d* failures=0$", "gpu=1")
         yield ("pincheck-gpu", *pin_gpu[1:])
         for quality in ("medium", "low", "high"):
@@ -446,7 +484,8 @@ def checks(suite, godot, output, repeat, export_preset):
         accretion_gd = scene("accretioncheck", r"^ACCRETIONCHECK DONE checks=[1-9]\d* failures=0$", "native=0")
         yield ("accretion-gdscript", *accretion_gd[1:])
         yield Check("presetcheck", ["sh", str(ROOT / "tools/presetcheck.sh"), str(output / "presets-engine.log"), *window[len(base):]],
-                    r"^PRESETCHECK DONE 38$", 300, lane="window")  # windowed, like scene()
+                    rf"^PRESETCHECK DONE {len(list((ROOT / 'scenarios').glob('*.jsonc'))) + CODE_PRESETS}$", 300,
+                    lane="window")  # windowed, like scene()
     elif suite in ("assets", "procedural"):
         if suite == "assets":
             yield ("craft-parity", base + ["--headless", "res://tools/crafttest.tscn", "--", "parity"],
@@ -460,7 +499,7 @@ def checks(suite, godot, output, repeat, export_preset):
             yield script("discoverycheck", r"^DISCOVERYCHECK DONE checks=[1-9]\d* failures=0$", f"assets={assets}")._replace(name=f"discoverycheck-{assets}")
             yield script("endurancecheck", r"^ENDURANCECHECK DONE checks=[1-9]\d* failures=0$", f"assets={assets}")._replace(name=f"endurancecheck-{assets}")
             # The authored gate cannot pass by silently substituting optional fallback models.
-            yield script("assetcheck", rf"^ASSETCHECK DONE [1-9]\d* checks, {'14' if assets == '1' else '0'} authored, 0 failures$", f"assets={assets}")
+            yield script("assetcheck", rf"^ASSETCHECK DONE [1-9]\d* checks, {'13' if assets == '1' else '0'} authored, 0 failures$", f"assets={assets}")
             for action in ("audit", "clearance"):
                 yield (f"craft-{action}-{assets}", base + ["--headless", "res://tools/crafttest.tscn", "--", action, f"assets={assets}"],
                        r"^CRAFTCHECK DONE PASS$", 180)

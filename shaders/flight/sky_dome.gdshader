@@ -242,6 +242,25 @@ vec3 emission(vec3 d) {
 	return acc;
 }
 
+// Under a haze too thick for the table (Titan's), whose light is the direct beam's at each point and so dies with
+// it: the diffuse light that has worked its way down, near isotropic. Eddington's two-stream transmission of
+// the column above the eye (Meador & Weaver 1980), absorption from the aerosol's albedo; radiance per unit
+// solar irradiance. Nothing below a zenith depth of 2, where the table carries the sky (Earth's is 0.1–0.3).
+vec3 deep_haze(float h, vec3 s) {
+	vec3 tau_r = uBetaR * uHR * exp(-h / uHR);
+	vec3 tau_m = uBetaM * uHM * exp(-h / uHM);
+	vec3 tau = tau_r + uBetaMExt * uHM * exp(-h / uHM);
+	float w = smoothstep(2.0, 4.0, dot(tau, vec3(0.3333)));
+	float mu0 = max(s.y, 0.0);
+	if (w <= 0.0 || mu0 <= 0.0) return vec3(0.0);
+	vec3 tau_s = tau_r + tau_m;
+	vec3 omega = tau_s / max(tau, vec3(1e-9));
+	vec3 g = tau_m * uMieG / max(tau_s, vec3(1e-9));
+	vec3 k = sqrt(3.0 * (vec3(1.0) - omega) * (vec3(1.0) - omega * g));
+	vec3 t = (0.5 + 0.75 * mu0) / (vec3(1.0) + 0.75 * (vec3(1.0) - g) * tau_s) * exp(-k * tau);
+	return w * mu0 * t / PI;
+}
+
 vec4 physical_sky(vec3 d, vec3 s) {
 	float R = uRadius;
 	float top = R + uTop;
@@ -285,6 +304,7 @@ vec4 physical_sky(vec3 d, vec3 s) {
 		tau_v += step_tau;
 	}
 	if (uNLC > 0.0) L += noctilucent(o, d, s) * exp(-tau_v);
+	L += deep_haze(h, s) * (vec3(1.0) - exp(-tau_v));
 	L *= uSkyFlux * uSkyExposure;
 	if (uEmitGain > 0.0) {
 		vec3 night = emission(d);
@@ -308,6 +328,9 @@ void fragment() {
 		// light itself adds: blend_mix multiplies ALBEDO by ALPHA, so divide it back out
 		// and a faint twilight still glows over the stars it barely dims.
 		float a = clamp(max(ps.r, max(ps.g, ps.b)) * 6.0, 0.02, 1.0);
+		// And never less than the air's own extinction: a star behind τ is dimmed by e^−τ however dim the
+		// sky in front of it is (Titan's haze hides them by day and night).
+		a = max(a, ps.a);
 		if (uMoonR > 0.0) {
 			// A chord: a cosine this close to 1 has no precision left.
 			float chord = length(d - uMoonDir);

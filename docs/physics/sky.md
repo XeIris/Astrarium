@@ -173,9 +173,19 @@ to the last digit.
   shell reaches 520 km. The zenith is deep orange: G/R 0.33 and B/R 0.02 with
   multiple scattering.
 
-Hillaire's geometric series is a looser fit under Titan's optical depth of 3–5 than
-under Earth's 0.3. No preset carries Titan yet, so its sky is checked numerically,
-not seen.
+Hillaire's table lights each point by the direct beam that reaches it, and under
+Titan's optical depth of 3–5 the beam is gone before the ground: alone, the table
+leaves the surface's sky black. Past a zenith depth of 2 (Earth's is 0.1–0.3) the dome
+adds the diffuse light that has worked its way down (`deep_haze`). It uses
+Eddington's two-stream transmission of the column above the eye, with absorption from
+the aerosol's albedo ([Meador & Weaver 1980](https://doi.org/10.1175/1520-0469(1980)037%3C0630:TSATRT%3E2.0.CO;2)),
+and is near isotropic. Under it the flight view (`LocalView.haze_weight`) takes the
+haze's own depth for the direct sun, so its disc is gone, as Huygens found it. The
+ground's skylight and the craft's fill are π times that sky, in the haze's colour,
+and the exposure adapts to the light that reaches the eye, as Huygens' cameras' did.
+
+The coverage that hides the stars is never less than the air's extinction along the
+ray, so a sky dimmer than the stars still hides what is behind τ of haze.
 
 Off Earth the sky follows the star's flux through the camera's exposure, as the
 ground does (`uSkyFlux`). Earth keeps its noon calibration. `flightphysicscheck`

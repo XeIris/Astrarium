@@ -133,8 +133,9 @@ uses an integer hash for this reason (`TERRAIN_EXACT`); cloud decks, giants and 
 
 ## The surface
 
-`sim/surface/` runs only while someone stands on a world (`Showcase.stand`) or a vessel comes down on a dry
-mapped one (`SurfaceGround`: the Moon, Mars). Nothing of it is created, and it computes nothing, in the orrery,
+`sim/surface/` runs only while someone stands on a world (`Showcase.stand`), a vessel comes down on a dry
+mapped one (`SurfaceGround`: the Moon, Mars), a vessel built to float comes down at sea (`SurfaceSea`, Earth's or a stated one: `StatedSeas`, Titan's maria), or a rover
+drives off one or a rotorcraft flies over it (`Rover`, `Rotorcraft`). Nothing of it is created, and it computes nothing, in the orrery,
 an Earth flight or the Observatory: `surfacecheck` holds `SurfaceStats` at zero through them and the object counts
 flat after a visit, and `groundcheck` holds a landing's to its flight. It reads the world's gravity, air, water and temperature, and writes
 nothing back: not to `Climate`, not to any body. Its scales come from the world, never from Earth's constants.
@@ -148,6 +149,15 @@ on `b.viz`. The orchestrator owns `group.position` and `group.scale`, so a visua
 puts its own offsets on inner nodes. Visual updates must not change physical
 mass, position or velocity. `ctx` is a `VisualCtx`
 ([docs/godot.md](docs/godot.md#the-body-visual-contract)).
+
+## Scenario files
+
+Every orrery scenario that needs no code is a file in `scenarios/` (format:
+[docs/scenario-format.md](docs/scenario-format.md)); `sim/presets.gd` keeps only
+`solar` and `jovian_voyage`. A new scenario is a new file, not a builder. A file is
+validated whole before the stage changes, and an unknown key is an error.
+`tools/fixtures/scenario_states.json` pins each built-in's starting state bit for bit
+(orbit-built bodies to 4 ulps, since libms round trig differently).
 
 ## The course
 
@@ -254,17 +264,28 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - re-entry plasma colour or `Ionisation`: `tools/plasmacheck.gd`
 - lessons, presets or the stage: `tools/coursecheck.tscn`
 - spawn/edit/preset input domain: `tools/structureinputcheck.tscn`
+- scenario files, their reader, uploads or the Custom group: `tools/scenariofilecheck.tscn`
+  (`snapshot=1` after an intended change to a built-in's starting state)
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`
 - the composition editor, its pie and its preview: `tools/compositioncheck.tscn`
-- the ground, sea and weather at a pin, and that they run nowhere else: `tools/surfacecheck.tscn`, and with
+- the ground, sea and weather at a pin (a dry world's dust and its devils too), and that they run nowhere else:
+  `tools/surfacecheck.tscn`, and with
   `pixels=1 [quality=low|high]` the frames
 - the showcase, a pin, or the crust on either side of the GPU: `tools/pincheck.tscn`, and with `gpu=1` the
   shader's height against the CPU's
 - what a landing stands on (`SurfaceGround`, contact, landing guidance, the drawn site in flight):
-  `tools/groundcheck.tscn`; how the site's ground draws (`shaders/surface/ground.gdshader`, `SurfaceShadow`):
-  `tools/groundlookcheck.tscn`
+  `tools/groundcheck.tscn`, which also flies the Sky Crane (`SkyCraneRig`, its landing map, `CraneFlyaway`) and holds a landing's dust (`PlumeDust`);
+  how the site's ground draws (`shaders/surface/ground.gdshader`, `SurfaceShadow`):
+  `tools/groundlookcheck.tscn`; the rover (`sim/surface/rover*.gd`): `tools/rovercheck.gd`, and the drive off a landed
+  LM in `groundcheck`
+- a rotorcraft (`Rotorcraft`): `tools/rotorcheck.gd`, Ingenuity off Perseverance in `groundcheck`; Titan, Dragonfly
+  and the Survey Shuttle there: `tools/titancheck.tscn`, which also brings TiME down on Ligeia Mare
+- the FFT sea, the liquids, Titan's stated seas and what floats (`OceanField`, `StatedSeas`, `Floater`, `Capsule`,
+  `TimeCapsule`): `tools/oceancheck.gd`; the GPU's
+  half of the sea against the CPU's: `tools/oceanlookcheck.tscn`; a splashdown (`SurfaceSea`): `tools/seacheck.tscn`
 - how a world's look follows its climate: `tools/lookcheck.tscn`, and with `pixels=1` the frames
 - tidal disruption, natal kicks, the disc model, the climate or its draw: `tools/realismcheck.tscn`
+- the per-frame neighbour searches (tidal primary, eclipses, planetshine): `tools/neighbourcheck.gd`
 - the Observatory's sky, dates or sites: `tools/observatorycheck.gd`; how the mode meets the
   stage: `tools/observatorystagecheck.gd`; a telescope's frames: `tools/imagingcheck.gd`;
   how the sky looks: `tools/observatorylookcheck.tscn`
@@ -279,7 +300,7 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - flight scenarios, guidance or the fast-forward: `tools/scenariocheck.tscn`
   (`-- replay=1` for the comparison with a played flight)
 - vehicles: `tools/crafttest.tscn -- audit` and `-- clearance`, with and without
-  `assets=0`; `-- parity` requires all fourteen authored models and checks both poses
+  `assets=0`; `-- parity` requires all thirteen authored models and checks both poses
 - launch complexes: `tools/padcheck.gd` (and `-- padmodels=0`); must report zero
 - anything that creates or frees nodes, visuals or caches: `eval=_soak_check`;
   the counts must stay flat after the first round

@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "name": "Illustrative Stellar Inspiral",
+  "group": "stellar-systems",
+  "blurb": "Two stars lose orbital energy through exaggerated drag and can reach physical contact. This illustrates orbital decay; it does not model mass transfer, stellar envelopes or a luminous red nova.",
+  "sky": { "env": "starburst", "roll": 0.9, "tilt": 0.5 },
+  "sceneScale": 3,
+  "bodyScale": 1,
+  "camRadius": 16,
+  "lensing": false,
+  "gwBoost": 4e+17,
+  "timeScale": 0.5,
+  "bodies": [
+    {
+      "type": "star", "name": "Star A", "mass": 1.1, "color": "#fff0d0", "emitsGW": true, "glow": "#ffaa44",
+      "pos": [-1.125, 0, 0], "vel": [0, 0, -2.5289333031746613]
+    },
+    {
+      "type": "star", "name": "Star B", "mass": 0.9, "color": "#ffd0a0", "emitsGW": true, "glow": "#ff8030",
+      "pos": [1.375, 0, 0], "vel": [0, 0, 3.0909184816579196]
+    },
+  ]
+}

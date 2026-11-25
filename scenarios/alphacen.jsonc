@@ -1,0 +1,39 @@
+// Proxima's real 13 000 AU is off-scene; it goes at 900 AU on the same bound path,
+// and the blurb says so.
+// Split the outer orbit about its barycentre, each side taking its mass share
+// (0.55 of circular speed with no radial velocity is apoapsis of e = 0.70).
+{
+  "format": 1,
+  "name": "Alpha Centauri",
+  "group": "real-stars",
+  "blurb": "The real nearest system, with the real orbit: A and B swing between 11.2 and 35.6 AU on an 80-year, e = 0.52 ellipse. Proxima is bound to the pair but 13 000 AU out — so far that it takes 550 000 years to go round once, and it is off screen at any zoom that shows the binary. Proxima b orbits it in 11 days, inside a habitable zone that is inside Mercury’s distance, around a star that flares hard enough to strip an atmosphere.",
+  "sky": { "env": "disc", "roll": 0.2, "tilt": 0.44 },
+  "sceneScale": 1.6,
+  "bodyScale": 1,
+  "trueScale": true,
+  "camRadius": 60,
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 4,
+  "maxStep": 0.002,
+  "bodies": [
+    {
+      "type": "star", "name": "Alpha Centauri A", "catalog": "alphacenA",
+      "pos": [-54.969393321428065, -0.7927019248813325, -5.625115422192305],
+      "vel": [0.8703642915864501, -0.13239506094476328, -0.9570969443739269]
+    },
+    {
+      "type": "star", "name": "Alpha Centauri B", "catalog": "alphacenB",
+      "pos": [-48.64747294982905, 0.9405706517399708, 6.674411039882379],
+      "vel": [-1.0327199711432713, 0.15709171991554183, 1.0971387076738182]
+    },
+    {
+      "type": "star", "name": "Proxima Centauri", "catalog": "proxima", "pos": [847.9218994360457, 0, 0],
+      "vel": [0, 0, 0.28663120862863883]
+    },
+    {
+      "type": "planet", "name": "Proxima b", "mass": 3.3e-06, "radiusKm": 7160, "hot": true,
+      "pos": [847.9481040978803, 0, 0.04081134276318298], "vel": [-8.388918525275896, 0, 5.673093849383006]
+    },
+  ]
+}

@@ -15,6 +15,8 @@ uniform vec3 uSunDir = vec3(0.0, 1.0, 0.0);   // site frame: x west, y up, z nor
 uniform float uDensity = 2.6e-5;
 uniform float uScaleH = 8500.0;
 uniform float uEye = 1.0;
+// The eye's height over the ground under it, m.
+uniform float uOver = 0.0;
 uniform float uHasAir = 1.0;
 uniform float uSkyI = 0.35;       // the flight ground's skylight
 uniform vec3 uFillTint = vec3(1.0);
@@ -34,6 +36,18 @@ uniform float uCellM = 2000.0;
 uniform float uHurst = 0.8;
 // 1: an airless regolith, Lommel–Seeliger with an opposition surge; 0: Oren–Nayar under air.
 uniform float uAirless = 0.0;
+// The planet's patch beyond the far grid wears this colour (SurfaceSite.patch_colour): the grid's rim fades to it.
+uniform vec3 uPatchCol = vec3(0.3);
+// A stated dune field (SurfaceRelief): height, width, spacing, m; across-crest direction (east, north); the band's
+// fade by the site's latitude, 0–1. The near grid carves them; past it they are shaded here, darker on the crests
+// as Titan's are (dark in Cassini's radar and near-infrared, Lorenz et al. 2006).
+uniform vec4 uDunes = vec4(0.0);
+uniform vec2 uDuneAcross = vec2(0.0, 1.0);
+// The site's fresh craters on an airless world (SurfaceSite._set_crater_uniforms): east, north, radius, m, and a seed
+// for their rays. Fresh ejecta is immature regolith, brighter than the gardened plain round it.
+uniform vec4 uCraters[12];
+uniform int uCraterN = 0;
+
 
 varying vec3 vPlace;     // east, height, north in the site's frame
 varying vec3 vNormalL;
@@ -62,6 +76,43 @@ vec3 vnoise(vec2 p, uint s) {
 	float a = hash2(c, s), b = hash2(c + ivec2(1, 0), s), cc = hash2(c + ivec2(0, 1), s), d = hash2(c + ivec2(1, 1), s);
 	float k1 = b - a, k2 = cc - a, k4 = a - b - cc + d;
 	return vec3((a + k1 * u.x + k2 * u.y + k4 * u.x * u.y) * 2.0 - 1.0, 2.0 * du * vec2(k1 + k4 * u.y, k2 + k4 * u.x));
+}
+
+// Gradient noise in [−1, 1] (Perlin's, quintic), its gradients from the same integer hash: no lattice
+// values to line up, as value noise's do.
+float gnoise(vec2 p, uint s) {
+	vec2 i = floor(p);
+	vec2 f = p - i;
+	vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+	ivec2 c = ivec2(i);
+	float r = 0.0;
+	float v[4];
+	for (int k = 0; k < 4; k++) {
+		ivec2 o = ivec2(k & 1, k >> 1);
+		float a = hash2(c + o, s) * 6.2831853;
+		v[k] = dot(vec2(cos(a), sin(a)), f - vec2(o));
+	}
+	return 1.414 * mix(mix(v[0], v[1], u.x), mix(v[2], v[3], u.x), u.y);
+}
+
+// Colour fBm from `lam0` m down, each octave turned 37° and 2.07 times finer than the last so no two share a
+// lattice's axes, and each faded out where it would fall under two pixels (`foot`, m): a far view sees the
+// octaves it can resolve and the mean of the rest, never their aliases (Quílez, "fbm" and "warp").
+float cfbm(vec2 p, float lam0, float foot, uint s, int octaves) {
+	const mat2 R = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8));
+	float sum = 0.0;
+	float amp = 0.5;
+	float lam = lam0;
+	vec2 q = p;
+	for (int k = 0; k < octaves; k++) {
+		float w = 1.0 - smoothstep(2.0, 4.0, foot * 2.0 / lam);
+		if (w <= 0.0) break;
+		sum += w * amp * gnoise(q / lam, s + uint(k) * 7919u);
+		q = R * q + vec2(37.1, 11.7) * float(k + 1);
+		lam /= 2.07;
+		amp *= 0.55;
+	}
+	return sum;
 }
 
 // One grid's height at (e, n) on its own triangles, with the drop; terrain_mesh's split.
@@ -134,9 +185,11 @@ void fragment() {
 		float w = smoothstep(1.5, 4.0, lam / foot);
 		if (w <= 0.0) break;
 		float a = kappa * uRoughCell * pow(lam / uCellM, uHurst);
-		vec3 nz = vnoise(p / lam, uint(k) * 92821u + 17u);
-		grad += w * (a / lam) * nz.yz;
-		if (k < 6) patchy += w * nz.x * (0.5 / float(k + 1));
+		// Turned 0.71 rad an octave (and the gradient turned back), so no two octaves share axes.
+		float th = 0.71 * float(k);
+		mat2 rot = mat2(vec2(cos(th), sin(th)), vec2(-sin(th), cos(th)));
+		vec3 nz = vnoise((rot * p) / lam, uint(k) * 92821u + 17u);
+		grad += w * (a / lam) * (transpose(rot) * nz.yz);
 		lam *= 0.5;
 	}
 	// The mesh's normal (x runs west) tilted by the relief below it.
@@ -144,11 +197,20 @@ void fragment() {
 	vec3 nm = normalize(vec3(vNormalL.x / ny + grad.x, 1.0, vNormalL.z / ny - grad.y));
 	NORMAL = normalize((VIEW_MATRIX * MODEL_MATRIX * vec4(nm, 0.0)).xyz);
 
-	// The palette, as the planet's biome() draws it: rock and soil by slope and broad noise.
-	float big = vnoise(p / 900.0, 3u).x * 0.5 + 0.5;
-	float mid = vnoise(p / 70.0, 5u).x * 0.5 + 0.5;
-	vec3 col = mix(uRockA, uRockB, smoothstep(0.32, 0.68, big * 0.7 + mid * 0.3));
-	col = mix(col, uSoil, smoothstep(0.42, 0.75, mid) * (1.0 - smoothstep(0.08, 0.3, slope)));
+	// The palette, as the planet's biome() draws it: rock and soil by slope and noise. The noise runs from 12 km
+	// patches down to metres, warped so its boundaries meander, and filtered by the footprint, so the transitions
+	// soften into their mean from far off instead of breaking into a lattice.
+	vec2 warp = vec2(cfbm(p, 6000.0, foot, 41u, 3), cfbm(p + vec2(5200.0, 1300.0), 6000.0, foot, 43u, 3)) * 900.0;
+	vec2 pw = p + warp;
+	float big = cfbm(pw, 12000.0, foot, 3u, 4) * 0.55 + 0.5;
+	float mid = cfbm(pw + vec2(910.0, 270.0), 700.0, foot, 5u, 6) * 0.7 + 0.5;
+	// How much of the mid noise survives the footprint: its transitions widen as it fades, to its mean.
+	float keep = 1.0 - smoothstep(2.0, 4.0, foot * 2.0 / 700.0);
+	float soft = mix(0.5, 0.0, keep);
+	// An airless regolith is gardened even by impacts: its albedo varies less than dust and sand under air.
+	float range = uAirless > 0.5 ? 0.45 : 1.0;
+	vec3 col = mix(uRockA, uRockB, range * smoothstep(0.30 - soft, 0.70 + soft, big * 0.75 + mid * 0.25));
+	col = mix(col, uSoil, range * smoothstep(0.40 - soft, 0.78 + soft, mid) * (1.0 - smoothstep(0.08, 0.3, slope)));
 	if (uGreenTop > 0.0) {
 		float g = (1.0 - smoothstep(uGreenTop - 500.0, uGreenTop, vPlace.y)) * (1.0 - smoothstep(0.2, 0.55, slope));
 		col = mix(col, uGreen, g);
@@ -159,8 +221,75 @@ void fragment() {
 	}
 	float snow = smoothstep(uSnowLine - 220.0, uSnowLine + 160.0, vPlace.y + (mid - 0.5) * 240.0) * (1.0 - smoothstep(0.35, 0.65, slope));
 	col = mix(col, vec3(0.82, 0.85, 0.9), snow);
-	// Patches of brighter and darker grain, as fresh and weathered regolith differ: ±15 %, filtered with the relief.
+	// Where it lies: the ground against its surroundings 1.2 km about (both grids' own triangles). Under air the
+	// lows collect the darker fines and sand and the highs are weathered rock; on an airless world steep slopes
+	// are fresher, brighter material, as mass wasting keeps exposing it.
+	float around = 0.0;
+	for (int k = 0; k < 6; k++) {
+		float a = 1.0472 * float(k) + 0.3;
+		vec2 q = p + vec2(cos(a), sin(a)) * 1200.0;
+		around += (abs(q.x) < uNearHalf && abs(q.y) < uNearHalf) ? grid_y(uNearH, uNearHalf, q)
+			: ((abs(q.x) < uFarHalf && abs(q.y) < uFarHalf) ? grid_y(uFarH, uFarHalf, q) : here_y);
+	}
+	float rel = here_y - around / 6.0;
+	if (uAirless < 0.5) {
+		col *= mix(1.0, 0.78, smoothstep(-12.0, -70.0, rel));
+		col *= 1.0 + 0.07 * smoothstep(30.0, 120.0, rel);
+	} else {
+		col *= 1.0 + 0.25 * smoothstep(0.15, 0.45, slope);
+	}
+	// Fresh craters: a bright blanket to 2.5 radii and rays to about 12, narrow and broken (estimates; Tycho's run
+	// to some 35 of its radii), fading as they go.
+	for (int i = 0; i < uCraterN; i++) {
+		vec4 c = uCraters[i];
+		vec2 dv = p - c.xy;
+		float d = length(dv) / c.z;
+		if (d > 13.0) continue;
+		// Round the circle, not along its angle: the noise has no seam where the angle wraps.
+		vec2 round_it = dv / max(length(dv), 1e-3);
+		uint cs = uint(c.w);
+		float blanket = 1.0 - smoothstep(1.0, 2.5, d);
+		float rays = smoothstep(0.35, 0.75, 0.5 + 0.5 * gnoise(round_it * 7.0, cs) + 0.25 * gnoise(round_it * (23.0 + d * 0.4), cs + 7u));
+		rays = mix(rays, 0.5, smoothstep(0.05, 0.25, foot * 23.0 / max(length(dv), 1e-3)));
+		float fall = exp(-max(d - 1.0, 0.0) / 4.0) * smoothstep(13.0, 6.0, d);
+		col *= 1.0 + 0.55 * blanket + 0.45 * rays * fall * step(1.0, d);
+	}
+	// Patches of brighter and darker grain, as fresh and weathered regolith differ: about ±15 %, from 300 m down,
+	// the same on both grids so their seam does not show, filtered by the footprint.
+	patchy = cfbm(p + vec2(3100.0, 700.0), 300.0, foot, 71u, 6);
 	col *= 1.0 + 0.3 * patchy;
+	// Dunes past the near grid, which carves its own: their crests' slopes and darker sand, as a profile.
+	if (uDunes.x > 0.0) {
+		float across = dot(p, uDuneAcross);
+		// SurfaceRelief.dune_ridge's meander, the same noise on the same hash: the carved crests are these.
+		float meander = 0.25 * gnoise(p / (uDunes.z * 12.0), 61u) * uDunes.z;
+		float u = (across + meander) / uDunes.z;
+		float d = abs(fract(u) - 0.5) * uDunes.z / (0.5 * uDunes.y);
+		float ridge = d < 1.0 ? pow(cos(d * 1.5707963), 2.0) : 0.0;
+		// Filtered: from far off a pixel holds many dunes and sees their mean darkening.
+		float seen = 1.0 - smoothstep(0.25, 0.5, foot / uDunes.z);
+		float shade = mix(uDunes.y / uDunes.z * 0.5, ridge, seen);
+		float far_k = near ? 0.0 : 1.0;
+		col *= 1.0 - 0.35 * shade * uDunes.w;
+		if (far_k > 0.0 && seen > 0.0) {
+			float dd = d < 1.0 ? -sin(d * 3.1415927) * 1.5707963 / (0.5 * uDunes.y) * sign(fract(u) - 0.5) : 0.0;
+			vec2 g2 = uDuneAcross * dd * uDunes.x * seen * uDunes.w;
+			nm = normalize(nm + vec3(g2.x, 0.0, -g2.y));
+			NORMAL = normalize((VIEW_MATRIX * MODEL_MATRIX * vec4(nm, 0.0)).xyz);
+		}
+	}
+	// The far grid's rim, which the survey eases down to the planet's patch (SurfaceRelief.RIM), dissolves into
+	// it: a dither leaves more of the patch, in its own light, the further out; its colour is half met already.
+	float rim = smoothstep(0.86, 0.99, max(abs(p.x), abs(p.y)) / uFarHalf);
+	// And from high up the whole site gives way to the patch, which draws the same world over the horizon in
+	// one light and one haze: it dissolves in between 15 and 8 km over the ground on the way down.
+	float gone = max(rim, smoothstep(8000.0, 15000.0, uOver));
+	if (gone > 0.0) {
+		uvec2 fc = uvec2(FRAGCOORD.xy);
+		float dither = float(pcg2d(fc).x & 255u) / 255.0;
+		if (dither < gone) discard;
+		col = mix(col, uPatchCol, rim * 0.5);
+	}
 	ALBEDO = col;
 	ROUGHNESS = 1.0;
 
