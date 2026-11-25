@@ -1,0 +1,20 @@
+// BLANK CANVAS: empty, and new bodies arrive at rest, so the only motion is what
+// gravity makes of what you place. Slow time scale, since a pair released a few AU
+// apart falls together in a couple of years.
+{
+  "format": 1,
+  "name": "Blank Canvas",
+  "group": "sandboxes",
+  "blurb": "An empty scene, and the one place where Spawn puts things down at rest instead of into an orbit. Nothing moves until gravity moves it, so whatever happens next is entirely yours: release two bodies and watch them fall together, or place three and find out what the three-body problem does to your arrangement. Build the objects in the Foundry below — the mass, spin and composition sliders all apply — and paint rings and belts onto them. (Nothing here emits light, so until you spawn a star the scene is lit by a lamp riding the camera. It is a viewing aid and it switches off the moment there is a real star to light things.)",
+  "sky": { "env": "disc", "roll": 1.6, "tilt": 0.38 },
+  "sceneScale": 2,
+  "bodyScale": 1,
+  "camRadius": 26,
+  "lensing": false,
+  "mesh": true,
+  "timeScale": 0.25,
+  "maxStep": 0.002,
+  "spawnAtRest": true,
+  "bodies": [
+  ]
+}

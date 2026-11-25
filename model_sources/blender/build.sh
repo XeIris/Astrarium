@@ -46,7 +46,7 @@ fi
 echo "blender: $BLENDER"
 "$BLENDER" --version | head -1
 
-ALL=(saturnv falcon9 shuttle starship lm skycrane ioncruiser hailmary beetle evapod ranger discovery endurance lander pad_lut pad_fss pad_strongback pad_chopsticks facilities observatories)
+ALL=(saturnv falcon9 shuttle starship lm ioncruiser hailmary beetle evapod ranger discovery endurance lander pad_lut pad_fss pad_strongback pad_chopsticks facilities observatories)
 if [ "$#" -gt 0 ]; then MODELS=("$@"); else MODELS=("${ALL[@]}"); fi
 craft_spec="$(mktemp "${TMPDIR:-/tmp}/astrarium-craft-spec.XXXXXX")"
 trap 'rm -f "$craft_spec"' EXIT

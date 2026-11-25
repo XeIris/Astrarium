@@ -243,6 +243,9 @@ static func drawn_height(grids: Array, e: float, n: float, patch_y: float, R: fl
 		return h11 + (1.0 - tx) * (h01 - h11) + (1.0 - ty) * (h10 - h11)
 	return NAN
 
+## How far the far grid is drawn under the near one inside it, m.
+const TUCK := 6.0
+
 # One vertex's height as terrain_mesh lays it.
 static func _drawn_vertex(grids: Array, gi: int, i: int, j: int, patch_y: float, R: float, sea: bool) -> float:
 	var g: Dictionary = grids[gi]
@@ -258,7 +261,7 @@ static func _drawn_vertex(grids: Array, gi: int, i: int, j: int, patch_y: float,
 	# The sea belongs to the planet's patch, and the far grid tucks under the near. The far grid's rim
 	# drops to the patch rather than ending in a step.
 	if sea and y <= 0.5: drawn = -40.0
-	elif far and absf(de) < near_half and absf(dn) < near_half: drawn = y - 6.0
+	elif far and absf(de) < near_half and absf(dn) < near_half: drawn = y - TUCK
 	if far and (i == 0 or j == 0 or i == n - 1 or j == n - 1): drawn = minf(drawn, patch_y - 30.0)
 	return drawn - (de * de + dn * dn) / (2.0 * R)
 

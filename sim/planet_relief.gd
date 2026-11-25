@@ -151,8 +151,10 @@ func height(p: Vector3) -> Vector2:
 	var q := warp(p * 1.9 + s3, 0.55)
 	var c := fbm(q, 7) - crust_t
 	var y := signf(c) * pow(minf(absf(c) / 0.34, 1.0), 0.55)
+	# A stated relief scales all of the land's, the detail and the belts too (terrain.gdshaderinc).
+	var relief_k := land_relief / 3.2
 	var h := y * land_relief if y >= 0.0 else y * ocean_depth
-	var detail := 0.9 if y >= 0.0 else 0.25
+	var detail := 0.9 * relief_k if y >= 0.0 else 0.25
 	var fine := (fbm(q * 5.3 + Vector3(3.1, 3.1, 3.1), 5) - 0.5) * 2.0
 	h += fine * detail
 	# tectonics
@@ -184,7 +186,7 @@ func height(p: Vector3) -> Vector2:
 	var belt := ridged(warp(p * 7.0 + s3, 0.2), 5)
 	belt = _powf(clampf(belt, 0.0, 1.0), 1.6)
 	var conv := maxf(closing, 0.0) * on_edge
-	h += belt * conv * lerpf(2.2, 7.0, land)
+	h += belt * conv * lerpf(2.2, 7.0, land) * relief_k
 	var trench := sstep(0.06, 0.0, edge) * conv * (1.0 - land)
 	h -= trench * 5.0
 	var div := maxf(-closing, 0.0) * on_edge * (1.0 - land)

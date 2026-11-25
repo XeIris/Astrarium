@@ -1,0 +1,39 @@
+// Hierarchy design, eccentricity-aware screening and the bounded long-run study:
+// docs/scenarios.md. maxStep resolves the short inner-binary period; long-run orbital
+// extent needs a separate check (tools/check.py stability).
+// pCO2 is an authored choice, not derived from anything: chosen so the long run matches
+// the blurb, clear of the freeze just below 0.11 bar (docs/physics/climate.md#trisolaris-co).
+// Gamma starts at true anomaly 0.55π (99°); Trisolaris's obliquity is 0.41 rad.
+{
+  "format": 1,
+  "name": "Trisolaris",
+  "group": "trisolaris",
+  "blurb": "Three suns, one world. Alpha and Beta form a tight binary; Trisolaris follows an eccentric orbit around both, while hot Gamma returns every 51 years. Changing sunlight drives temperate seasons and cold spells.",
+  "sky": { "env": "disc", "roll": 0.35, "tilt": 0.55 },
+  "sceneScale": 4,
+  "bodyScale": 0.55,
+  "camRadius": 20,
+  "focus": "Alpha",
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.35,
+  "maxStep": 0.0004,
+  "surface": true,
+  "climate": { "T0": 288, "mixedLayer": 12, "pCO2": 0.12 },
+  "bodies": [
+    { "type": "star", "name": "Alpha", "mass": 1.2, "teff": 6575.683677449632, "luminosity": 2.0736 },
+    {
+      "type": "star", "name": "Beta", "mass": 0.85, "teff": 5235.7352492191385,
+      "luminosity": 0.5220062499999999, "orbit": { "around": "Alpha", "a": 0.35 }
+    },
+    {
+      "type": "star", "name": "Gamma", "mass": 2, "teff": 9450.744642952755, "luminosity": 15.839191898578665,
+      "orbit": { "around": ["Alpha", "Beta", "Trisolaris"], "a": 22, "e": 0.35, "i": 25, "nu": 99.00000000000001 }
+    },
+    {
+      "type": "world", "name": "Trisolaris", "mass": 3e-06, "dayLength": 97.4, "home": true,
+      "obliquity": 23.49126960036375,
+      "orbit": { "around": ["Alpha", "Beta"], "a": 1.8, "e": 0.2, "nu": 180, "testParticle": true }
+    },
+  ]
+}

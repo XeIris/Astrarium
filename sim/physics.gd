@@ -195,29 +195,52 @@ static func _pn_set(bodies: Array) -> Array:
 	var n := bodies.size()
 	var ok := PackedByteArray()
 	ok.resize(n)
+	var col := columns(bodies)
+	var px: PackedFloat64Array = col[0]; var py: PackedFloat64Array = col[1]; var pz: PackedFloat64Array = col[2]
+	var m: PackedFloat64Array = col[3]
 	for k in n:
 		var b: Body = bodies[k]
 		ok[k] = 1 if b.alive and (b.type == "bh" or b.softening == 0.0) else 0
 	var limit := PN_LIMIT * C * C
 	for i in n:
 		for j in range(i + 1, n):
-			if ok[i] == 0 or ok[j] == 0: continue
-			var a: Body = bodies[i]; var b: Body = bodies[j]
-			var r := distance_xyz(b.pos.x - a.pos.x, b.pos.y - a.pos.y, b.pos.z - a.pos.z)
-			if not (G * (a.mass + b.mass) / r < limit):
+			if ok[i] == 0: break
+			if ok[j] == 0: continue
+			var dx := px[j] - px[i]; var dy := py[j] - py[i]; var dz := pz[j] - pz[i]
+			var sq := dx * dx + dy * dy + dz * dz
+			var r := sqrt(sq) if is_finite(sq) and sq >= DOUBLE_MIN_NORMAL else distance_xyz(dx, dy, dz)
+			if not (G * (m[i] + m[j]) / r < limit):
 				ok[i] = 0; ok[j] = 0
 	var phi := PackedFloat64Array()
 	phi.resize(n)
 	for i in n:
 		if ok[i] == 0: continue
-		var a: Body = bodies[i]
 		var sum := 0.0
 		for l in n:
 			if l == i or ok[l] == 0: continue
-			var b: Body = bodies[l]
-			sum += G * b.mass / distance_xyz(b.pos.x - a.pos.x, b.pos.y - a.pos.y, b.pos.z - a.pos.z)
+			var dx := px[l] - px[i]; var dy := py[l] - py[i]; var dz := pz[l] - pz[i]
+			var sq := dx * dx + dy * dy + dz * dz
+			sum += G * m[l] / (sqrt(sq) if is_finite(sq) and sq >= DOUBLE_MIN_NORMAL else distance_xyz(dx, dy, dz))
 		phi[i] = sum
 	return [ok, phi]
+
+## Positions, masses and velocities as [x, y, z, m, vx, vy, vz] arrays, for pair loops
+## that would otherwise read every body's DVec3s N times.
+static func columns(bodies: Array) -> Array:
+	var n := bodies.size()
+	var col := []
+	for c in 7:
+		var a := PackedFloat64Array()
+		a.resize(n)
+		col.append(a)
+	var px: PackedFloat64Array = col[0]; var py: PackedFloat64Array = col[1]; var pz: PackedFloat64Array = col[2]
+	var m: PackedFloat64Array = col[3]
+	var vx: PackedFloat64Array = col[4]; var vy: PackedFloat64Array = col[5]; var vz: PackedFloat64Array = col[6]
+	for k in n:
+		var b: Body = bodies[k]
+		px[k] = b.pos.x; py[k] = b.pos.y; pz[k] = b.pos.z; m[k] = b.mass
+		vx[k] = b.vel.x; vy[k] = b.vel.y; vz[k] = b.vel.z
+	return col
 
 ## `pn` is _pn_set(bodies) when the caller already has it for these positions.
 static func _eih(bodies: Array, pn: Array = []) -> void:
@@ -269,20 +292,23 @@ static func eih_energy(bodies: Array) -> float:
 	var pn := _pn_set(bodies)
 	var ok: PackedByteArray = pn[0]
 	var phi: PackedFloat64Array = pn[1]
+	var col := columns(bodies)
+	var px: PackedFloat64Array = col[0]; var py: PackedFloat64Array = col[1]; var pz: PackedFloat64Array = col[2]
+	var m: PackedFloat64Array = col[3]
+	var vx: PackedFloat64Array = col[4]; var vy: PackedFloat64Array = col[5]; var vz: PackedFloat64Array = col[6]
 	var e := 0.0
 	for i in n:
 		if ok[i] == 0: continue
-		var a: Body = bodies[i]
-		var vi2 := a.vel.length_sq()
-		e += 0.375 * a.mass * vi2 * vi2 + 0.5 * a.mass * phi[i] * phi[i]
+		var vi2 := vx[i] * vx[i] + vy[i] * vy[i] + vz[i] * vz[i]
+		e += 0.375 * m[i] * vi2 * vi2 + 0.5 * m[i] * phi[i] * phi[i]
 		for j in n:
 			if j == i or ok[j] == 0: continue
-			var b: Body = bodies[j]
-			var dx := b.pos.x - a.pos.x; var dy := b.pos.y - a.pos.y; var dz := b.pos.z - a.pos.z
-			var r := distance_xyz(dx, dy, dz)
-			var nva := (dx * a.vel.x + dy * a.vel.y + dz * a.vel.z) / r
-			var nvb := (dx * b.vel.x + dy * b.vel.y + dz * b.vel.z) / r
-			e += G * a.mass * b.mass / (2.0 * r) * (3.0 * vi2 - 3.5 * a.vel.dot(b.vel) - 0.5 * nva * nvb)
+			var dx := px[j] - px[i]; var dy := py[j] - py[i]; var dz := pz[j] - pz[i]
+			var sq := dx * dx + dy * dy + dz * dz
+			var r := sqrt(sq) if is_finite(sq) and sq >= DOUBLE_MIN_NORMAL else distance_xyz(dx, dy, dz)
+			var nva := (dx * vx[i] + dy * vy[i] + dz * vz[i]) / r
+			var nvb := (dx * vx[j] + dy * vy[j] + dz * vz[j]) / r
+			e += G * m[i] * m[j] / (2.0 * r) * (3.0 * vi2 - 3.5 * (vx[i] * vx[j] + vy[i] * vy[j] + vz[i] * vz[j]) - 0.5 * nva * nvb)
 	var value := e / (C * C)
 	return value if is_finite(value) else 0.0
 

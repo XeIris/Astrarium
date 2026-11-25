@@ -41,6 +41,20 @@ uniform vec3 uCamLocal = vec3(0.0);
 uniform int uShadowSteps = 6;
 uniform sampler2D uEarthColor : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D uEarthLand : filter_linear_mipmap_anisotropic, repeat_enable;
+// The map's colour against the world's albedo (PlanetMaps' `scale`): Earth's is 1.
+uniform float uMapScale = 1.0;
+// 1 on a dry world's own map: no coasts, no plants.
+uniform float uDryMap = 0.0;
+// Seas the crust does not draw (StatedSeas): each cap's centre from the planet's centre in this patch's frame
+// (x east, y up, z north) and its angular radius; and the liquid's colour.
+uniform vec4 uMaria[8];
+uniform int uMariaN = 0;
+uniform vec3 uLiquid = vec3(0.01, 0.02, 0.03);
+// A stated dune field (Titan's sand seas): width and spacing, m, the band's half-width, rad of latitude, and the
+// eye's latitude, rad; the across-crest direction in this patch's frame (east, north). Albedo only: at this range
+// a pixel holds whole dunes, darker sand than the interdunes (dark in Cassini's radar and near-infrared).
+uniform vec4 uDunes = vec4(0.0);
+uniform vec2 uDuneAcross = vec2(0.0, 1.0);
 
 varying float vDist;
 varying vec3 vWorld;
@@ -69,7 +83,13 @@ float noise(vec2 p) {
 	return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
 	           mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
 }
-float fbm(vec2 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { v += a * noise(p); p *= 2.13; a *= 0.5; } return v; }
+// Each octave turned 37° from the last, so the lattice's axes do not line up into a weave from altitude.
+float fbm(vec2 p) {
+	const mat2 R = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8));
+	float v = 0.0, a = 0.5;
+	for (int i = 0; i < 5; i++) { v += a * noise(p); p = R * p * 2.13 + vec2(17.3, 5.9); a *= 0.5; }
+	return v;
+}
 
 // LAND COVER round a coastal pad (Kennedy's is typical): mown lawn inside the
 // perimeter, saw-palmetto scrub beyond, sandy tracks and dry patches, and wet
@@ -122,7 +142,7 @@ void fragment() {
 		                  asin(clamp(geo.y, -1.0, 1.0)) / 3.14159265 + 0.5);
 		// three samples with flipY: v = 0 is the image's BOTTOM row
 		mapUv.y = 1.0 - mapUv.y;
-		vec3 mapped = texture(uEarthColor, mapUv).rgb;
+		vec3 mapped = texture(uEarthColor, mapUv).rgb * uMapScale;
 		float mask = texture(uEarthLand, mapUv).r;
 		// The map is 10 km a texel. Detail is added only where the map is magnified and
 		// averages back to it, faded on the pixel footprint (fwidth).
@@ -134,6 +154,8 @@ void fragment() {
 			+ (fbm(gp * (1.0 / 420.0) + vec2(9.2, 1.3)) - 0.5) * 0.30 * (1.0 - smoothstep(60.0, 300.0, fp));
 		float k = clamp(texel * 0.5, 0.035, 0.5);
 		float land = smoothstep(0.5 - k, 0.5 + k, mask + wig * (1.0 - smoothstep(0.6, 2.0, texel)));
+		// A dry world's map is all land, whatever the coast's noise does near one texel a pixel.
+		land = max(land, uDryMap);
 		// Keep the actual reclaimed/graded launch parcel above water.
 		land = max(land, 1.0 - smoothstep(700.0, 1800.0, distance(vWorld.xz, uPadLocal)));
 		// LAND: the map's colour broken up below a texel (brightness and dryness at two
@@ -147,8 +169,9 @@ void fragment() {
 		float dry = smoothstep(0.52, 0.74, fbm(gp * (1.0 / 3800.0) + vec2(12.0, 3.0)));
 		float wood = k2 > 0.0 ? smoothstep(0.50, 0.72, fbm(gp * (1.0 / 1900.0) + vec2(2.0, 19.0))) * k2 : 0.0;
 		vec3 landCol = mapped * lum;
-		landCol = mix(landCol, landCol * vec3(1.18, 1.06, 0.80) + vec3(0.015, 0.012, 0.0), dry * 0.55);
-		landCol = mix(landCol, landCol * vec3(0.72, 0.84, 0.66), wood * 0.6);
+		// Dry grass and woodland are Earth's.
+		landCol = mix(landCol, landCol * vec3(1.18, 1.06, 0.80) + vec3(0.015, 0.012, 0.0), dry * 0.55 * (1.0 - uDryMap));
+		landCol = mix(landCol, landCol * vec3(0.72, 0.84, 0.66), wood * 0.6 * (1.0 - uDryMap));
 		// Within a few kilometres of the pad, land cover at a scale the map knows
 		// nothing about takes over (land_cover).
 		float from_pad = distance(vWorld.xz, uPadLocal);
@@ -180,6 +203,35 @@ void fragment() {
 			float dep = smoothstep(uSeaLevel, uSeaLevel - 0.18, big);
 			col = mix(col, uSea, dep * 0.92);
 			water_frac = dep;
+		}
+		if (uDunes.y > 0.0) {
+			float lat = uDunes.w + vWorld.z / uRadius;
+			float band = clamp((1.0 - abs(lat) / uDunes.z) * 3.0, 0.0, 1.0);
+			if (band > 0.0) {
+				float fpd = length(fwidth(gp));
+				// Sand seas come and go across the band: some of it is interdune plain, some dune field.
+				float sea = smoothstep(0.42, 0.62, fbm(gp * (1.0 / 60000.0) + vec2(1.3, 8.1)));
+				float u = (dot(gp, uDuneAcross) + (fbm(gp / (uDunes.y * 12.0)) - 0.5) * uDunes.y * 1.2) / uDunes.y;
+				float d = abs(fract(u) - 0.5) * uDunes.y / (0.5 * uDunes.x);
+				float ridge = d < 1.0 ? pow(cos(d * 1.5707963), 2.0) : 0.0;
+				float seen = 1.0 - smoothstep(0.25, 0.5, fpd / uDunes.y);
+				float shade = mix(0.5 * uDunes.x / uDunes.y, ridge, seen);
+				col *= 1.0 - 0.35 * shade * band * sea;
+			}
+		}
+		if (uMariaN > 0) {
+			// Metres in from the nearest shore of any cap, the coast pushed a few kilometres either way by
+			// noise, as the site's own survey of the coast is.
+			vec3 dir = normalize(vec3(vWorld.x, vWorld.y + uRadius, vWorld.z));
+			float inside = -1e9;
+			for (int i = 0; i < uMariaN; i++) {
+				inside = max(inside, (uMaria[i].w - acos(clamp(dot(dir, uMaria[i].xyz), -1.0, 1.0))) * uRadius);
+			}
+			inside += (fbm(gp * (1.0 / 9000.0) + vec2(4.4, 1.9)) - 0.5) * 6000.0
+				+ (fbm(gp * (1.0 / 900.0) + vec2(2.2, 6.1)) - 0.5) * 900.0 * (1.0 - smoothstep(2000.0, 20000.0, vDist));
+			float wet = smoothstep(-150.0, 150.0, inside);
+			col = mix(col, uLiquid, wet);
+			water_frac = max(water_frac, wet);
 		}
 	}
 

@@ -323,8 +323,17 @@ static func total_energy(bodies: Array) -> float:
 	var bs := []
 	for b in bodies:
 		if b.alive: bs.append(b)
+	var n := bs.size()
+	var col := Physics.columns(bs)
+	var px: PackedFloat64Array = col[0]; var py: PackedFloat64Array = col[1]; var pz: PackedFloat64Array = col[2]
+	var m: PackedFloat64Array = col[3]
+	var soft := PackedFloat64Array(); soft.resize(n)
+	var hole := PackedByteArray(); hole.resize(n)
+	for k in n:
+		soft[k] = Physics.softening_of(bs[k])
+		hole[k] = 1 if bs[k].type == "bh" else 0
 	var E := 0.0
-	for i in bs.size():
+	for i in n:
 		var bi: Body = bs[i]
 		if not is_finite(bi.mass) or bi.mass <= 0.0 or not bi.pos.is_finite_v() or not bi.vel.is_finite_v(): return NAN
 		var speed_sq := bi.vel.length_sq()
@@ -335,19 +344,23 @@ static func total_energy(bodies: Array) -> float:
 			var vx := bi.vel.x / speed_scale; var vy := bi.vel.y / speed_scale; var vz := bi.vel.z / speed_scale
 			kinetic = _energy_product([0.5, bi.mass, speed_scale, speed_scale, vx * vx + vy * vy + vz * vz], [])
 		E += kinetic
-		for j in range(i + 1, bs.size()):
-			var bj: Body = bs[j]
-			var r := Physics.distance_xyz(bi.pos.x - bj.pos.x, bi.pos.y - bj.pos.y, bi.pos.z - bj.pos.z)
-			var denom := r if bi.type == "bh" or bj.type == "bh" else sqrt(r * r + Physics.pair_softening_sq(bi, bj))
-			if bi.type != "bh" and bj.type != "bh" and (not is_finite(denom) or denom * denom < DOUBLE_MIN_NORMAL):
-				denom = Physics.softened_distance(r, bi, bj)
+		# Physics.distance_xyz and pair_softening_sq, inline: the same operations, without
+		# a call and two DVec3 reads per pair.
+		var weighted_mass := Physics.G * bi.mass
+		for j in range(i + 1, n):
+			var sx := px[i] - px[j]; var sy := py[i] - py[j]; var sz := pz[i] - pz[j]
+			var sq := sx * sx + sy * sy + sz * sz
+			var r := sqrt(sq) if is_finite(sq) and sq >= DOUBLE_MIN_NORMAL else Physics.distance_xyz(sx, sy, sz)
+			var softened := hole[i] == 0 and hole[j] == 0
+			var denom := sqrt(r * r + 0.5 * (soft[i] * soft[i] + soft[j] * soft[j])) if softened else r
+			if softened and (not is_finite(denom) or denom * denom < DOUBLE_MIN_NORMAL):
+				denom = Physics.softened_distance(r, bi, bs[j])
 			if denom == 0.0: return -INF
 			if not is_finite(denom): return NAN
-			var weighted_mass := Physics.G * bi.mass
-			var numerator := weighted_mass * bj.mass
+			var numerator := weighted_mass * m[j]
 			var potential := numerator / denom
 			if not is_finite(potential) or potential == 0.0 or numerator < DOUBLE_MIN_NORMAL or weighted_mass < DOUBLE_MIN_NORMAL:
-				potential = _energy_product([Physics.G, bi.mass, bj.mass], [denom])
+				potential = _energy_product([Physics.G, bi.mass, m[j]], [denom])
 			E -= potential
 	return E + Physics.eih_energy(bs)
 
