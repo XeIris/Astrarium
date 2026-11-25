@@ -82,7 +82,7 @@ func _splashdown() -> void:
 	check("afloat: it displaces its own weight, averaged over the waves (%s m³ against %s)" % [U.fixed(f.displaced, 2), U.fixed(Capsule.MASS / 1025.0, 2)],
 		f.displaced > 0.5 * Capsule.MASS / 1025.0 and f.displaced < 1.6 * Capsule.MASS / 1025.0)
 	print("SEACHECK note it floats %s, heel %s°, %s m from where it came down" % ["Stable II" if sea.heel() > 90.0 else "Stable I", U.fixed(sea.heel(), 0),
-		U.fixed(Vector2(f.p[0], f.p[2]).length(), 0)])
+		U.fixed(sea.drift(), 0)])
 	main.flight.key_action("gear")
 	var start := v.coord
 	var upright := -1.0

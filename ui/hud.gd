@@ -14,6 +14,8 @@ signal mesh_style_chosen(style: String)
 signal mode_chosen(mode: String)
 signal showcase_action(kind: String)
 signal preset_chosen(key: String)
+signal scenario_file_chosen(path: String)
+signal scenario_remove(key: String)
 signal body_focus(id: int)
 signal body_remove(id: int)
 signal spawn(type: String)
@@ -824,6 +826,9 @@ static func _clear(c: Node) -> void:
 		k.queue_free()
 
 # SCENARIO
+var _notice: PanelContainer
+var _notice_text: Prose
+var _notice_actions: HudRow
 var _search: LineEdit
 var _search_clear: HudButton
 var _preset_list: VBoxContainer
@@ -872,6 +877,18 @@ func _build_scenario() -> void:
 	p.body.add_child(_preset_empty)
 	reg("presetEmpty", _preset_empty)
 	_hide(_preset_empty, "inline", true)
+	# A scenario file's errors, warnings and load progress, with what can be done about them.
+	var notice := stack(null)
+	_notice_text = L(notice, "", {"fs": 10.0, "lh": 1.5, "c": T.TEXT}, "scenarioNoticeText", true) as Prose
+	_notice_actions = hbox(null, 6.0)
+	notice.add_child(m(_notice_actions, 8.0))
+	_notice = frame(notice, {"bc": T.WARN, "pad": [8, 8, 8, 8]})
+	p.body.add_child(m(_notice, 8.0))
+	reg("scenarioNotice", _notice)
+	_hide(_notice, "inline", true)
+	var upload := B(null, "Secondary", "Upload scenario file…", "scenarioUpload", "Load a .jsonc scenario file and keep a copy under Custom scenarios")
+	p.body.add_child(m(upload, 8.0))
+	upload.pressed.connect(_open_scenario_dialog)
 	var blurb := L(null, "", {"fs": 10.0, "lh": 1.55, "c": T.TEXT_DIM}, "blurb", true)
 	p.body.add_child(m(frame(blurb, {"bw": 0, "bl": 2, "bc": T.ACCENT_2, "pad": [0, 0, 0, 8]}), 9.0))
 
@@ -1864,7 +1881,7 @@ func _render_presets() -> void:
 	var searching := q.length() > 0
 	_clear(_preset_list)
 	for sel in sels.keys():
-		if str(sel).begins_with("[data-preset=") or str(sel).begins_with("[data-group="):
+		if str(sel).begins_with("[data-preset=") or str(sel).begins_with("[data-group=") or str(sel).begins_with("[data-remove="):
 			sels.erase(sel)
 	var visible_groups := 0
 	for g in _groups:
@@ -1907,9 +1924,19 @@ func _render_presets() -> void:
 		pad.visible = open
 		for key in keys:
 			var tri: bool = gid == "trisolaris"
-			var b := B(items, "PresetTri" if tri else "Preset", _presets.get(key, {}).get("name", key), "[data-preset=%s]" % key)
+			var info: Dictionary = _presets.get(key, {})
+			var flagged: bool = not info.get("warnings", []).is_empty() or not info.get("errors", []).is_empty()
+			var line: Node = items
+			if gid == ScenarioStore.GROUP:
+				line = hbox(items, 4.0)
+			var b := B(line, "PresetTri" if tri else "Preset", ("⚠ " if flagged else "") + String(info.get("name", key)), "[data-preset=%s]" % key,
+				"Has warnings: it asks before loading" if flagged else "")
 			b.set_active(key == _active_preset)
 			b.pressed.connect(func(): preset_chosen.emit(key))
+			if gid == ScenarioStore.GROUP:
+				b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				var rm := B(line, "Remove", "✕", "[data-remove=%s]" % key, "Remove from Custom scenarios")
+				rm.pressed.connect(func(): scenario_remove.emit(key))
 		summ.pressed.connect(func():
 			if searching:
 				return
@@ -1921,6 +1948,41 @@ func _render_presets() -> void:
 	if searching:
 		(_preset_empty_label as Prose).say("No scenarios or categories match \"%s\"" % _search.text.strip_edges())
 	_hide(_search_clear, "inline", not searching)
+
+## `actions`: [label, Callable] pairs; the first is drawn as the main one.
+func show_scenario_notice(text: String, actions: Array = []) -> void:
+	_notice_text.say(text)
+	_clear(_notice_actions)
+	for sel in sels.keys():
+		if str(sel).begins_with("[data-notice="): sels.erase(sel)
+	for i in actions.size():
+		var a: Array = actions[i]
+		var b := B(_notice_actions, "Primary" if i == 0 else "Secondary", a[0], "[data-notice=%s]" % String(a[0]).to_lower().replace(" ", "-"))
+		b.pressed.connect(a[1])
+	_hide(_notice_actions, "inline", actions.is_empty())
+	_hide(_notice, "inline", false)
+
+func hide_scenario_notice() -> void:
+	_hide(_notice, "inline", true)
+
+## The notice's text, or empty while it is hidden.
+func notice_text() -> String:
+	return "" if hidden_flags.get(_notice, {}).get("inline", false) else _notice_text.said()
+
+func _open_scenario_dialog() -> void:
+	if DisplayServer.get_name() == "headless": return
+	var d := FileDialog.new()
+	d.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	d.access = FileDialog.ACCESS_FILESYSTEM
+	d.use_native_dialog = true
+	d.title = "Upload a scenario file"
+	d.filters = PackedStringArray(["*.jsonc, *.json ; Scenario files"])
+	d.file_selected.connect(func(path: String):
+		d.queue_free()
+		scenario_file_chosen.emit(path))
+	d.canceled.connect(d.queue_free)
+	add_child(d)
+	d.popup_centered_ratio(0.6)
 
 func open_preset_group(gid: String, open := true) -> void:
 	if open: _open_groups[gid] = true

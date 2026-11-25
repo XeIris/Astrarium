@@ -28,7 +28,7 @@ var stowed := true
 ## Send the turret to a body-frame point, its face down onto it. False when out of reach: then nothing moves.
 func reach(p: Vector3) -> bool:
 	var sol = solve(p)
-	if sol == null: return false
+	if sol == null or not p.is_finite(): return false
 	target = sol
 	aim = p
 	stowed = false

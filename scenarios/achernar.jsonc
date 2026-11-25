@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "name": "Achernar — the flattest star",
+  "group": "real-stars",
+  "blurb": "Its equator sits 35% further from the centre than its poles, which is the most extreme rotational distortion measured on any bright star. The hard limit is 1.5: at that ratio the equator is in orbit and material simply leaves, and nothing that stays in one piece can be flatter. Achernar is close enough to it that it really is throwing off a disc of its own gas — the \"e\" in its spectral type B6Vep.",
+  "sky": { "env": "disc", "roll": 1.8, "tilt": 0.62 },
+  "sceneScale": 64,
+  "bodyScale": 1,
+  "trueScale": true,
+  "camRadius": 11,
+  "lensing": false,
+  "mesh": false,
+  "timeScale": 0.2,
+  "maxStep": 0.001,
+  "paint": [
+    {
+      "body": "Achernar", "color": "#ffd0b0", "decretion": true, "density": 0.7, "inner": 0.052,
+      "kind": "ring", "outer": 0.13, "tilt": 0
+    },
+  ],
+  "bodies": [
+    { "type": "star", "name": "Achernar", "catalog": "achernar", "pos": [0, 0, 0], "vel": [0, 0, 0] },
+  ]
+}

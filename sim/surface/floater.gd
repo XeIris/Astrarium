@@ -55,6 +55,8 @@ var displaced := 0.0
 var last_force := PackedFloat64Array([0, 0, 0])
 var peak_accel := 0.0
 
+# The snap the probes' first sample is at, as a count of SNAPs: the times themselves do not compare exactly.
+var _probe_i := -0x7fffffff
 var _probe_t := PackedFloat64Array([-INF, -INF])
 var _probe_x0 := 0.0
 var _probe_z0 := 0.0
@@ -108,18 +110,20 @@ func water(x: float, z: float) -> PackedFloat64Array:
 	return out
 
 func _refresh_probes() -> void:
-	if t < _probe_t[1] and _probe_t[0] > -INF: return
-	var t0 := floorf(t / SNAP) * SNAP
+	var snap := floori(t / SNAP + 1e-6)
+	if snap == _probe_i: return
+	var t0 := snap * SNAP
 	# Centred where the body is, on a lattice of its own so a drifting body does not resample every snap.
 	var cx := snappedf(p[0], PROBE_STEP) - PROBE_STEP * (PROBES - 1) * 0.5
 	var cz := snappedf(p[2], PROBE_STEP) - PROBE_STEP * (PROBES - 1) * 0.5
-	var reuse := _probe_t[1] == t0 and cx == _probe_x0 and cz == _probe_z0
+	var reuse := snap == _probe_i + 1 and cx == _probe_x0 and cz == _probe_z0
 	_probe_x0 = cx; _probe_z0 = cz
 	if reuse:
 		_probe_h[0] = _probe_h[1].duplicate(); _probe_d[0] = _probe_d[1].duplicate()
 	else:
 		_sample(t0, 0)
-	_sample(t0 + SNAP, 1)
+	_sample((snap + 1) * SNAP, 1)
+	_probe_i = snap
 	_probe_t[0] = t0; _probe_t[1] = t0 + SNAP
 
 func _sample(at: float, k: int) -> void:

@@ -8,8 +8,10 @@ extends RefCounted
 # that moment. Fidelity and the replay comparison: docs/flight-scenarios.md.
 #
 # Scenario keys:
-#   id, title, group       menu entry (group: Ascent, Orbit, Return, Booster, Landing)
-#   base                   {kind: pad|orbit|return|descent|air, ...}; see build()
+#   id, title, group       menu entry (group: Ascent, Orbit, Return, Booster, Landing, Weather)
+#   base                   {kind: pad|orbit|return|descent|air, ...}; see build(). A descent's
+#                          `sunAngle` (°) turns it to come down that far past noon
+#   weather                the site's weather stated over the world's own (SurfaceWeather.stated)
 #   until                  conditions that must all hold (see reached()); none = the base
 #   after                  seconds flown on once `until` holds
 #   dt                     the fast-forward's frame, where guidance is sensitive to it
@@ -21,9 +23,9 @@ extends RefCounted
 const DT := 0.05
 const MAX_FRAMES := 400000
 
-const ORDER := ["saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "apollocm", "evapod", "ranger", "discovery", "endurance", "lander"]
+const ORDER := ["saturnv", "falcon9", "shuttle", "starship", "lm", "skycrane", "apollocm", "dragonfly", "time", "evapod", "ranger", "discovery", "endurance", "lander"]
 const NAMES := {"saturnv": "Saturn V", "falcon9": "Falcon 9", "shuttle": "Shuttle", "starship": "Starship",
-	"lm": "Lunar Module", "skycrane": "Sky crane", "apollocm": "Command module", "ranger": "Survey Shuttle", "discovery":"Jupiter Explorer",
+	"lm": "Lunar Module", "skycrane": "Sky crane", "apollocm": "Command module", "dragonfly": "Dragonfly", "time": "Titan Mare Explorer", "ranger": "Survey Shuttle", "discovery":"Jupiter Explorer",
 	"lander":"Cargo Lander","endurance":"Expedition Ring","evapod":"EVA Pod"}
 
 static var _list := {}
@@ -91,6 +93,7 @@ static func _build_list() -> Dictionary:
 			{"body":"Jupiter","alt":[99.99e6,100.01e6],"phase":"orbit"}),
 	]
 	var survey := {"kind":"orbit","alt":250e3,"inc":28.5,"phase":0.0,"program":"glide"}
+	var titan := {"kind":"orbit","preset":"titan_voyage","body":"Titan","alt":800e3,"inc":0.0,"phase":0.0,"program":"glide"}
 	out.ranger = [
 		_sc("ranger","spin_match","Match the Expedition Ring and dock","Orbit",
 			{"kind":"dock","carrier":"endurance","slot":"dock_ranger_0","gap":16.0},{"docked":true},
@@ -103,6 +106,10 @@ static func _build_list() -> Dictionary:
 			{"alt":[120e3,123e3],"airspeed":[7200.0,7900.0],"program":"glide","state":"entry"}),
 		_sc("ranger","flare","Survey Shuttle preflare","Landing",survey,{"state":"flare"},
 			{"alt":[500.0,650.0],"program":"glide","state":"flare"}),
+		# To Titan: above its 600 km of air, then the same deorbit and glide, through 1.5 bar. The glide and
+		# Dragonfly's descent under its chute take hours, too long to jump to; titancheck flies them at 20×.
+		_sc("ranger","titan_orbit","Survey Shuttle over Titan","Orbit",titan,{},
+			{"alt":[799e3,801e3],"phase":"orbit","attached":["ranger"]}),
 	]
 	out.saturnv = [
 		_sc("saturnv", "pad", "Pad, T−10 s", "Ascent", _pad(), {}, {"phase": "prelaunch", "count": [9.0, 10.0]}),
@@ -215,6 +222,14 @@ static func _build_list() -> Dictionary:
 			{"agl": [300.0, 3000.0], "program": "edl", "state": "powered"}),
 		_sc("skycrane", "sky_crane", "Sky crane", "Landing", _skycrane(), {"ap": ["crane_out", true]},
 			{"agl": [5.0, 60.0], "program": "edl"}),
+		# Weather showcases: down in the Martian afternoon (25° and 15° past noon), the site's weather stated over
+		# the world's own.
+		_sc("skycrane", "dust_devils", "Dust devils, early afternoon", "Weather", _skycrane().merged({"sunAngle": 25.0}),
+			{"event": "Touchdown"}, {"agl": [5.0, 8.0]}).merged({"weather": {"devils": 4.0},
+			"brief": "Down on Mars at 13:40 local time with the afternoon's dust devils, four times as many as Jezero's usual sol brings."}),
+		_sc("skycrane", "dust_storm", "A regional dust storm", "Weather", _skycrane().merged({"sunAngle": 15.0}),
+			{"event": "Touchdown"}, {"agl": [5.0, 8.0]}).merged({"weather": {"storm": 0.9},
+			"brief": "Down on Mars under a regional dust storm: the dust it lifts dims the Sun and closes the horizon in."}),
 	]
 	out.apollocm = [
 		_sc("apollocm", "entry", "Entry interface, 122 km", "Return", _apollo(), {}, {"alt": [120e3, 123e3], "program": "edl"}),
@@ -223,6 +238,16 @@ static func _build_list() -> Dictionary:
 		_sc("apollocm", "mains", "Main chutes, 3.3 km", "Return", _apollo(), {"ap": ["mains_out", true]},
 			{"alt": [2.5e3, 3.3e3], "program": "edl", "state": "chute"}),
 		_sc("apollocm", "splashdown", "Splashdown", "Return", _apollo(), {"event": "Splashdown"}, {"alt": [-1.0, 16.0]}),
+	]
+	out.dragonfly = [
+		_sc("dragonfly", "entry", "Titan entry, 600 km", "Landing", _dragonfly(), {}, {"alt": [590e3, 601e3], "program": "edl"}),
+		_sc("dragonfly", "parachute", "Parachute, Mach 1.5", "Landing", _dragonfly(), {"state": "chute"},
+			{"program": "edl", "state": "chute"}),
+	]
+	out.time = [
+		_sc("time", "entry", "Titan entry over Ligeia Mare, 600 km", "Landing", _time(), {}, {"alt": [590e3, 601e3], "program": "edl"}),
+		_sc("time", "parachute", "Main chute, Mach 1.5", "Landing", _time(), {"state": "chute"},
+			{"program": "edl", "state": "chute"}),
 	]
 	return out
 
@@ -278,6 +303,19 @@ static func _f9_booster() -> Dictionary:
 	return {"kind": "descent", "stages": [0], "prop": {"f9s1": 61650.0}, "alt": 70e3, "v_vert": -1000.0, "v_horiz": 200.0,
 		"program": "hoverslam"}
 
+## Dragonfly at the top of Titan's air at Huygens' speed, 30° down, in the Titan expedition.
+static func _dragonfly() -> Dictionary:
+	return {"kind": "descent", "preset": "titan_voyage", "body": "Titan", "alt": 600e3, "v_inertial": 6000.0, "fpa": -30.0, "program": "edl"}
+
+## TiME at the top of Titan's air as Dragonfly enters, over a point up-track of Ligeia Mare's middle (`over`:
+## mesh latitude, east longitude and heading, degrees) so its entry, chutes and drift bring it down there.
+static func _time() -> Dictionary:
+	var b := _dragonfly()
+	b.over = TIME_OVER
+	return b
+
+const TIME_OVER := [53.3, -248.0, 0.0]
+
 ## Apollo 11 at entry interface: 400,000 ft, 36,194 ft/s inertial, 6.48° down (NASA SP-4029), on a track
 ## that comes down in the open Pacific.
 static func _apollo() -> Dictionary:
@@ -312,9 +350,12 @@ static func build(main, sc: Dictionary) -> String:
 			v = f.begin(key, {"mode": "orbit", "alt": float(b.alt), "inc": float(b.get("inc", 0.0)),
 				"phase": float(b.get("phase", 0.0)), "body":b.get("body",Vehicles.get_vehicle(key).get("launchFrom","Earth"))})
 		"descent":
-			v = f.begin(key, {"mode": "orbit", "alt": float(b.alt), "inc": float(b.get("inc", 0.0)), "phase": float(b.get("phase", 0.0)),
-				"vehicle": _subset(key, b)})
+			var opts := {"mode": "orbit", "alt": float(b.alt), "inc": float(b.get("inc", 0.0)), "phase": float(b.get("phase", 0.0)),
+				"vehicle": _subset(key, b)}
+			if b.has("body"): opts.body = b.body
+			v = f.begin(key, opts)
 			if v != null: _descent_state(v, b)
+			if v != null and b.has("sunAngle"): _turn_to_sun(f, v, deg_to_rad(float(b.sunAngle)))
 		"air":
 			v = f.begin(key, {"mode": "orbit", "alt": float(b.alt), "inc": float(b.get("inc", 0.0)), "phase": 0.0})
 		_:
@@ -360,8 +401,13 @@ static func _subset(key: String, b: Dictionary) -> Dictionary:
 ## Speed and attitude of a descent's start: the velocity relative to the turning air,
 ## nose against it ("retro-air").
 static func _descent_state(v: Vessel, b: Dictionary) -> void:
+	if b.has("over"): _place_over(v, b)
 	var up := DQuat.nrm(v.r.clone())
 	var east := DQuat.nrm(DVec3.new(0.0, -1.0, 0.0).cross(up))
+	if b.has("over"):
+		var head := deg_to_rad(float(b.over[2]))
+		var north := DQuat.nrm(up.cross(east))
+		east = east.clone().scale_in(sin(head)).add_scaled_in(north, cos(head))
 	var spin := DVec3.new(0.0, -float(v.env.rotRate), 0.0).cross(v.r)
 	if b.has("v_inertial"):
 		var g := deg_to_rad(float(b.fpa))
@@ -373,6 +419,28 @@ static func _descent_state(v: Vessel, b: Dictionary) -> void:
 	v.q.set_from_unit_vectors(Vessel.BODY_FWD, DQuat.nrm(air.scale_in(-1.0)))
 	v.omega.set_v(0.0, 0.0, 0.0)
 	v.phase = Vessel.PHASE.DESCENT
+
+## Turn the whole descent about the world's axis so it comes down `angle` rad past the subsolar point, in the
+## direction the ground turns: positive is afternoon. The equatorial Sky Crane's entry comes down DOWNRANGE east
+## of where it starts (measured from this build's flight, rotation included).
+const DOWNRANGE := 0.2063
+static func _turn_to_sun(f: Spaceflight, v: Vessel, angle: float) -> void:
+	var sun := f.sun_direction(DVec3.new())
+	var turn := wrapf(atan2(sun.z, sun.x) + angle - atan2(v.r.z, v.r.x) - DOWNRANGE, -PI, PI)
+	var dq := DQuat.new()
+	dq.set_from_axis_angle(DVec3.new(0.0, -1.0, 0.0), turn)
+	for d: DVec3 in [v.r, v.v, v.omega]: DQuat.rotate(d, dq)
+	v.q.premultiply(dq).normalize_in()
+	if v.on_rebase.is_valid(): v.on_rebase.call(dq)
+
+## The vessel `alt` over a mesh latitude and east longitude (degrees) at its start, as SurfaceGround reads places.
+static func _place_over(v: Vessel, b: Dictionary) -> void:
+	var lat := deg_to_rad(float(b.over[0]))
+	var lon := deg_to_rad(float(b.over[1]))
+	var m := DVec3.new(cos(lon) * cos(lat), sin(lat), -sin(lon) * cos(lat))
+	var dir := SurfaceGround.from_mesh(m, v.body_angle(v.coord), DVec3.new())
+	DQuat.nrm(dir)
+	v.r.copy_from(dir).scale_in(v.surface_r(dir) + float(b.alt))
 
 ## In the air: `airspeed` m/s through the moving air, along the
 ## orbit's track, `fpa` degrees above the horizon (negative descending). _settle sets

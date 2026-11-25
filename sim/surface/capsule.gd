@@ -26,10 +26,20 @@ const CG_X := 0.14
 const BAG_V := 0.623
 const BAG_RING := 0.62
 const INFLATE_S := 240.0
-## Two 16.5 ft drogues, then three 83.5 ft ringsail mains (NASA; NASM): nominal areas, and a drag coefficient
-## for each (estimates for a conical ribbon and a ringsail).
-const DROGUE := {"area": 2.0 * PI * 2.515 * 2.515 / 4.0, "Cd": 0.55}
-const MAINS := {"area": 3.0 * PI * 25.45 * 25.45 / 4.0, "Cd": 0.82}
+## Two 16.5 ft (5.03 m) drogues, then three 83.5 ft (25.45 m) ringsail mains (NASA; NASM): nominal areas; a conical
+## ribbon's drag coefficient (an estimate), and the mains' that Apollo's 22 mph implies, so that speed is an input.
+const DROGUE := {"area": 2.0 * PI * 5.03 * 5.03 / 4.0, "Cd": 0.55}
+const MAINS := {"area": 3.0 * PI * 25.45 * 25.45 / 4.0, "Cd": 0.54}
+
+static func stage_key() -> String:
+	return "cm"
+
+## The craft's centre of mass in its stage frame, m.
+static func centre() -> Vector3:
+	return Vector3(CG_X, CG_Y, 0.0)
+
+static func span() -> float:
+	return HEIGHT
 
 ## The outline from the shield's centre to the tunnel's top: (r, y), m. `detail` 1 is what floats; the drawn
 ## model samples the same curve finer.
@@ -245,12 +255,13 @@ static func _lathe_node(pts: PackedVector2Array, segments: int, mat: Material, c
 			var a0 := TAU * s / segments; var a1 := TAU * (s + 1) / segments
 			var v00 := Vector3(p0.x * cos(a0), p0.y, p0.x * sin(a0)); var v01 := Vector3(p0.x * cos(a1), p0.y, p0.x * sin(a1))
 			var v10 := Vector3(p1.x * cos(a0), p1.y, p1.x * sin(a0)); var v11 := Vector3(p1.x * cos(a1), p1.y, p1.x * sin(a1))
-			for tri in [[v00, v10, v01], [v01, v10, v11]]:
+			for tri in [[v00, v01, v10], [v01, v11, v10]]:
 				for q: Vector3 in tri: st.add_vertex(q)
 	st.generate_normals()
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
 	mi.material_override = mat
+	mi.set_meta("lathe", true)
 	return mi
 
 # A flat patch on the cone's flank, `az` round from +x, centred `y` up, `size` across and along the slant.

@@ -20,7 +20,10 @@ func _init() -> void:
 	_one_wave()
 	_hydrostatics()
 	_capsule()
+	_winding()
 	_dynamics()
+	_titan_seas()
+	_time()
 	print("OCEANCHECK DONE checks=%d failures=%d" % [checks, failures])
 	quit(1 if failures > 0 else 0)
 
@@ -202,6 +205,26 @@ func _capsule() -> void:
 static func heel(f: Floater) -> float:
 	return rad_to_deg(acos(clampf(f.rot[4], -1.0, 1.0)))
 
+# The drawn shells face out: every triangle's front, clockwise in Godot, away from the axis or the craft's middle.
+func _winding() -> void:
+	var parts := {}
+	for key in ["legs", "fins", "arrays", "doors", "halves", "gimbals", "flaps", "chutes", "pieces", "rotors", "arms"]: parts[key] = []
+	for built: Array in [["the command module", Capsule, Capsule.build_model({}, parts).group], ["TiME", TimeCapsule, TimeCapsule.build_model({}, parts).group]]:
+		var worst := 1.0
+		var n := 0
+		var mid := Vector3(0.0, built[1].span() * 0.45, 0.0)
+		for mi: MeshInstance3D in (built[2] as Node3D).find_children("*", "MeshInstance3D", true, false):
+			if not mi.has_meta("lathe"): continue
+			var a: Array = mi.mesh.surface_get_arrays(0)
+			var v: PackedVector3Array = a[Mesh.ARRAY_VERTEX]
+			for t in range(0, v.size(), 3):
+				var nrm := (v[t + 2] - v[t]).cross(v[t + 1] - v[t])
+				if nrm.length() < 1e-9: continue
+				n += 1
+				worst = minf(worst, nrm.normalized().dot(((v[t] + v[t + 1] + v[t + 2]) / 3.0 - mid).normalized()))
+		ok("%s's shell faces out" % built[0], n > 100 and worst > 0.0, "%d triangles, worst %s" % [n, U.fixed(worst, 2)])
+		(built[2] as Node3D).free()
+
 func _dynamics() -> void:
 	var sea := Liquid.of("Earth")
 	# Onto still water at Apollo's 22 mph under three mains.
@@ -267,3 +290,85 @@ func _dynamics() -> void:
 	ok("it rides the waves", corr > 0.9 and ratio > 0.8 and ratio < 1.25,
 		"heave against the water under it: correlation %s, ratio of spreads %s (Hs %s m)" % [U.fixed(corr, 3), U.fixed(ratio, 2), U.fixed(field.hs(), 2)])
 	note("in waves", "%s s of wall time for 60 s; drifted %s m" % [U.fixed(wall, 1), U.fixed(Vector2(w.p[0], w.p[2]).length(), 1)])
+
+# Titan's seas where Cassini mapped them, and the waves its light winds raise on methane.
+func _titan_seas() -> void:
+	var R := 2574.73e3
+	var lig := StatedSeas.at("Titan", deg_to_rad(79.0), deg_to_rad(-248.0), R)
+	ok("Ligeia Mare is at 79° N 248° W, 170 m at its deepest", not lig.is_empty() and lig.name == "Ligeia Mare" and absf(float(lig.depth) - 170.0) < 1.0,
+		"%s, %s m deep" % [lig.get("name", "none"), U.fixed(float(lig.get("depth", 0.0)), 0)])
+	ok("the equator is dry", StatedSeas.at("Titan", 0.0, 0.0, R).is_empty() and StatedSeas.at("Titan", 0.0, PI, R).is_empty(), "")
+	# A mare's place is where the pin, the crust and the ground read it.
+	var worst := 0.0
+	for ll in [[1.2, -4.3], [0.3, 2.0], [-0.9, 0.7]]:
+		worst = maxf(worst, StatedSeas.unit(ll[0], ll[1]).distance_to(PlanetPin.direction(ll[0], ll[1])))
+	ok("a mare's place is the pin's", worst < 1e-6, "%s apart" % U.expo(worst, 1))
+	# Over the cap, on rings: its area against the mapped one, and its mean depth against Le Gall et al.'s.
+	var reach := 200.0e3
+	var area := 0.0
+	var vol := 0.0
+	var rings := 400
+	var c := StatedSeas.unit(deg_to_rad(79.0), deg_to_rad(-248.0))
+	var e := c.cross(Vector3.UP).normalized()
+	for i in rings:
+		var rho := (i + 0.5) / rings * reach * 1.05
+		var ring := TAU * R * sin(rho / R) * (reach * 1.05 / rings)
+		var p := (c * cos(rho / R) + e * sin(rho / R)).normalized()
+		var ll := PlanetPin.lat_lon(p)
+		var m := StatedSeas.at("Titan", ll.x, ll.y, R)
+		if not m.is_empty() and m.name == "Ligeia Mare" and float(m.inside) > 0.0:
+			area += ring
+			vol += ring * float(m.depth)
+	ok("Ligeia's area and mean depth are Cassini's", absf(area / 1.26e11 - 1.0) < 0.03 and absf(vol / area - 50.0) < 8.0,
+		"%s km² against 126,000 (Stofan et al. 2012); mean %s m against about 50 (Le Gall et al. 2016)" % [U.fixed(area / 1e6, 0), U.fixed(vol / area, 0)])
+	var methane := Liquid.of("Titan")
+	var still := OceanField.new(1.352, 160.0, methane, 0.3, 0.0, 4.0e5, 3)
+	ok("under 0.4 m/s the methane lies flat", still.calm() and still.hs() == 0.0 and still.unresolved_slope() == 0.0,
+		"Hs %s m at 0.3 m/s; Cassini's radar: flat to millimetres" % U.fixed(still.hs(), 3))
+	for u: float in [1.0, 1.5]:
+		var f := OceanField.new(1.352, 160.0, methane, u, 0.0, 4.0e5, 3)
+		var lm: float = 0.2 * u * u / 1.352
+		ok("at %s m/s the waves are Lorenz & Mann's" % U.fixed(u, 1), absf(f.hs() / lm - 1.0) < 0.25,
+			"Hs %s m, peak period %s s, against 0.2U²/g = %s m (Lorenz & Mann 2015)" % [U.fixed(f.hs(), 3), U.fixed(TAU / f.peak_omega, 1), U.fixed(lm, 3)])
+
+# TiME on still methane at Titan's gravity: Archimedes, how it rests and how it bobs.
+func _time() -> void:
+	var methane := Liquid.of("Titan")
+	var f := TimeCapsule.floater(1.352, methane, 5.4)
+	# ±180° is one rest.
+	var rests := []
+	for x: float in _stable(f):
+		if not rests.any(func(y): return absf(wrapf(x - y, -180.0, 180.0)) < 5.0): rests.append(x)
+	var eq := _equilibrium(f, 0.0)
+	var want := TimeCapsule.MASS / float(methane.rho)
+	ok("TiME displaces its weight of methane", absf(f.displaced / want - 1.0) < 0.02,
+		"%s m³ against m/ρ %s m³" % [U.fixed(f.displaced, 3), U.fixed(want, 3)])
+	# Lorenz & Mann: not self-righting, like a discus buoy; so upright and capsized are both resting places.
+	ok("it rests upright, and capsized, not on its side", rests.size() == 2 and rests.any(func(x): return absf(x) < 10.0)
+		and rests.any(func(x): return absf(x) > 150.0), "stable at heel %s°" % ", ".join(rests.map(func(x): return U.fixed(x, 0))))
+	# The waterline: the outline's radius where the surface crosses it.
+	var depth := TimeCapsule.CG_Y - eq[0]
+	var pts := TimeCapsule.outline()
+	var r_wl := 0.0
+	for i in pts.size() - 1:
+		if (pts[i].y - depth) * (pts[i + 1].y - depth) <= 0.0 and pts[i + 1].y != pts[i].y:
+			r_wl = lerpf(pts[i].x, pts[i + 1].x, (depth - pts[i].y) / (pts[i + 1].y - pts[i].y))
+			break
+	var area := PI * r_wl * r_wl
+	var t_ideal := TAU * sqrt(TimeCapsule.MASS / (float(methane.rho) * 1.352 * area))
+	# Dropped 10 cm onto still methane: the time between its first two rises through rest.
+	f.set_basis(Basis())
+	f.p = PackedFloat64Array([0.0, eq[0] + 0.1, 0.0])
+	f.v = PackedFloat64Array([0.0, 0.0, 0.0])
+	var ups := []
+	var prev := f.p[1] - eq[0]
+	while f.t < 20.0 and ups.size() < 2:
+		f.advance(f.t + 0.01)
+		var now := f.p[1] - eq[0]
+		if prev < 0.0 and now >= 0.0: ups.append(f.t)
+		prev = now
+	var period := float(ups[1]) - float(ups[0]) if ups.size() == 2 else -1.0
+	ok("it bobs at its waterplane's period", period > 0.0 and absf(period / t_ideal - 1.0) < 0.15,
+		"%s s against 2π√(m/ρgA) %s s, a %s m waterline (Lorenz & Mann: about 2.6 s on ethane, ~2 m)" % [U.fixed(period, 2), U.fixed(t_ideal, 2),
+		U.fixed(2.0 * r_wl, 2)])
+	note("TiME's draft", "the shield %s m under, %s m of freeboard" % [U.fixed(depth, 2), U.fixed(TimeCapsule.HEIGHT - depth, 2)])

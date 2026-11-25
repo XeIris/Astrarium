@@ -31,10 +31,15 @@ func _ready() -> void:
 	SurfaceStats.reset()
 	await _land("lm:terminal_descent", "Moon")
 	await _drive_lrv()
+	await _edl()
 	await _land("skycrane:sky_crane", "Mars")
 	await _drive_perseverance()
 	await _parity("skycrane:sky_crane")
 	_measured_relief()
+	_poles()
+	_rocks()
+	await _far_from_it()
+	await _again()
 	await _earth()
 	main.flight.teardown()
 	var c := SurfaceStats.calls
@@ -67,6 +72,244 @@ func _frames() -> void:
 	check("a flight-frame point reads its own latitude and east longitude (worst %s rad)" % U.expo(angle, 1), angle < 1e-9)
 	check("the mesh direction is PlanetPin's (worst %s)" % U.expo(dir, 1), dir < 1e-6)
 
+# The Sky Crane from its parachute to the ground, with the frame loop's drawing (undrawn): what is packed clears
+# what it is packed in, the shell goes up on its parachute and not down through the stack, and the sequence keeps
+# NASA's times (docs/physics/sky-crane.md).
+func _edl() -> void:
+	var err: String = await main.jump_scenario("skycrane:parachute")
+	check("skycrane:parachute: jump (%s)" % (err if err != "" else "ok"), err == "")
+	if err != "": return
+	var f: Spaceflight = main.flight
+	var v: Vessel = f.vessel
+	var shell = f.craft.stage("shell")
+	# A craft of its own: the flying one's bells carry plumes.
+	var spare := CraftModel.build_craft(v.vehicle)
+	var packed := _packed(spare)
+	spare.group.free()
+	check("packed, the rover clears the heat shield by %s m and the backshell by %s m" % [U.fixed(packed[0], 3), U.fixed(packed[1], 3)],
+		packed[0] > 0.03 and packed[1] > 0.0)
+	main.set_drawn(false)
+	var low := 0.0
+	var at_light := -INF
+	var sep_v := 0.0
+	var sep_m := 0.0
+	var chute_v := v.airspeed(v.r, v.v, DVec3.new()).length()
+	var chute_alt := v.altitude()
+	var chute_m := v.mass
+	var bank: float = v.bank if v.bank != null else 0.0
+	var shield_m := 0.0
+	var rocky := []
+	# The shell's plane, measured on the turning ground: where the stack was as the shell went, and which way it
+	# was going over it.
+	var was := Vector2.ZERO
+	var before := Vector2.ZERO
+	var heading := Vector2.ZERO
+	var n := 0
+	while not (v.phase in [Vessel.PHASE.LANDED, Vessel.PHASE.DESTROYED]) and n < 20000:
+		f.finish_frame(1.0 / 30.0, main.step_flight(1.0 / 30.0))
+		n += 1
+		if v.ground.adopted and heading == Vector2.ZERO:
+			var sp := v.ground.site_point(v, v.r)
+			before = was
+			was = Vector2(sp.x, sp.z)
+			if f.autopilot._sep_met >= 0.0: heading = (was - before).normalized()
+		if shield_m == 0.0 and v.stages[0].shield_off: shield_m = v.mass
+		if rocky.is_empty() and v.ground.adopted: rocky = _choices(v)
+		if f.autopilot != null and f.autopilot._sep_met >= 0.0 and shell.sep != null:
+			if sep_m == 0.0:
+				sep_v = v.airspeed(v.r, v.v, DVec3.new()).length()
+				sep_m = v.mass
+			low = minf(low, shell.group.position.y)
+			if at_light == -INF and float(v.telemetry.get("thrust", 0.0)) > 0.0: at_light = shell.group.position.y
+	main.set_drawn(true)
+	var at := {}
+	for e in v.events:
+		for k in ["Parachute deploy", "Heat shield separation", "Backshell separation", "Divert", "Sky crane", "Touchdown"]:
+			if str(e.msg).begins_with(k) and not at.has(k): at[k] = float(e.t)
+	check("it lands (%s)" % (v.failure if v.failure else v.phase), v.phase == Vessel.PHASE.LANDED)
+	if at.size() < 6:
+		check("every event is flown (%s)" % str(at.keys()), false)
+		return
+	check("the backshell rises off the stack (lowest %s m), %s m clear when the engines light" % [U.fixed(low, 2), U.fixed(at_light, 1)],
+		low > -0.05 and at_light > 8.0)
+	check("the heat shield %s s after the parachute (Perseverance: 20)" % U.fixed(at["Heat shield separation"] - at["Parachute deploy"], 1),
+		absf(at["Heat shield separation"] - at["Parachute deploy"] - 20.0) < 0.2)
+	check("it falls %s s before it lights (Tianwen-1: about 1)" % U.fixed(at.Divert - at["Backshell separation"], 2),
+		absf(at.Divert - at["Backshell separation"] - 1.0) < 0.1)
+	check("backshell to touchdown in %s s (Perseverance: 60)" % U.fixed(at.Touchdown - at["Backshell separation"], 1),
+		absf(at.Touchdown - at["Backshell separation"] - 60.0) < 10.0)
+	check("rover separation to touchdown in %s s (NASA: about 12)" % U.fixed(at.Touchdown - at["Sky crane"], 1),
+		absf(at.Touchdown - at["Sky crane"] - 12.0) < 2.0)
+	var sp1 := v.ground.site_point(v, v.r)
+	var off := absf((Vector2(sp1.x, sp1.z) - was).cross(heading))
+	check("down at %s m/s, %s m/s sideways, %s m out of the plane the shell falls in (MSL: 300, Perseverance: at most 600)" % [
+		U.fixed(absf(float(v.landed_at.vVert)), 2), U.fixed(float(v.landed_at.vHoriz), 2), U.fixed(off, 0)],
+		float(v.landed_at.vHoriz) < 0.3 and off > 280.0 and off < 620.0)
+	check("the parachute opens %s s after entry, %s m/s and %s km over the datum (Perseverance: 240, 420; 11 km over Jezero is about 8.4)" % [
+		U.fixed(at["Parachute deploy"], 0), U.fixed(chute_v, 0), U.fixed(chute_alt / 1000.0, 1)],
+		absf(at["Parachute deploy"] - 240.0) < 5.0 and absf(chute_alt - 8400.0) < 1300.0)
+	check("the backshell goes at %s m/s (Perseverance: 85)" % U.fixed(sep_v, 1), absf(sep_v - 85.0) < 8.0)
+	check("flown with its lift mostly up by then (bank %s°)" % U.fixed(rad_to_deg(bank), 0), absf(rad_to_deg(bank) - 15.0) < 0.5)
+	check("%s kg built, flown at %s without its ballast, %s without its heat shield, %s at powered descent (an MSL-like mission: 3152, 3002, 2617, 2268)" % [
+		U.fixed(_stack(v), 0), U.fixed(chute_m, 0), U.fixed(shield_m, 0), U.fixed(sep_m, 0)],
+		absf(_stack(v) - 3152.0) < 5.0 and absf(chute_m - 3002.0) < 8.0 and absf(shield_m - 2617.0) < 8.0 and absf(sep_m - 2268.0) < 5.0)
+	check("over %d places it would divert from, %d picks had metre rocks about them; %d of the flattest spots there did" % [rocky[0], rocky[1], rocky[2]],
+		rocky[1] <= 2 and rocky[2] >= 4)
+	# The spot she picked: no metre rock about it, on ground where many spots have one; and she is off it by no more
+	# than the map's position is.
+	var ap: Guidance.Autopilot = f.autopilot
+	var some := 0
+	var east := DQuat.nrm(DVec3.new(0.0, -1.0, 0.0).cross(DQuat.nrm(v.r.clone())))
+	for j in 60:
+		if not ap._rocks_at(ap.picked.clone().add_scaled_in(east, 40.0 * j - 1200.0)).is_empty(): some += 1
+	# Guidance has let go of it: placed at the planet's angle now.
+	SurfaceGround.from_mesh(ap._picked_mesh, v.body_angle(v.coord), ap.picked)
+	var miss := ap.picked.sub(v.r)
+	var up := DQuat.nrm(v.r.clone())
+	miss.add_scaled_in(up, -miss.dot(up))
+	check("the spot picked has %d metre rocks within %s m, where %d of 60 others have some" % [ap._rocks_at(ap.picked).size(),
+		U.fixed(Guidance.Autopilot.MAP_RADIUS, 0), some], ap._rocks_at(ap.picked).is_empty() and some > 12)
+	check("and she comes down %s m off it, her position on the map out by %s m (LVS: under 40)" % [U.fixed(miss.length(), 1),
+		U.fixed(ap.map_error.length(), 1)], ap.map_error.length() > 0.5 and absf(miss.length() - ap.map_error.length()) < 3.0 and ap.map_error.length() <= 40.0)
+	for i in 600: f.finish_frame(0.05, main.step_flight(0.05))
+	var fa: CraneFlyaway = f.flyaway
+	check("the descent stage flies off and comes down %s m away %s s after the cut, at %s m/s, %s kg of propellant left (Curiosity: 650 m, about 20 s)" % [
+		U.fixed(fa.flown_m, 0), U.fixed(fa.t, 1), U.fixed(v.ground_velocity(fa.r, fa.v, DVec3.new()).length(), 0), U.fixed(fa.prop, 0)],
+		fa.down and absf(fa.flown_m - 650.0) < 80.0 and absf(fa.t - 20.0) < 2.0 and fa.prop > 0.0)
+	var lies := fa.r.sub(v.r).length()
+	check("and it stays where it fell, %s m from her, its smoke with it (%s m off it)" % [U.fixed(lies, 0),
+		U.fixed(f.crane_rig.smoke.position.distance_to(f.craft.group.transform * f.crane_rig.desc.group.position), 2)],
+		absf(lies - fa.flown_m) < 3.0 and f.crane_rig.smoke.multimesh.visible_instance_count > 20
+		and f.crane_rig.smoke.position.distance_to(f.craft.group.transform * f.crane_rig.desc.group.position) < 0.5)
+	check("once the bridle is cut the vessel's reference is on the ground (%s m)" % U.fixed(v.height_above_ground(), 4),
+		absf(v.height_above_ground()) < 0.01 and absf(v.contact_altitude()) < 0.01)
+	f.teardown()
+
+# The held descent rate is held against the ground: drifting across the steepest slope there is under her, the law
+# asks for what closes on the ground at the touchdown rate, not for that rate against the planet's centre.
+func _held_rate(f: Spaceflight) -> void:
+	var v: Vessel = f.vessel
+	var ap = f.autopilot
+	var up := DQuat.nrm(v.r.clone())
+	var kept := v.v.clone()
+	var kept_site = ap.site
+	ap.site = null
+	var east := DQuat.nrm(DVec3.new(0.0, -1.0, 0.0).cross(up))
+	var north := DQuat.nrm(up.clone().cross(east))
+	var best := 0.0
+	var along := east
+	# As fast a drift as makes the slope count.
+	var drift := 40.0
+	for k in 16:
+		var d := east.clone().scale_in(cos(TAU * k / 16.0)).add_scaled_in(north, sin(TAU * k / 16.0))
+		v.v.copy_from(kept).add_scaled_in(d, drift)
+		var diff := absf(v.closing_rate(v.ground_velocity(v.r, v.v, DVec3.new())) - v.v.dot(up))
+		if diff > best:
+			best = diff
+			along = d
+	v.v.copy_from(kept).add_scaled_in(along, drift)
+	var closing := v.closing_rate(v.ground_velocity(v.r, v.v, DVec3.new()))
+	var cmd: DVec3 = ap.descent_law(10.0, 0.75, 0.35, 1.8, 0.55, 32.0, 1e4)
+	var g: float = v.env.mu / v.r.length_sq()
+	var want := g + (-0.75 - closing) / 1.8
+	check("the held rate is against the ground: %s m/s of it is the slope's, and the law asks for %s of %s m/s²" % [U.fixed(best, 2),
+		U.fixed(cmd.dot(up), 3), U.fixed(want, 3)], best > 0.1 and absf(cmd.dot(up) - want) < 0.3 * best / 1.8)
+	v.v.copy_from(kept)
+	ap.site = kept_site
+
+# The spots a divert picks from where the vessel is and 13 places about it: [places, picks with metre rocks, how many
+# of each place's one flattest candidate have them]. The vessel and its log are put back.
+func _choices(v: Vessel) -> Array:
+	var dv: Dictionary = v.vehicle.edl.divert
+	var kept := v.r.clone()
+	var events := v.events.size()
+	var up := DQuat.nrm(v.r.clone())
+	var east := DQuat.nrm(DVec3.new(0.0, -1.0, 0.0).cross(up))
+	var north := DQuat.nrm(up.clone().cross(east))
+	var out := [0, 0, 0]
+	for k in 14:
+		v.r.copy_from(kept).add_scaled_in(east, 350.0 * (k % 5 - 2)).add_scaled_in(north, 350.0 * (k / 5 - 1))
+		var ap := Guidance.Autopilot.new(v)
+		Guidance._up.copy_from(DQuat.nrm(v.r.clone()))
+		ap.site = Guidance._up.clone().scale_in(v.ground_r(v.r))
+		ap._plan_divert(dv, 10.0, 16.0, 0.75)
+		if ap.picked == null: continue
+		out[0] += 1
+		if not ap._rocks_at(ap.picked).is_empty(): out[1] += 1
+		if not ap._rocks_at(ap.flattest).is_empty(): out[2] += 1
+	v.r.copy_from(kept)
+	v.events.resize(events)
+	return out
+
+# The dust under a jet: none from high up, a cloud low down that goes with the wind, and its nodes freed.
+func _plume_dust(f: Spaceflight) -> void:
+	var high := PlumeDust.new(3.71, true)
+	for i in 60: high.step(0.05, Vector3.ZERO, 60.0, 8.5e3)
+	check("none under the stage 60 m up (%d puffs)" % high.count, high.count == 0)
+	var low := PlumeDust.new(3.71, true)
+	var still := PlumeDust.new(3.71, true)
+	for i in 60:
+		low.step(0.05, Vector3.ZERO, 15.0, 8.5e3, Vector3(8.0, 0.0, 0.0))
+		still.step(0.05, Vector3.ZERO, 15.0, 8.5e3)
+	var mean := Vector3.ZERO
+	for k in low.count: mean += low.pos[k] / low.count
+	for k in still.count: mean -= still.pos[k] / still.count
+	check("a cloud under it 15 m up (%d puffs), %s m downwind of where still air leaves it" % [low.count, U.fixed(mean.x, 1)],
+		low.count > 50 and mean.x > 4.0)
+	low.draw(f.ground_site.group, Color.WHITE)
+	var drawn := low.view.multimesh.visible_instance_count
+	low.dispose()
+	check("drawn (%d), and let go" % drawn, drawn > 50 and low.view == null)
+
+# The vehicle's whole mass as it enters, kg.
+func _stack(v: Vessel) -> float:
+	var m := 0.0
+	for st in v.stages: m += float(st.spec.dry) + float(st.spec.prop) + (float(st.spec.rcs.prop) if st.spec.get("rcs") != null else 0.0)
+	return m
+
+# How far the packed rover's and descent stage's vertices are over the heat shield and inside the backshell, m.
+func _packed(c: CraftModel.Craft) -> Array:
+	var shield := []
+	_verts(c.stage("shell").group.find_child("heatshield", true, false), Transform3D(), shield)
+	var prof := {}
+	for p: Vector3 in shield:
+		var k := snappedf(Vector2(p.x, p.z).length(), 0.05)
+		prof[k] = maxf(prof.get(k, -INF), p.y)
+	var ks := prof.keys()
+	ks.sort()
+	# The backshell's own rings, at its facets' middles, the nearest they come to the axis.
+	var cone := []
+	_verts(c.stage("shell").group.find_child("backshell", true, false), Transform3D(), cone)
+	var y0 := INF
+	var y1 := -INF
+	var r0 := 0.0
+	var r1 := 0.0
+	for p: Vector3 in cone:
+		if p.y < y0: y0 = p.y; r0 = Vector2(p.x, p.z).length()
+		if p.y > y1: y1 = p.y; r1 = Vector2(p.x, p.z).length()
+	var facet := cos(PI / 36.0)
+	var over := INF
+	var inside := INF
+	for key in ["rover", "desc"]:
+		var vs := []
+		_verts(c.stage(key).group, Transform3D(), vs)
+		for p: Vector3 in vs:
+			var r := Vector2(p.x, p.z).length()
+			for i in range(1, ks.size()):
+				if r > ks[i]: continue
+				over = minf(over, p.y - lerpf(prof[ks[i - 1]], prof[ks[i]], (r - ks[i - 1]) / (ks[i] - ks[i - 1])))
+				break
+			var t := (p.y - y0) / (y1 - y0)
+			if t > 0.0: inside = minf(inside, (lerpf(r0, r1, t) * facet if t < 1.0 else 0.0) - r)
+	return [over, inside]
+
+func _verts(node: Node, xf: Transform3D, out: Array) -> void:
+	var t := xf * (node as Node3D).transform if node is Node3D else xf
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+		for k in (node as MeshInstance3D).mesh.get_surface_count():
+			for p: Vector3 in (node as MeshInstance3D).mesh.surface_get_arrays(k)[Mesh.ARRAY_VERTEX]: out.append(t * p)
+	for ch in node.get_children(): _verts(ch, t, out)
+
 func _land(spec: String, world: String) -> void:
 	var err: String = await main.jump_scenario(spec)
 	check("%s: jump (%s)" % [spec, err if err != "" else "ok"], err == "")
@@ -75,6 +318,7 @@ func _land(spec: String, world: String) -> void:
 	var v: Vessel = f.vessel
 	check("%s: on %s with a ground under it" % [spec, world], v.parent.name == world and v.ground != null)
 	if v.ground == null: return
+	if spec.begins_with("skycrane"): _held_rate(f)
 	main.set_drawn(false)
 	var n := 0
 	while v.phase != Vessel.PHASE.LANDED and v.phase != Vessel.PHASE.DESTROYED and n < 40000:
@@ -130,13 +374,14 @@ func _drive_lrv() -> void:
 	var site: SurfaceSite = f.ground_site
 	var worst := 0.0
 	var touching := 0
+	var meshes := _meshes(site)
 	for wh: Rover.Wheel in r.wheels:
 		if not wh.contact: continue
 		touching += 1
 		var cp: DVec3 = wh.contact_point
-		var drawn := SiteScene.drawn_height(site.relief.grids, -cp.x, cp.z, site.patch_y, site.relief.radius_m, false)
+		var drawn := _mesh_y(meshes, site.relief.grids, -cp.x, cp.z)
 		worst = maxf(worst, absf(cp.y + wh.sinkage - drawn))
-	check("%d wheels on the ground, each on the drawn triangles less its sinkage (worst %s m)" % [touching, U.expo(worst, 1)], touching >= 3 and worst < 1e-6)
+	check("%d wheels on the ground, each on the drawn triangles less its sinkage (worst %s m)" % [touching, U.expo(worst, 1)], touching >= 3 and worst < 1e-3)
 	for i in 3: main.animate(1.0 / 60.0)
 	check("the LRV is drawn where the physics has it", f.rover_model != null and f.rover_model.group.is_inside_tree()
 		and f.rover_model.group.position.distance_to(r.pos.to_v3()) < 0.5)
@@ -152,6 +397,26 @@ func _drive_lrv() -> void:
 # turret put on the drawn ground ahead.
 func _drive_perseverance() -> void:
 	var f: Spaceflight = main.flight
+	# What the rig draws once she is down: her wheels at the vessel's reference, where the physics put the
+	# ground, and the descent stage gone off on its flyaway (or still climbing clear of her).
+	var rig: SkyCraneRig = f.crane_rig
+	check("the Sky Crane is drawn by its rig", rig != null)
+	if rig != null:
+		for i in 3: main.animate(1.0 / 60.0)
+		var since := f.vessel.met - float(f.vessel.landed_at.met)
+		var wheels := f.vessel.height_above_ground() + rig.rover.group.position.y
+		check("her wheels drawn on the ground (%s m) %s s after touchdown, the bridles %s" % [U.fixed(wheels, 3), U.fixed(since, 2),
+			"on" if rig.bridles[0].visible else "cut"], absf(wheels) < 0.01 and rig.bridles[0].visible == (since < SkyCraneRig.CUT_S))
+		check("the descent stage over her by the bridle (%s m)" % U.fixed(rig.desc.group.position.y - rig.rover.group.position.y, 2),
+			rig.desc.group.position.y - rig.rover.group.position.y > 8.0 or not rig.desc.group.visible)
+	# A jet raises dust from about where it was seen to: the LM's 24 kN hover near 30 m and not from twice that, the
+	# descent stage's 8.5 kN in Mars' air from 25 m.
+	var onset := PlumeDust.ONSET_PA
+	check("a landing jet raises dust where Apollo's crews and PIA24428 saw it start (LM %.1f Pa at 30 m, %.1f at 60; MSL %.0f at 25)"
+		% [PlumeDust.ground_pressure(24e3, 30.0, false), PlumeDust.ground_pressure(24e3, 60.0, false), PlumeDust.ground_pressure(8.5e3, 25.0, true)],
+		PlumeDust.ground_pressure(24e3, 30.0, false) > onset and PlumeDust.ground_pressure(24e3, 60.0, false) < onset
+		and PlumeDust.ground_pressure(8.5e3, 25.0, true) > onset and PlumeDust.ground_pressure(8.5e3, 50.0, true) < onset)
+	_plume_dust(f)
 	check("the Sky Crane's rover can drive off", f.can_deploy_rover() and f.deploy_rover())
 	if f.rover == null: return
 	var r: Rover = f.rover
@@ -175,15 +440,56 @@ func _drive_perseverance() -> void:
 	var drawn := SiteScene.drawn_height(site.relief.grids, -world.x, world.z, site.patch_y, site.relief.radius_m, false)
 	check("its turret stands on the drawn ground (%s m over it)" % U.fixed(world.y - drawn, 3), f.rover_arm.placed and absf(world.y - drawn) < 0.02)
 	var worst := 0.0
+	var meshes := _meshes(site)
 	for wh: Rover.Wheel in r.wheels:
 		if not wh.contact: continue
 		var cp: DVec3 = wh.contact_point
-		worst = maxf(worst, absf(cp.y + wh.sinkage - SiteScene.drawn_height(site.relief.grids, -cp.x, cp.z, site.patch_y, site.relief.radius_m, false)))
-	check("its wheels on the drawn triangles less their sinkage (worst %s m)" % U.expo(worst, 1), worst < 1e-6)
+		worst = maxf(worst, absf(cp.y + wh.sinkage - _mesh_y(meshes, site.relief.grids, -cp.x, cp.z)))
+	check("its wheels on the drawn triangles less their sinkage (worst %s m)" % U.expo(worst, 1), worst < 1e-3)
 	for i in 3: main.animate(1.0 / 60.0)
 	check("drawn as Perseverance, the stage that lowered it gone", f.rover_model != null and f.rover_model.group.name == "Perseverance"
 		and not f.craft.group.visible)
+	_fly_ingenuity(f)
 	f.teardown()
+
+# Ingenuity off Perseverance: set down, up 8 m on the site's own air, ahead for ten seconds, and down again on
+# the drawn ground, its feet on the triangles.
+func _fly_ingenuity(f: Spaceflight) -> void:
+	check("Ingenuity comes off Perseverance", f.can_deploy_heli() and f.deploy_heli())
+	if f.heli == null: return
+	var h: Rotorcraft = f.heli
+	f.rover_keys = false
+	var feet := func() -> float:
+		var worst := 0.0
+		for leg: Vector3 in h.spec.legs:
+			var p := DQuat.rotate(DVec3.from_v3(leg), h.q).add_in(h.pos)
+			worst = maxf(worst, absf(p.y - h.ground.height(-p.x, p.z)))
+		return worst
+	var run := func(s: float) -> void:
+		for i in int(s / 0.05): main.step_flight(0.05)
+	main.set_drawn(false)
+	run.call(2.0)
+	check("it stands on the drawn ground (feet within %s m of the triangles)" % U.fixed(feet.call(), 4), h.on_ground and feet.call() < 0.01)
+	h.cmd_climb = 1.0
+	run.call(4.0)
+	h.cmd_climb = 0.0
+	run.call(4.0)
+	var up := h.height_above_ground()
+	h.cmd_fwd = 1.0
+	run.call(10.0)
+	var v := Vector2(h.vel.x, h.vel.z).length()
+	h.cmd_fwd = 0.0
+	run.call(6.0)
+	h.cmd_climb = -1.0
+	run.call(12.0)
+	h.cmd_climb = 0.0
+	run.call(3.0)
+	main.set_drawn(true)
+	check("it flew: %s m up, %s m/s ahead, %s W at the battery (air %s kg/m³)" % [U.fixed(up, 1), U.fixed(v, 1), U.fixed(h.power_w, 0), U.fixed(h.rho, 4)],
+		up > 4.0 and v > 6.0 and not h.crashed)
+	check("it came down on the drawn ground (feet within %s m)" % U.fixed(feet.call(), 4), h.on_ground and not h.crashed and feet.call() < 0.01)
+	for i in 3: main.animate(1.0 / 60.0)
+	check("drawn as Ingenuity", f.heli_model != null and f.heli_model.group.name == "Ingenuity")
 
 # The contact sampler against the triangles as built, over both grids.
 func _sampler(spec: String, site: SurfaceSite, meshes: Array) -> void:
@@ -272,7 +578,7 @@ func _parity(spec: String) -> void:
 func _measured_relief() -> void:
 	var f: Spaceflight = main.flight
 	var cases := [["Moon", "Mare Tranquillitatis", 0.674, 23.473, [0.5, 4.0]], ["Moon", "farside highlands", -5.0, 160.0, [3.0, 14.0]],
-		["Mars", "Jezero", 18.38, 77.58, [0.0, 14.0]], ["Mars", "Tharsis plains", 5.0, -110.0, [0.0, 14.0]]]
+		["Mars", "Jezero", 18.38, 77.58, [0.3, 14.0]], ["Mars", "Tharsis plains", 5.0, -110.0, [0.15, 14.0]]]
 	var slopes := {}
 	for c in cases:
 		var b: Body = f.body_named(str(c[0]))
@@ -290,9 +596,129 @@ func _measured_relief() -> void:
 			med >= float(win[0]) and med <= float(win[1]))
 		check("%s, %s: the site stands %s m off its measured cell, inside 3 of its cell-scale roughness" % [c[0], c[1], U.fixed(off, 1)],
 			absf(off) <= 3.0 * maxf(nu, 1.0))
+		# The near grid's edge against the far one it stands in, sampled either side of it: what is left is the far
+		# grid's kinks inside one of the near one's cells.
+		var near_half := float(near.half)
+		var step := 0.0
+		for k in 200:
+			var s := lerpf(-near_half, near_half, (k + 0.5) / 200.0)
+			for at: Vector2 in [Vector2(1, s), Vector2(-1, s), Vector2(s, 1), Vector2(s, -1)]:
+				var inner := at
+				var outer := at
+				if absf(at.x) == 1.0: inner.x = at.x * (near_half - 0.01); outer.x = at.x * (near_half + 0.01)
+				else: inner.y = at.y * (near_half - 0.01); outer.y = at.y * (near_half + 0.01)
+				var py := SurfaceSite.patch_level(relief.grids, false)
+				step = maxf(step, absf(SiteScene.drawn_height(relief.grids, inner.x, inner.y, py, relief.radius_m, false)
+					- SiteScene.drawn_height(relief.grids, outer.x, outer.y, py, relief.radius_m, false)))
+		check("%s, %s: no step where the near grid ends (worst %s m)" % [c[0], c[1], U.fixed(step, 2)], step < 3.0)
 	check("the highlands are rougher than the mare (%s° against %s°; LOLA's ratio at 17 m is 3.8)" % [
 		U.fixed(slopes["farside highlands"], 2), U.fixed(slopes["Mare Tranquillitatis"], 2)],
 		slopes["farside highlands"] > 2.0 * slopes["Mare Tranquillitatis"])
+
+# At the poles too a survey's east is the meridian's, which is what SurfaceGround reads it along.
+func _poles() -> void:
+	var b: Body = main.flight.body_named("Moon")
+	var worst := 0.0
+	for at: Vector2 in [Vector2(-89.5, 90), Vector2(-88, 180), Vector2(88.5, 45), Vector2(89.9, -120), Vector2(20, -60)]:
+		var lon := deg_to_rad(at.y)
+		var relief := SurfaceSite.plan_relief(b, PlanetPin.at(b, deg_to_rad(at.x), lon), PlanetRelief.of_body(b), 33, 1)
+		worst = maxf(worst, relief.east.distance_to(Vector3(-sin(lon), 0.0, -cos(lon))))
+		worst = maxf(worst, absf(relief.east.dot(relief.north)) + absf(relief.north.cross(relief.center).distance_to(relief.east)))
+	check("a survey's axes are geographic, the poles included (worst %s)" % U.expo(worst, 1), worst < 1e-5)
+
+# The rocks drawn cover the ground as Golombek & Rapp's model says: the area under those of a diameter or more, over
+# 4 km² of cells. And a cell's rocks are the same whenever it is laid out.
+func _rocks() -> void:
+	var k := 0.08
+	var tabs := SiteRocks.classes(k)
+	var q := 1.79 + 0.152 / k
+	for d_min: float in [0.15, 0.5, 1.0]:
+		var covered := 0.0
+		for j in 80:
+			for i in 80:
+				for which in SiteRocks.BANDS:
+					for rock: Array in SiteRocks.cell_rocks(5, i, j, which, tabs[which]):
+						if float(rock[9]) >= d_min: covered += PI * pow(float(rock[9]), 2.0) / 4.0
+		var got := covered / pow(80.0 * SiteRocks.CELL_M, 2.0)
+		var want := k * (exp(-q * d_min) - exp(-q * SiteRocks.D_MAX))
+		check("rocks of %s m or more cover %s%% of the ground (Golombek & Rapp: %s%%)" % [U.fixed(d_min, 2), U.fixed(got * 100.0, 3), U.fixed(want * 100.0, 3)],
+			absf(got / want - 1.0) < 0.12)
+	check("a cell's rocks are its own", SiteRocks.cell_rocks(5, 3, 4, 0, tabs[0]) == SiteRocks.cell_rocks(5, 3, 4, 0, tabs[0])
+		and SiteRocks.cell_rocks(5, 3, 4, 0, tabs[0]) != SiteRocks.cell_rocks(6, 3, 4, 0, tabs[0]))
+
+# Away from a survey: over its antipode the ground is the Moon's, not two radii up; before the vessel is over it the
+# planet's patch is under the vessel, not dropped with the site's tangent plane; flown off it, another can be made.
+func _far_from_it() -> void:
+	var err: String = await main.jump_scenario("lm:powered_descent")
+	check("lm:powered_descent: jump (%s)" % (err if err != "" else "ok"), err == "")
+	if err != "": return
+	var f: Spaceflight = main.flight
+	var v: Vessel = f.vessel
+	var n := 0
+	main.set_drawn(false)
+	while (v.ground == null or not v.ground.adopted) and n < 2000:
+		main.step_flight(0.05)
+		n += 1
+	main.set_drawn(true)
+	check("the survey for the landing site stands, %s km ahead" % U.fixed(Vector2(v.ground.site_point(v, v.r).x, v.ground.site_point(v, v.r).z).length() / 1000.0, 0),
+		v.ground.adopted and not v.ground.covers(v, v.r))
+	for i in 3: main.animate(1.0 / 60.0)
+	check("the patch is under the vessel's own ground (%s m; the ground there %s m)" % [U.fixed(f.ground_pos.y, 0),
+		U.fixed(v.altitude() - v.height_above_ground(), 0)], absf(f.ground_pos.y - (v.altitude() - v.height_above_ground())) < 50.0)
+	var g := v.ground
+	var anti := SurfaceGround.from_mesh(g.c.clone().scale_in(-(g.datum_r + 1e5)), v.body_angle(v.coord), DVec3.new())
+	check("100 km over its antipode the vessel is %s km up" % U.fixed(v.height_above_ground(anti) / 1000.0, 1),
+		absf(v.height_above_ground(anti) - 1e5) < 12e3)
+	v.request_ground(v.r.clone())
+	check("asked to land somewhere else, it surveys there", v.ground != g and v.ground.pin != null)
+
+# EDL engaged again part way down goes on from there; the shell staged by hand takes its parachute with it; and once
+# the bridle is cut the descent stage is no longer the vessel's.
+func _again() -> void:
+	var err: String = await main.jump_scenario("skycrane:parachute")
+	check("skycrane:parachute again: jump (%s)" % (err if err != "" else "ok"), err == "")
+	if err != "": return
+	var f: Spaceflight = main.flight
+	var v: Vessel = f.vessel
+	main.set_drawn(false)
+	for i in 60: main.step_flight(0.05)
+	f.run_program("edl")
+	main.step_flight(0.05)
+	check("engaged again under the parachute, it stays on it (%s)" % f.autopilot.state_name, f.autopilot.state_name == "chute" and v.chute_open != null)
+	v.stage()
+	check("its shell staged by hand, the parachute goes with it", v.chute_open == null and v.stages[0].chuted)
+	main.step_flight(0.05)
+	check("and it flies on its engines (%s)" % f.autopilot.state_name, f.autopilot.state_name == "powered")
+	for i in 100: main.step_flight(0.05)
+	f.run_program("edl")
+	main.step_flight(0.05)
+	check("engaged again under power, it stays there (%s)" % f.autopilot.state_name, f.autopilot.state_name == "powered")
+	err = await main.jump_scenario("skycrane:sky_crane")
+	if err != "":
+		check("skycrane:sky_crane: jump (%s)" % err, false)
+		return
+	f = main.flight
+	v = f.vessel
+	main.set_drawn(false)
+	for i in 40: main.step_flight(0.05)
+	var out := v.bridle
+	f.run_program("edl")
+	main.step_flight(0.05)
+	check("with her on the bridle (%s m), engaging again leaves it out (%s m)" % [U.fixed(out, 2), U.fixed(v.bridle, 2)], out > 0.5 and v.bridle >= out)
+	var n := 0
+	while v.phase != Vessel.PHASE.LANDED and v.phase != Vessel.PHASE.DESTROYED and n < 4000:
+		main.step_flight(0.05)
+		n += 1
+	for i in 60: main.step_flight(0.05)
+	main.set_drawn(true)
+	var rover_m := float(v.stages[2].spec.dry)
+	check("landed and cut, the vessel is the rover alone: %s kg of %s, no engine to light" % [U.fixed(v.mass, 0), U.fixed(rover_m, 0)],
+		v.phase == Vessel.PHASE.LANDED and absf(v.mass - rover_m) < 1.0 and not v.stages[1].attached)
+	for i in 3: main.animate(1.0 / 60.0)
+	check("the stage drawn on its flyaway, %s m off" % U.fixed(f.crane_rig.desc.group.position.length(), 0),
+		f.crane_rig.desc.group.visible and f.crane_rig.desc.group.position.length() > 10.0)
+	f.teardown()
+	check("nothing of the weather is left on the flight's air", f.local.dust_extra == 0.0 and not f.local.pipe.env_local.fog_enabled)
 
 # Median of |Δh| / spacing between neighbouring cells, as an angle, °.
 func _median_slope(g: Dictionary) -> float:

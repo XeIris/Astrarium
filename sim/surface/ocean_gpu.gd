@@ -37,7 +37,7 @@ func refill() -> void:
 ## Run the cascades at site time `t`, `dt` since the last frame (for the foam's fading).
 func run(t: float, dt: float) -> void:
 	if not RDU.available(): return
-	RenderingServer.call_on_render_thread(_run_rt.bind(t, dt))
+	RenderingServer.call_on_render_thread(_run_rt.bind(fmod(t, OceanField.PERIOD), dt))
 
 ## Read one cascade's (Dx, h, Dz, ∂Dx/∂z) back, for the checks: a PackedFloat32Array of N² × 4, or empty.
 func read_back(c: int) -> PackedFloat32Array:

@@ -118,6 +118,11 @@ func controls() -> void:
 	put(path, JSON.stringify({"pause": [KEY_F, false, false, false]}))
 	var invalid := ControlBindings.new(path)
 	expect(invalid._save_blocked and invalid.bindings == ControlBindings.DEFAULTS, "conflicting loaded keys reject the entire candidate")
+	# A file from before the rovers and the helicopter, with one of their keys in use: kept, and theirs give way.
+	for taken in [["throttle_up", KEY_W], ["gear", KEY_U], ["flight_camera", KEY_I], ["gear", KEY_E]]:
+		put(path, JSON.stringify({taken[0]: [taken[1], false, false, false]}))
+		var older := ControlBindings.new(path)
+		expect(not older._save_blocked and older.bindings[taken[0]][0] == taken[1], "a key taken before %s's action was added is kept" % taken[0])
 	# A file from before the space map and dropped-stage follow keys, using their
 	# defaults (M, B) itself, still loads whole; the new actions move to free keys.
 	put(path, JSON.stringify({"gear": [KEY_B, false, false, false], "pause": [KEY_M, false, false, false]}))
