@@ -5,6 +5,10 @@ extends Control
 # Measured panel layout, wrapping prose and supported builders: AGENTS.md.
 
 signal start_chosen(mode: String)
+## Load game from the title: the saves of `kind` (SaveStore.KINDS).
+signal load_chosen(kind: String)
+## Settings › Saves: "save", or "load" with the kind whose saves to list.
+signal saves_action(action: String, kind: String)
 signal quit_to_start()
 signal quit_app()
 signal binding_chosen(action: String)
@@ -163,6 +167,9 @@ var _title_veil: ColorRect
 var _title_shade: TextureRect
 var _title_logo: TitleLogo
 var _start_inner: VBoxContainer
+var _title_path: Label
+## The title menu shown: a key of TITLE_MENUS.
+var title_menu := "root"
 var binding_buttons := {}
 var _start_tween: Tween = null
 var _start_generation := 0
@@ -643,6 +650,21 @@ func _build_settings() -> void:
 		lt_btn.set_label("☑ Light-time delay" if Scale.light_time else "☐ Light-time delay")
 		set_active("lightTimeToggle", Scale.light_time))
 
+	# SAVES
+	var saves := _page(p, "saves")
+	_note(saves, "Sandbox, Spaceflight and Planetary exploration each keep ten save slots of their own. A save holds the whole scene: every body where it is and how it moves, the clock, the camera, and the flight or the world you are exploring.")
+	_h3(saves, "This game", true)
+	m(L(saves, "", {"fs": 11.0, "c": T.TEXT, "lh": 1.5}, "savesNow", true), 0.0, 10.0)
+	var save_btn := B(saves, "Primary", "Save game…", "savesSave", "Save this scene into one of its ten slots.")
+	save_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	m(save_btn, 0.0, 10.0).pressed.connect(func(): saves_action.emit("save", ""))
+	_h3(saves, "Load a game")
+	_note(saves, "Loading replaces the scene you are in; it asks first.")
+	var load_row := grid(saves, [1.0], 0.0, 6.0, 0.0, 10.0)
+	for kd in SaveStore.KINDS:
+		B(load_row, "Ghost", "%s saves ▸" % SaveStore.KINDS[kd], "[data-saves-load=%s]" % kd).pressed.connect(
+			func(): saves_action.emit("load", kd))
+
 	# CONTROLS
 	var controls := _page(p, "controls")
 	m(B(controls, "Ghost", "Quit to start", "quitToStart"), 0.0, 10.0).pressed.connect(func(): quit_to_start.emit())
@@ -721,7 +743,7 @@ func update_binding_labels(bindings: Dictionary) -> void:
 		binding_buttons[id].set_label(binding_label(bindings[id]))
 
 ## Settings' pages; the last is shown only in developer mode.
-const SETTINGS_PAGES := [["sky", "Sky"], ["render", "Render"], ["sim", "Sim"], ["controls", "Controls"], ["dev", "Dev"]]
+const SETTINGS_PAGES := [["sky", "Sky"], ["render", "Render"], ["sim", "Sim"], ["saves", "Saves"], ["controls", "Controls"], ["dev", "Dev"]]
 var settings_page := "sky"
 var dev_mode := false
 
@@ -1588,18 +1610,67 @@ func _build_start() -> void:
 	start_screen.add_child(_title_shade)
 	_title_logo = TitleLogo.new()
 	start_screen.add_child(_title_logo)
+	_title_path = L(start_screen, "", {"fs": 10.0, "ls": 3.0, "up": true, "c": T.TEXT_DIM, "fw": 500})
 	_start_inner = VBoxContainer.new()
 	_start_inner.add_theme_constant_override("separation", 0)
 	_start_inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	start_screen.add_child(_start_inner)
-	for c in [["sandbox", "Sandbox"], ["flight", "Spaceflight"], ["learn", "Learn"], ["observatory", "Observatory"], ["settings", "Settings"]]:
+	show_title_menu("root")
+
+## The title's menus. An id with a colon starts or loads that kind of game; a bare id
+## that names a menu opens it.
+const TITLE_MENUS := {
+	"root": [["sandbox", "Sandbox"], ["explore", "Explore"], ["learn", "Learn"], ["observatory", "Observatory"], ["settings", "Settings"]],
+	"sandbox": [["sandbox:new", "New game"], ["sandbox:load", "Load game"], ["back", "Back"]],
+	"explore": [["flight", "Spaceflight"], ["planetary", "Planetary exploration"], ["back", "Back"]],
+	"flight": [["flight:new", "New game"], ["flight:load", "Load game"], ["back", "Back"]],
+	"planetary": [["planetary:new", "New game"], ["planetary:load", "Load game"], ["back", "Back"]],
+}
+const TITLE_PARENT := {"sandbox": "root", "explore": "root", "flight": "explore", "planetary": "explore"}
+const TITLE_PATH := {"root": "", "sandbox": "Sandbox", "explore": "Explore", "flight": "Explore › Spaceflight",
+	"planetary": "Explore › Planetary exploration"}
+## What a menu's New game starts (main.set_app_mode) and whose saves its Load game lists.
+const TITLE_MODE := {"sandbox": "sandbox", "flight": "flight", "planetary": "explore"}
+const TITLE_KIND := {"sandbox": "sandbox", "flight": "spaceflight", "planetary": "planetary"}
+
+func show_title_menu(menu: String) -> void:
+	title_menu = menu if TITLE_MENUS.has(menu) else "root"
+	# A keyboard choice keeps the keyboard: the new menu's first item takes the focus.
+	var focused := get_viewport().gui_get_focus_owner() if is_inside_tree() else null
+	var keyed := focused != null and focused.get_parent() == _start_inner
+	for item in _start_inner.get_children():
+		_start_inner.remove_child(item)
+		item.queue_free()
+	for key in sels.keys():
+		if str(key).begins_with("[data-start="): sels.erase(key)
+	for c in TITLE_MENUS[title_menu]:
 		var item := TitleItem.new(c[1])
 		_start_inner.add_child(item)
 		reg("[data-start=%s]" % c[0], item)
-		if c[0] == "settings":
-			item.pressed.connect(func(): set_settings_open(true))
-		else:
-			item.pressed.connect(func(): start_chosen.emit(c[0]))
+		item.pressed.connect(title_chosen.bind(str(c[0])))
+	_title_path.text = TITLE_PATH[title_menu]
+	if keyed: (_start_inner.get_child(0) as Control).grab_focus.call_deferred()
+	_queue_layout()
+
+func title_chosen(id: String) -> void:
+	if id == "back":
+		title_back()
+	elif id == "settings":
+		set_settings_open(true)
+	elif TITLE_MENUS.has(id):
+		show_title_menu(id)
+	elif id.ends_with(":new"):
+		start_chosen.emit(TITLE_MODE[id.get_slice(":", 0)])
+	elif id.ends_with(":load"):
+		load_chosen.emit(TITLE_KIND[id.get_slice(":", 0)])
+	else:
+		start_chosen.emit(id)
+
+## Up one title menu. False at the top, where there is nothing to go back to.
+func title_back() -> bool:
+	if title_menu == "root": return false
+	show_title_menu(TITLE_PARENT.get(title_menu, "root"))
+	return true
 
 ## The reel's fade: 0 shows the scene, 1 is black. The menu stays above it.
 func set_title_veil(a: float) -> void:
@@ -1625,6 +1696,7 @@ func dismiss_start() -> void:
 
 func show_start() -> void:
 	_start_generation += 1
+	show_title_menu("root")
 	if _start_tween: _start_tween.kill()
 	start_screen.visible = true
 	start_screen.modulate.a = 1.0
@@ -2455,6 +2527,8 @@ func _layout_all() -> void:
 	var ms := _start_inner.get_combined_minimum_size()
 	_start_inner.position = Vector2(left + 4.0, roundf(maxf(_title_logo.position.y + lh * 0.92, H * 0.38)))
 	_start_inner.size = ms
+	_title_path.reset_size()
+	_title_path.position = Vector2(left + 4.0, _start_inner.position.y - _title_path.size.y - roundf(H * 0.012))
 
 func _input(e: InputEvent) -> void:
 	# Clicking anywhere but the search box gives the keyboard back to the view.

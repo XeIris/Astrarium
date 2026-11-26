@@ -22,7 +22,8 @@ static func finish_recovery(path: String) -> Error:
 	return DirAccess.remove_absolute(path + ".bak") if FileAccess.file_exists(path + ".bak") else OK
 
 # fault(operation, from, to) is an optional check-only seam for I/O failures.
-static func write_dict(path: String, data: Dictionary, use_backup: bool = false, fault: Callable = Callable(), reset: bool = false, validate: Callable = Callable()) -> Dictionary:
+# `precise` writes 17 significant digits, so every double reads back bit for bit.
+static func write_dict(path: String, data: Dictionary, use_backup: bool = false, fault: Callable = Callable(), reset: bool = false, validate: Callable = Callable(), precise: bool = false) -> Dictionary:
 	var backup := path + ".bak"
 	if FileAccess.file_exists(backup) and not reset:
 		return _result(ERR_ALREADY_EXISTS, "Recovery file %s must be resolved before saving %s." % [backup, path])
@@ -36,7 +37,7 @@ static func write_dict(path: String, data: Dictionary, use_backup: bool = false,
 	var temp := path + ".tmp." + Crypto.new().generate_random_bytes(12).hex_encode()
 	var file := FileAccess.open(temp, FileAccess.WRITE)
 	if file == null: return _failure(path, temp, FileAccess.get_open_error(), "create temporary file")
-	var serialized := JSON.stringify(data, "\t")
+	var serialized := JSON.stringify(data, "\t", true, precise)
 	file.store_string(serialized)
 	file.flush()
 	var err := file.get_error()

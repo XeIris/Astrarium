@@ -30,6 +30,7 @@ func _ready() -> void:
 	# Isolate saved application settings from the real user's file.
 	app_file = _temp_dir().path_join("astrarium-hudcheck-app-%d.json" % OS.get_process_id())
 	AppIcon.file_path = app_file
+	SaveStore.dir = _temp_dir().path_join("astrarium-hudcheck-saves-%d" % OS.get_process_id())
 	main = load("res://main.tscn").instantiate()
 	add_child(main)
 	await get_tree().process_frame
@@ -305,6 +306,28 @@ func _setup(s: String) -> void:
 		"start":
 			await _start("sandbox")
 			main.quit_to_start()
+		"start_explore", "start_flight":
+			await _start("sandbox")
+			main.quit_to_start()
+			hud.show_title_menu("explore" if s == "start_explore" else "flight")
+		"explore", "explore_menu":
+			await _start("explore")
+			await _steps(10)
+			if s == "explore_menu":
+				var mars: Body = main.state.body_named("Mars")
+				main.explore_map.frame_on(mars)
+				await _steps(40)
+				main.explore_map.open_menu(mars, main.explore_map.to_screen(mars.pos))
+		"saves_save", "saves_load", "settings_saves", "exit_prompt":
+			await _start("sandbox")
+			_demo_saves()
+			match s:
+				"saves_save": main._on_saves_action("save", "")
+				"saves_load": main._on_saves_action("load", "sandbox")
+				"exit_prompt": main.request_quit_to_start()
+				_:
+					hud.set_settings_open(true)
+					hud.set_settings_page("saves")
 		"toast":
 			await _start("sandbox")
 			main.toast("Scenario loaded — this is a toast", 100000)
@@ -317,6 +340,22 @@ func _setup(s: String) -> void:
 func _find(sel: String) -> Control:
 	var t: Array = hud._targets(sel)
 	return t[0] if not t.is_empty() else null
+
+## A button on the save card (ui/save_browser.gd), by its `sel` meta.
+func _save_button(sel: String) -> Control:
+	for b in main.saves_ui.find_children("*", "HudButton", true, false):
+		if b.get_meta("sel", "") == sel: return b
+	return null
+
+## Two sandbox saves and a damaged one, in the run's own save folder.
+func _demo_saves() -> void:
+	var cap := SaveGame.capture(main, "sandbox")
+	SaveStore.write("sandbox", 0, "Inner planets, year one", cap.summary, cap.state, 1795000000.0)
+	SaveStore.write("sandbox", 3, "Before the flyby", cap.summary, cap.state, 1796000000.0)
+	DirAccess.make_dir_recursive_absolute(SaveStore.path_of("sandbox", 5).get_base_dir())
+	var f := FileAccess.open(SaveStore.path_of("sandbox", 5), FileAccess.WRITE)
+	f.store_string("{\"format\": 1, \"kind\": \"sandbox\", \"name\": \"Half-written")
+	f.close()
 
 ## Scroll whatever panel holds `c` so that it is on screen.
 func _reveal(c: Control) -> void:
@@ -1227,7 +1266,9 @@ func _layout_walk() -> void:
 			await _click(_find("[data-warp=1]"))
 			check(tag + " forward warp can be clicked", main.flight.warp_idx != warp)
 			await _click(con.buttons["exit"])
-			check(tag + " the console's Exit leaves flight", not main.flight.active)
+			check(tag + " the console's Exit asks whether to save the flight", main.saves_ui.visible and main.saves_ui.view == "prompt" and main.flight.active)
+			await _click(_save_button("savePrompt1"))
+			check(tag + " Leave without saving leaves flight", not main.flight.active and not main.saves_ui.visible)
 
 func _panel_close(p: Control) -> Control:
 	for b in p.find_children("*", "", true, false):

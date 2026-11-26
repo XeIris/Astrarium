@@ -88,7 +88,13 @@ CHANGED_RULES = (
     (("sim/structure.gd", "sim/derive.gd", "sim/presets.gd", "scenarios/*", "sim/scenario_file.gd", "sim/jsonc.gd", "sim/starcat.gd",
       "sim/stellar.gd", "sim/scale.gd", "sim/climate.gd", "sim/climate_inputs.gd", "sim/atmosphere.gd", "sim/ebm.gd", "sim/suns.gd", "sim/bodies.gd"),
      ("presetcheck", "structureinputcheck", "editorcheck", "coursecheck", "invariantcheck", "nbodycheck",
-      "secularcheck", "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck", "scenariofilecheck")),
+      "secularcheck", "sciencecheck", "savecheck", "accretion*", "_soak_check-*", "realismcheck", "scenariofilecheck", "gamesavecheck")),
+    # Saved games: what a save holds of the world, a flight and an exploration, and the
+    # slots, the card, the world picker and the title menus that reach them.
+    (("sim/save_codec.gd", "sim/save_store.gd", "sim/save_game.gd", "ui/save_browser.gd", "ui/explore_map.gd",
+      "sim/showcase.gd", "sim/painter.gd", "core/json_file.gd", "sim/flight/vessel.gd", "sim/flight/spaceflight.gd",
+      "sim/flight/scenarios.gd", "sim/planet_pin.gd", "sim/surface/surface_visit.gd", "tools/gamesavecheck.*"),
+     ("gamesavecheck", "savecheck", "hud*")),
     # Scenario files, their reader and store, and the Scenario panel that uploads them.
     (("sim/scenario_file.gd", "sim/jsonc.gd", "sim/scenario_store.gd", "scenarios/*", "tools/fixtures/scenario_states.json", "ui/hud.gd",
       "sim/sky.gd"),
@@ -474,6 +480,9 @@ def checks(suite, godot, output, repeat, export_preset):
         yield headless_scene("sharedtimecheck", r"^SHARED TIME DONE checks=[1-9]\d* failures=0$", "assets=0")
         yield headless_scene("transitioncheck", r"^TRANSITIONCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("structureinputcheck", r"^STRUCTUREINPUTCHECK DONE checks=[1-9]\d* failures=0$")
+        # Saved games through the stage: slots, damaged files, and a sandbox, a flight and
+        # an exploration each loaded back bit for bit and played on.
+        yield headless_scene("gamesavecheck", r"^GAMESAVECHECK DONE checks=[1-9]\d* failures=0$", "settings=default")
         yield headless_scene("editorcheck", r"^EDITORCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("compositioncheck", r"^COMPOSITIONCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("lookcheck", r"^LOOKCHECK DONE checks=[1-9]\d* failures=0$")
