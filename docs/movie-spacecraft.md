@@ -203,7 +203,7 @@ and fittings use directionally brushed metal.
 
 `tools/moviecraftshots.tscn -- v=<vehicle> dump=/absolute/directory` captures the
 studio angles. The authored and fallback builds run through audit, clearance,
-part counts and 28 authored parity poses. Discovery's check covers the full
+part counts and 26 authored parity poses. Discovery's check covers the full
 cover sweep, pod aperture clearance, rotor fit and Jovian initial conditions.
 Endurance's check covers rotor phase, its mounted craft clearances and outlet
 attachment. `tools/dockingflightshots.tscn` exercises all three captures and checks

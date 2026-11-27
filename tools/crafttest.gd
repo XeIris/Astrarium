@@ -67,10 +67,10 @@ static func audit() -> Array:
 
 # Bevels and primitive tessellation may move skin bounds by at most two centimetres.
 const HEIGHT_TOLERANCE := 0.02
-## The authored craft models, one per vehicle not declared `procedural`.
-const AUTHORED_COUNT := 13
 
 static func height_parity(require_authored := false, inject := false) -> Array:
+	# One authored model per vehicle not declared `procedural`.
+	var models := CraftAssets.CRAFT_ASSETS.size()
 	var errors := []
 	var compared := 0
 	var authored_ids := 0
@@ -107,8 +107,8 @@ static func height_parity(require_authored := false, inject := false) -> Array:
 			compared += 1
 		authored.group.free()
 		fallback.group.free()
-	if require_authored and (authored_ids != AUTHORED_COUNT or compared != 2 * AUTHORED_COUNT):
-		errors.append("parity compared %d of %d authored vehicles (%d poses)" % [compared / 2, AUTHORED_COUNT, compared])
+	if require_authored and (authored_ids != models or compared != 2 * models):
+		errors.append("parity compared %d of %d authored vehicles (%d poses)" % [compared / 2, models, compared])
 	print("PARITY DONE %d poses, %d failures" % [compared, errors.size()])
 	return errors
 

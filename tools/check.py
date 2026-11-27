@@ -497,8 +497,9 @@ def checks(suite, godot, output, repeat, export_preset):
                     lane="window")  # windowed, like scene()
     elif suite in ("assets", "procedural"):
         if suite == "assets":
+            # crafttest fails unless it compared every model in CraftAssets.CRAFT_ASSETS in both poses.
             yield ("craft-parity", base + ["--headless", "res://tools/crafttest.tscn", "--", "parity"],
-                   r"^PARITY DONE 28 poses, 0 failures$", 180)
+                   r"^PARITY DONE [1-9]\d* poses, 0 failures$", 180)
         if suite == "assets":
             yield script("observatorycheck", (r"^OBSERVATORYCHECK authored library: [1-9]\d* stages$", r"^OBSERVATORYCHECK DONE checks=[1-9]\d* failures=0$"),
                          "assets=1")._replace(name="observatorycheck-assets")
@@ -507,8 +508,10 @@ def checks(suite, godot, output, repeat, export_preset):
             yield script("rangercheck", r"^RANGERCHECK DONE checks=[1-9]\d* failures=0$", f"assets={assets}")._replace(name=f"rangercheck-{assets}")
             yield script("discoverycheck", r"^DISCOVERYCHECK DONE checks=[1-9]\d* failures=0$", f"assets={assets}")._replace(name=f"discoverycheck-{assets}")
             yield script("endurancecheck", r"^ENDURANCECHECK DONE checks=[1-9]\d* failures=0$", f"assets={assets}")._replace(name=f"endurancecheck-{assets}")
-            # The authored gate cannot pass by silently substituting optional fallback models.
-            yield script("assetcheck", rf"^ASSETCHECK DONE [1-9]\d* checks, {'13' if assets == '1' else '0'} authored, 0 failures$", f"assets={assets}")
+            # The authored gate cannot pass by silently substituting optional fallback models:
+            # assetcheck fails unless every CRAFT_ASSETS model was built from its file.
+            authored = r"[1-9]\d*" if assets == "1" else "0"
+            yield script("assetcheck", rf"^ASSETCHECK DONE [1-9]\d* checks, {authored} authored, 0 failures$", f"assets={assets}")
             for action in ("audit", "clearance"):
                 yield (f"craft-{action}-{assets}", base + ["--headless", "res://tools/crafttest.tscn", "--", action, f"assets={assets}"],
                        r"^CRAFTCHECK DONE PASS$", 180)
