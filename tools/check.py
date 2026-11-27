@@ -93,7 +93,7 @@ CHANGED_RULES = (
     # slots, the card, the world picker and the title menus that reach them.
     (("sim/save_codec.gd", "sim/save_store.gd", "sim/save_game.gd", "ui/save_browser.gd", "ui/explore_map.gd",
       "sim/showcase.gd", "sim/painter.gd", "core/json_file.gd", "sim/flight/vessel.gd", "sim/flight/spaceflight.gd",
-      "sim/flight/scenarios.gd", "sim/planet_pin.gd", "sim/surface/surface_visit.gd", "tools/gamesavecheck.*"),
+      "sim/flight/scenarios.gd", "sim/planet_pin.gd", "sim/surface/surface_visit.gd", "ui/hud.gd", "tools/gamesavecheck.*"),
      ("gamesavecheck", "savecheck", "hud*")),
     # Scenario files, their reader and store, and the Scenario panel that uploads them.
     (("sim/scenario_file.gd", "sim/jsonc.gd", "sim/scenario_store.gd", "scenarios/*", "tools/fixtures/scenario_states.json", "ui/hud.gd",

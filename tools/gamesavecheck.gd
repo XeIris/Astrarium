@@ -15,6 +15,7 @@ var main: Node
 var checks := 0
 var failures := 0
 var dir := ""
+var base := {}               # a real sandbox state, for the store's own tests
 
 func check(label: String, ok: bool, detail := "") -> void:
 	checks += 1
@@ -33,11 +34,14 @@ func _ready() -> void:
 	for i in 3: await get_tree().process_frame
 	SaveStore.dir = dir
 	codec()
-	store()
-	damaged_files()
 	main._start("sandbox")
 	main.set_drawn(false)
+	main.load_preset("solar")
+	base = SaveGame.capture(main, "sandbox").state
+	store()
+	damaged_files()
 	await sandbox_round_trip()
+	await day_length_round_trip()
 	await refused_loads()
 	await flight_round_trip()
 	await pad_round_trip()
@@ -89,7 +93,11 @@ func codec() -> void:
 	var d2: Dictionary = SaveCodec.decode(JSON.parse_string(JSON.stringify(e2.value, "", true, true))).value
 	check("a double Godot's JSON would round is kept exactly", SaveCodec.bits(d2.x) == SaveCodec.bits(odd), str(e2.value))
 	check("negative zero keeps its sign", SaveCodec.bits(d2.z) == SaveCodec.bits(-0.0))
-	for bad in [{"@i": "4.5"}, {"@i": 4}, {"@f": "huge"}, {"@x": 1}, {"a": {"@q": 1}}, {"@d": "zz"}, {"@d": "000000000000f07f"}]:
+	var ends: Dictionary = SaveCodec.decode({"hi": {"@i": "9223372036854775807"}, "lo": {"@i": "-9223372036854775808"}}).value
+	check("both ends of the int64 range decode exactly", ends.hi == 9223372036854775807 and ends.lo == -9223372036854775807 - 1)
+	for bad in [{"@i": "4.5"}, {"@i": 4}, {"@i": "9223372036854775808"}, {"@i": "-9223372036854775809"}, {"@i": "007"},
+			{"@i": "+5"}, {"@f": "huge"}, {"@x": 1}, {"a": {"@q": 1}}, {"@d": "zz"}, {"@d": "000000000000f07f"},
+			{"@d": "+000000000000000"}, {"@d": "-123456789abcdef"}]:
 		check("decode refuses %s" % JSON.stringify(bad), SaveCodec.decode(bad).error != "")
 	var deep = 1
 	for i in 80: deep = [deep]
@@ -97,8 +105,14 @@ func codec() -> void:
 
 # THE SLOTS
 
+## A state that validates, told apart by its scene's name.
 func _state(n: int) -> Dictionary:
-	return {"world": {"n": n, "x": 0.1 * n}}
+	var s: Dictionary = base.duplicate(true)
+	s.world.scene.name = "state %d" % n
+	return s
+
+static func _named(r: Dictionary) -> String:
+	return str(r.save.state.world.scene.name) if r.get("ok", false) else ""
 
 func store() -> void:
 	var empty := SaveStore.list("sandbox")
@@ -116,7 +130,7 @@ func store() -> void:
 	SaveStore.write("sandbox", 6, "Gamma", "the third", _state(3), 3000.0)
 	var r := SaveStore.read("sandbox", 3)
 	check("a save reads back", r.ok and r.save.name == "Beta" and r.save.summary == "the second" and r.save.saved == 2000.0
-		and r.save.state == _state(2), str(r.get("error", "")))
+		and _named(r) == "state 2", str(r.get("error", "")))
 	var listed := SaveStore.list("sandbox")
 	check("the list shows filled slots where they are", listed[1].status == "ok" and listed[3].name == "Beta" and listed[6].saved == 3000.0
 		and listed[0].status == "empty")
@@ -129,20 +143,44 @@ func store() -> void:
 		and SaveStore.list("planetary").all(func(e): return e.status == "empty"))
 	var ren := SaveStore.rename("sandbox", 3, "Delta")
 	r = SaveStore.read("sandbox", 3)
-	check("a rename keeps the date and the contents", ren.ok and r.save.name == "Delta" and r.save.saved == 2000.0 and r.save.state == _state(2))
+	check("a rename keeps the date and the contents", ren.ok and r.save.name == "Delta" and r.save.saved == 2000.0 and _named(r) == "state 2")
 	check("renaming an empty slot fails", not SaveStore.rename("sandbox", 0, "x").ok)
 	check("renaming to a bad name fails", not SaveStore.rename("sandbox", 3, "").ok and SaveStore.read("sandbox", 3).save.name == "Delta")
 	SaveStore.write("sandbox", 3, "Delta", "overwritten", _state(9), 4000.0)
 	r = SaveStore.read("sandbox", 3)
-	check("an overwrite replaces the slot", r.save.summary == "overwritten" and r.save.state == _state(9))
+	check("an overwrite replaces the slot", r.save.summary == "overwritten" and _named(r) == "state 9")
+	# A file the reader would refuse is not written, and the slot keeps what it had.
+	var real_limit := SaveStore.max_bytes
+	SaveStore.max_bytes = FileAccess.get_file_as_bytes(SaveStore.path_of("sandbox", 3)).size() + 64
+	var big := _state(10)
+	big.world.scene.blurb = "x".repeat(4096)
+	var too_big := SaveStore.write("sandbox", 3, "Delta", "too big", big)
+	check("an oversized save is refused before it replaces the slot", not too_big.ok and str(too_big.error).contains("MB")
+		and _named(SaveStore.read("sandbox", 3)) == "state 9", str(too_big.get("error", "")))
+	# A recovery file over the limit is not read either, nor renamed into place.
+	var bak := FileAccess.open(SaveStore.path_of("sandbox", 8) + ".bak", FileAccess.WRITE)
+	bak.store_string(" ".repeat(SaveStore.max_bytes + 16))
+	bak.close()
+	var rb := SaveStore.read("sandbox", 8)
+	check("an oversized recovery file is refused unread", not rb.ok and str(rb.error).contains("recovery file")
+		and not FileAccess.file_exists(SaveStore.path_of("sandbox", 8)), str(rb.error))
+	SaveStore.max_bytes = real_limit
+	SaveStore.delete("sandbox", 8)
+	# An envelope that reads around a state the stage would refuse is listed as unreadable.
+	SaveStore.write("sandbox", 7, "Hollow", "", {"world": {}})
+	var hollow: Dictionary = SaveStore.list("sandbox")[7]
+	check("a save whose state does not validate is listed as unreadable", hollow.status == "bad" and str(hollow.error).contains("does not fit")
+		and hollow.name == "Hollow" and not SaveStore.read("sandbox", 7).ok, str(hollow.error))
+	SaveStore.delete("sandbox", 7)
 	check("a delete empties the slot", SaveStore.delete("sandbox", 3) == OK and SaveStore.list("sandbox")[3].status == "empty"
 		and not FileAccess.file_exists(SaveStore.path_of("sandbox", 3)))
 	check("deleting an empty slot is harmless", SaveStore.delete("sandbox", 3) == OK)
-	for slot in SaveStore.SLOTS: SaveStore.write("planetary", slot, "p%d" % slot, "", _state(slot), float(slot))
-	check("ten filled slots leave none free", SaveStore.first_free("planetary") == -1)
-	check("an eleventh cannot be made", not SaveStore.write("planetary", SaveStore.SLOTS, "p", "", {}).ok)
+	for slot in SaveStore.SLOTS: SaveStore.write("sandbox", slot, "p%d" % slot, "", _state(slot), float(slot))
+	check("ten filled slots leave none free", SaveStore.first_free("sandbox") == -1)
+	check("an eleventh cannot be made", not SaveStore.write("sandbox", SaveStore.SLOTS, "p", "", base).ok)
 	SaveStore.write("planetary", 0, "p0", "", {"world": {"x": 0.1 + 0.2}}, 0.0)
 	check("the store writes doubles in full", FileAccess.get_file_as_string(SaveStore.path_of("planetary", 0)).contains("0.30000000000000004"))
+	SaveStore.delete("sandbox", 9)
 	var ok_state := SaveStore.write("sandbox", 9, "bad state", "", {"x": Callable()})
 	check("a state that cannot be encoded is not written", not ok_state.ok and SaveStore.list("sandbox")[9].status == "empty")
 	for slot in SaveStore.SLOTS: SaveStore.delete("planetary", slot)
@@ -210,7 +248,7 @@ func damaged_files() -> void:
 	var bak := FileAccess.open(SaveStore.path_of("sandbox", 2) + ".bak", FileAccess.WRITE)
 	bak.store_string(good)
 	bak.close()
-	var w := SaveStore.write("sandbox", 2, "fresh", "", {"world": {}})
+	var w := SaveStore.write("sandbox", 2, "fresh", "", base)
 	check("a stale recovery file does not block a save", w.ok and SaveStore.read("sandbox", 2).save.name == "fresh", str(w.get("error", "")))
 	SaveStore.delete("sandbox", 2)
 	check("a delete takes the recovery file too", not FileAccess.file_exists(SaveStore.path_of("sandbox", 2) + ".bak"))
@@ -222,12 +260,20 @@ func world_digest() -> Array:
 	var out := [st.preset_key, st.sim_years, st.year_remainder, st.consumed, st.time_scale, st.true_scale, st.paused, st.max_step]
 	for b: Body in st.bodies:
 		var row := [b.name, b.type, b.mass, b.mass0, b.pos.to_array(), b.vel.to_array(), b.spin_frac, b.spin_omega,
-			b.spin_tracked, b.radius, b.spin_phase]
+			b.spin_tracked, b.radius, b.spin_phase, b.day_length]
 		if b.climate != null:
 			var cl: Climate = b.climate
 			row.append([cl.T, cl.ice, cl.ocean, cl.steam, cl.clouds, cl.time, cl.pending, cl.wet, Array(cl.ebm.T),
 				cl.mixed_layer, cl.pressures.duplicate(), cl.history.size(), cl.extremes.duplicate()])
 		out.append(row)
+	var tides := []
+	for key in main._tidal_rv:
+		var ids: PackedStringArray = str(key).split(":")
+		var v := st.body_by_id(int(ids[0]))
+		var p := st.body_by_id(int(ids[1]))
+		if v != null and p != null: tides.append([v.name, p.name, main._tidal_rv[key]])
+	tides.sort_custom(func(x, y): return str(x[0]) + str(x[1]) < str(y[0]) + str(y[1]))
+	out.append(tides)
 	return out
 
 func cam_digest() -> Array:
@@ -285,16 +331,25 @@ func sandbox_round_trip() -> void:
 	main.edit_body(main.state.body_named("Mars"), {"mass": main.state.body_named("Mars").mass * 1.5})
 	main.set_follow(main.state.body_named("Saturn"))
 	main.paint_ring_on(main.state.body_named("Saturn"))
+	var saturn: Body = main.state.body_named("Saturn")
+	main.edit_body(saturn, {"mass": saturn.mass * 1.25})
 	main.set_time_scale(0.75)
 	_quiet_stars()
 	frames(90)
 	check("the spawned world has a climate", b != null and b.climate != null)
 	check("a sandbox in play can be saved", SaveGame.why_not(main, SaveGame.kind_now(main)) == "" and SaveGame.kind_now(main) == "sandbox")
+	# Most solar pairs are never sampled (their Roche limit lies inside contact), so one is put
+	# in by hand: outbound, so it can never stand for a missed periapsis.
+	var earth: Body = main.state.body_named("Earth")
+	var moon: Body = main.state.body_named("Moon")
+	main._tidal_rv["%d:%d" % [moon.id, earth.id]] = [1.0e-9, main.state.sim_years]
+	var tide_count: int = main._tidal_rv.size()
 	var cap := _save("sandbox", 0, "Solar, edited")
 	check("the sandbox saves", cap.ok, str(cap.error))
 	var digest := world_digest()
 	var cam := cam_digest()
 	var paint: int = main.painter.items.size()
+	var ring_mass := float(main.painter.items.filter(func(it): return it.kind == "ring")[0].get_meta("save_spec").centralMass)
 	check("the summary says what is in it", str(cap.summary).begins_with("Solar System") and str(cap.summary).contains("star")
 		and str(cap.summary).contains("gas giant"), str(cap.summary))
 	frames(240)
@@ -310,6 +365,10 @@ func sandbox_round_trip() -> void:
 	check("every body, the clock and the climates come back bit for bit", _first_diff(digest, back) == "", _first_diff(digest, back))
 	check("the camera comes back", _first_diff(cam, cam_digest()) == "", _first_diff(cam, cam_digest()))
 	check("the ring comes back", main.painter.items.size() == paint and paint > 0)
+	var ring = main.painter.items.filter(func(it): return it.kind == "ring")
+	check("the ring keeps the mass it was made about, not its planet's new one", not ring.is_empty()
+		and float(ring[0].get_meta("save_spec").centralMass) == ring_mass and ring_mass != main.state.body_named("Saturn").mass)
+	check("the Roche samples come back", tide_count > 0 and main._tidal_rv.size() == tide_count)
 	check("the spawned world's climate draw is its own", main.state.body_named("Saved World").climate.drawn == b.climate.drawn if b != null else false)
 	check("the mode is the sandbox", main.state.app_mode == "sandbox" and not main.at_start)
 	_quiet_stars()
@@ -327,6 +386,18 @@ static func _climate_of(s: Dictionary, drawn := false) -> Dictionary:
 	for e in s.world.bodies:
 		if e.climate != null and (not drawn or e.climate.has("drawn")): return e.climate
 	return {}
+
+## The Day length slider sets the home world's day directly, not through its spec.
+func day_length_round_trip() -> void:
+	check("a scenario with a home world", main.load_preset("edu_seasons") and main.get_home() != null)
+	main._on_slider("daylen", 2.0)
+	var day: float = main.get_home().day_length
+	var cap := _save("sandbox", 6, "Two-day world")
+	main.load_preset("solar")
+	var err: String = await main.restore_save("sandbox", SaveStore.read("sandbox", 6).save.state)
+	check("the edited day length comes back, on its slider too", err == "" and absf(day - 2.0 / 365.25) < 1e-15
+		and main.get_home().day_length == day and absf(main.hud.sliders["daylen"].value - 2.0) < 1e-9, err if err != "" else str(cap.get("error", "")))
+	SaveStore.delete("sandbox", 6)
 
 ## Every invalid state is refused before the stage changes.
 func refused_loads() -> void:
@@ -352,6 +423,11 @@ func refused_loads() -> void:
 		"a scene flag that is not true or false": func(s): s.world.scene.surface = "yes",
 		"a scene name that is not text": func(s): s.world.scene.name = 3,
 		"a paint label that is not text": func(s): s.world.paint = [{"spec": {"kind": "cloud", "label": 7}, "t": 0.0}],
+		"a ring about no mass": func(s): s.world.paint = [{"spec": {"kind": "ring", "centralMass": 0.0}, "t": 0.0}],
+		"a body with no phase": func(s): s.world.bodies[2].erase("phase"),
+		"a body with no day length": func(s): s.world.bodies[2].erase("dayLength"),
+		"no tidal samples": func(s): s.world.erase("tides"),
+		"a tidal sample naming no body": func(s): s.world.tides = [[0, 9999, -1.0, 0.0]],
 		"a zero scene scale": func(s): s.world.scene.sceneScale = 0.0,
 		"a negative time scale": func(s): s.world.live.timeScale = -1.0,
 		"a time that is not a number": func(s): s.world.live.simYears = "soon",
@@ -391,6 +467,12 @@ func vessel_digest() -> Array:
 	return out
 
 func _close(a: Array, b: Array, tol_m: float) -> String:
+	# An ordered comparison with NaN is false, so a non-finite value would pass every tolerance.
+	for row in [a, b]:
+		var nums: Array = row[3] + row[4] + [row[7]]
+		for i in range(13, row.size()): nums.append(row[i][2])
+		for x in nums:
+			if not is_finite(float(x)): return "a non-finite value: %s" % str(row).left(200)
 	var ra := DVec3.from_array(a[3])
 	var rb := DVec3.from_array(b[3])
 	var dv := DVec3.from_array(a[4]).distance_to(DVec3.from_array(b[4]))
@@ -463,6 +545,16 @@ func flight_round_trip() -> void:
 	bad = r.save.state.duplicate(true)
 	bad.flight.parent = 999
 	check("a parent that is not saved is refused", SaveGame.validate("spaceflight", bad) != "")
+	bad = r.save.state.duplicate(true)
+	bad.flight.pad = true
+	check("a pad flag that disagrees with the phase is refused", SaveGame.validate("spaceflight", bad).contains("disagree"))
+	for k in ["bank", "landedAt", "chute", "site", "program", "mission"]:
+		bad = r.save.state.duplicate(true)
+		bad.flight.erase(k)
+		check("a flight with no %s is refused before the stage changes" % k, SaveGame.validate("spaceflight", bad).contains(k))
+	var nan_row := vessel_digest()
+	nan_row[7] = NAN
+	check("the flight comparison rejects a non-finite clock", _close(nan_row, nan_row, 0.5) != "")
 
 func pad_round_trip() -> void:
 	main.end_flight()
@@ -502,6 +594,9 @@ func planetary_round_trip() -> void:
 	main.explore_map._on_menu(ExploreMap.MENU_EXPLORE)
 	var sc: Showcase = main.showcase
 	check("Explore puts the world in full focus", sc.active and sc.body == mars and not main.explore_map.visible and sc.came_from == "explore")
+	# Saved before the camera settles: the pin still to drop is saved as still to drop.
+	var pending := _save("planetary", 2, "Mars, arriving")
+	check("an arrival saves its pending pin", pending.ok and pending.state.explore.pinPending and pending.state.explore.pin == 0)
 	sc.drop_pin()
 	sc.drop_pin()
 	frames(20)
@@ -525,6 +620,14 @@ func planetary_round_trip() -> void:
 	main._on_showcase_action("back")
 	main._on_showcase_action("leave")
 	check("and leaving it goes back to the picker", main.explore_map.visible)
+	err = await main.restore_save("planetary", SaveStore.read("planetary", 2).save.state)
+	check("a pending pin is pending after the load", err == "" and sc.pin == null and sc._pending_drop, err)
+	var none: Dictionary = SaveStore.read("planetary", 2).save.state.duplicate(true)
+	none.explore.pinPending = false
+	none.world.live.pinOnFocus = true
+	err = await main.restore_save("planetary", none)
+	frames(120)
+	check("a save with no pin and none pending gains none on load", err == "" and sc.pin == null and not sc._pending_drop, err)
 	var bad: Dictionary = SaveStore.read("planetary", 0).save.state.duplicate(true)
 	bad.explore.body = 0
 	check("exploring a star is refused", SaveGame.validate("planetary", bad).contains("no surface"))
@@ -639,6 +742,13 @@ func exit_prompt() -> void:
 	press("savePrompt2")
 	check("Cancel stays in the game", not ui.visible and not main.at_start)
 	main.request_quit_to_start()
+	main.request_quit_app()
+	check("a second quit while the prompt is open waits for an answer", ui.visible and ui.view == "prompt" and not main.at_start)
+	press("savePrompt0")
+	main.request_quit_app()
+	check("a quit while naming the save it asked for waits too", ui.visible and ui.mode == "save" and not main.at_start)
+	ui.close()
+	main.request_quit_to_start()
 	press("savePrompt1")
 	check("Leave without saving leaves", main.at_start and not ui.visible)
 	main._start("sandbox")
@@ -657,6 +767,9 @@ func exit_prompt() -> void:
 	main.request_quit_to_start()
 	check("at the title nothing asks", not ui.visible)
 	main._start("observatory", true)
+	main._on_saves_action("load", "sandbox")
+	check("loading over the Observatory asks before replacing it", ui.visible and ui.live_scene)
+	ui.close()
 	main.request_quit_to_start()
 	check("the Observatory has nothing to save and does not ask", main.at_start and not ui.visible)
 	main._start("learn")

@@ -23,9 +23,12 @@ and `tools/gamesavecheck.tscn` checks all of it.
 }
 ```
 
-An unknown top-level field is an error. A file over 64 MB is refused before it is
-parsed. A slot is written next to its file and renamed over it (`core/json_file.gd`), so
-a failed save leaves the slot as it was.
+An unknown top-level field is an error. A file over 64 MB, or a recovery file
+(`slot_NN.json.bak`) over it, is refused before it is parsed, and a save that would be
+over it is not written. A slot is written next to its file and renamed over it
+(`core/json_file.gd`), so a failed save leaves the slot as it was. A slot whose state
+does not pass `SaveGame.validate` is listed as unreadable, with the reason, like a
+damaged file.
 
 JSON loses three things, and the codec puts them back:
 
@@ -48,13 +51,16 @@ Keys starting with `@` are reserved. Objects, Callables and vectors cannot be sa
 - **live**: sizes, pace, step cap, GW boost, lens and mesh, spawn mode, speed, pause,
   the clock and its compensated remainder, bodies consumed, pin-on-focus, and the
   climate turn (which worlds' climates step on the next frame).
+- **tides**: the Roche check's last sample of each pair it watches (`r·v` and when), so
+  a periapsis passed between the save and the next check is still found.
 - **bodies**: each body's spec, with its position and velocity, plus its live state.
   The live state is its mass, spin fraction, stellar phase, spin rate and whether that
-  rate is tracked, its rotation and cloud phases, `extra`, the structural-limit memo,
+  rate is tracked, its rotation and cloud phases, its day length (the Day length slider
+  sets it directly), `extra`, the structural-limit memo,
   and its climate (temperature, ice, ocean, steam, the latitude profile, extremes,
   history, and the inputs drawn for it).
 - **paint**: each ring, belt and cloud, as the spec it was made from (random parts
-  drawn) and its age.
+  drawn, and the mass a ring or belt orbits, which fixes its particles' rates) and its age.
 - **camera**: orbit or free, angles, distance, target, offset, and which body is
   followed and focused (by index).
 
@@ -73,7 +79,7 @@ last 300 log lines, the autopilot's mode and program, the mission's destination 
 goal, the target, and the camera.
 
 **explore** (Planetary exploration): the world explored (by index), the pin's number
-in its sequence, and whether you were standing on it.
+in its sequence, whether a pin was still to drop, and whether you were standing on it.
 
 ## Loading
 

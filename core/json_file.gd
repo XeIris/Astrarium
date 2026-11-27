@@ -22,7 +22,8 @@ static func finish_recovery(path: String) -> Error:
 	return DirAccess.remove_absolute(path + ".bak") if FileAccess.file_exists(path + ".bak") else OK
 
 # fault(operation, from, to) is an optional check-only seam for I/O failures.
-# `precise` writes 17 significant digits, so every double reads back bit for bit.
+# `precise` turns on Godot's full-precision number formatting. It does not make every
+# double read back bit for bit (-0.0 is written as 0.0); SaveCodec tags those that would not.
 static func write_dict(path: String, data: Dictionary, use_backup: bool = false, fault: Callable = Callable(), reset: bool = false, validate: Callable = Callable(), precise: bool = false) -> Dictionary:
 	var backup := path + ".bak"
 	if FileAccess.file_exists(backup) and not reset:

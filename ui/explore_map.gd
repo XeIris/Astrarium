@@ -171,8 +171,10 @@ func _draw() -> void:
 	for b: Body in state.bodies:
 		if not b.alive: continue
 		var p := to_screen(b.pos)
-		if p.x < -40.0 or p.y < -40.0 or p.x > size.x + 40.0 or p.y > size.y + 40.0: continue
 		var r := _dot_radius(b)
+		# By the disc's edge (and its label's room), so a large world half in frame is drawn.
+		var reach := r + 40.0
+		if p.x < -reach or p.y < -reach or p.x > size.x + reach or p.y > size.y + reach: continue
 		var col := _color(b)
 		# Moons crowd their planet until zoomed in: only named once apart.
 		var c := primary_of(b)

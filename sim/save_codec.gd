@@ -85,13 +85,14 @@ static func _dec(v: Variant, at: String, err: Array, depth: int) -> Variant:
 		TYPE_DICTIONARY:
 			if v.size() == 1 and v.has(INT):
 				var s = v[INT]
-				if not s is String or not (s as String).is_valid_int():
+				if not s is String or not _int64_text(s):
 					err.append("%s is not a saved integer" % at)
 					return null
 				return (s as String).to_int()
 			if v.size() == 1 and v.has(DOUBLE):
 				var h = v[DOUBLE]
-				if not h is String or (h as String).length() != 16 or not (h as String).is_valid_hex_number():
+				# Sixteen hex digits and nothing else: hex_decode() reads a sign as no bytes at all.
+				if not h is String or not _HEX16.search(h):
 					err.append("%s is not a saved number" % at)
 					return null
 				var x := (h as String).hex_decode().decode_double(0)
@@ -115,6 +116,17 @@ static func _dec(v: Variant, at: String, err: Array, depth: int) -> Variant:
 			return d
 	err.append("%s has a value JSON cannot hold" % at)
 	return null
+
+static var _HEX16 := RegEx.create_from_string("^[0-9a-fA-F]{16}$")
+static var _INT := RegEx.create_from_string("^-?(0|[1-9][0-9]{0,18})$")
+
+## A signed 64-bit integer as str() writes it. Checked as text: to_int() past the range
+## returns INT64_MAX instead of failing.
+static func _int64_text(s: String) -> bool:
+	if not _INT.search(s): return false
+	var digits := s.trim_prefix("-")
+	if digits.length() < 19: return true
+	return digits <= ("9223372036854775808" if s.begins_with("-") else "9223372036854775807")
 
 ## A double's eight bytes as hex, little-endian.
 static func bits(x: float) -> String:

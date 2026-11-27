@@ -123,12 +123,20 @@ static func capture_world(main) -> Dictionary:
 		if b.type == "star" and b.phase != null: spec.phase = float(st.get("phaseF", b.phase))
 		bodies.append({"spec": spec, "mass": b.mass, "spinFrac": b.spin_frac, "phase": b.phase, "mCheck": b.m_check,
 			"mass0": b.mass0, "spinOmega": b.spin_omega, "spinTracked": b.spin_tracked,
-			"spinPhase": b.spin_phase, "cloudPhase": b.cloud_phase, "extra": b.extra.duplicate(true),
+			"spinPhase": b.spin_phase, "cloudPhase": b.cloud_phase, "dayLength": b.day_length, "extra": b.extra.duplicate(true),
 			"climate": _climate_state(b.climate, b.home)})
 	var index := _body_index(main)
 	var paint := []
 	for it in main.painter.items:
 		if it.has_meta("save_spec"): paint.append({"spec": it.get_meta("save_spec"), "t": float(it.t)})
+	# The Roche check's last sample of each pair: a periapsis passed between two checks is
+	# found from it (main._check_tidal_limit), so a load without it can miss a disruption.
+	var tides := []
+	for key in main._tidal_rv:
+		var ids: PackedStringArray = str(key).split(":")
+		var i = index.get(int(ids[0])) if ids.size() == 2 else null
+		var j = index.get(int(ids[1])) if ids.size() == 2 else null
+		if i != null and j != null: tides.append([i, j, float(main._tidal_rv[key][0]), float(main._tidal_rv[key][1])])
 	var cam = main.cam
 	return {
 		"scene": scene,
@@ -141,6 +149,7 @@ static func capture_world(main) -> Dictionary:
 			"pinOnFocus": state.pin_on_focus, "climateTurn": main._climate_frame},
 		"bodies": bodies,
 		"paint": paint,
+		"tides": tides,
 		"camera": {"mode": state.cam_mode if state.cam_mode in ["orbit", "free"] else "orbit",
 			"theta": cam.theta, "phi": cam.phi, "radius": cam.radius, "yaw": cam.yaw, "pitch": cam.pitch,
 			"roll": cam.roll, "target": cam.target.to_array(), "offset": cam.offset.to_array(),
@@ -197,7 +206,7 @@ static func capture_flight(main, body_index: Dictionary) -> Dictionary:
 
 static func capture_explore(main, body_index: Dictionary) -> Dictionary:
 	var sc: Showcase = main.showcase
-	return {"body": body_index.get(sc.body.id, -1), "pin": sc.pin.n if sc.pin != null else 0,
+	return {"body": body_index.get(sc.body.id, -1), "pin": sc.pin.n if sc.pin != null else 0, "pinPending": sc._pending_drop,
 		"standing": sc.visit != null}
 
 # DESCRIPTION
@@ -297,10 +306,10 @@ static func _field_error(d: Dictionary, fields: Dictionary, at: String) -> Strin
 	return ""
 
 static func _world_error(w: Dictionary) -> String:
-	for k in ["scene", "sky", "live", "bodies", "paint", "camera"]:
+	for k in ["scene", "sky", "live", "bodies", "paint", "tides", "camera"]:
 		if not w.has(k): return "the world has no %s." % k
 	for k in w:
-		if k not in ["scene", "sky", "live", "bodies", "paint", "camera"]: return "the world has an unknown field \"%s\"." % str(k)
+		if k not in ["scene", "sky", "live", "bodies", "paint", "tides", "camera"]: return "the world has an unknown field \"%s\"." % str(k)
 	var scene = w.scene
 	if not scene is Dictionary: return "the scene is not a dictionary."
 	for k in scene:
@@ -336,10 +345,10 @@ static func _world_error(w: Dictionary) -> String:
 		var at := "body %d" % (i + 1)
 		if not e is Dictionary or not e.get("spec") is Dictionary: return "%s has no spec." % at
 		err = _field_error(e, {"mass": "n", "spinFrac": "n", "mass0": "n", "spinOmega": "n", "spinTracked": "b",
-			"spinPhase": "n", "cloudPhase": "n"}, at)
+			"spinPhase": "n", "cloudPhase": "n", "dayLength": "n"}, at)
 		if err != "": return err
 		if float(e.mass) <= 0.0 or float(e.spinFrac) < 0.0: return "%s has a mass or spin out of range." % at
-		if e.get("phase") != null and not _num(e.phase): return "%s has a phase that is not a number." % at
+		if not e.has("phase") or (e.phase != null and not _num(e.phase)): return "%s has no phase, or one that is not a number." % at
 		if e.get("mCheck") != null and not _num(e.mCheck): return "%s has a structural memo that is not a number." % at
 		if not e.get("extra") is Dictionary: return "%s.extra must be a dictionary." % at
 		var spec: Dictionary = e.spec
@@ -364,9 +373,16 @@ static func _world_error(w: Dictionary) -> String:
 		if ps.get("body") != null and (not ps.body is String or not names.has(ps.body)):
 			return "painted decoration %d is on a body that is not saved." % (i + 1)
 		if ps.get("label") != null and not ps.label is String: return "painted decoration %d has a label that is not text." % (i + 1)
+		if ps.get("centralMass") != null and (not _num(ps.centralMass) or float(ps.centralMass) <= 0.0):
+			return "painted decoration %d orbits a mass that is not positive." % (i + 1)
 		for k in ps:
 			if k not in ["kind", "body", "label"] and ps[k] != null and not _num(ps[k]):
 				return "painted decoration %d has a non-numeric %s." % [i + 1, k]
+	if not w.tides is Array: return "the tidal samples are not a list."
+	for row in w.tides:
+		if not _vec(row, 4) or row[0] != floorf(row[0]) or row[1] != floorf(row[1]) \
+				or int(row[0]) < 0 or int(row[0]) >= bodies.size() or int(row[1]) < 0 or int(row[1]) >= bodies.size():
+			return "a tidal sample is malformed."
 	var c = w.camera
 	if not c is Dictionary: return "the camera is missing."
 	err = _field_error(c, {"theta": "n", "phi": "n", "radius": "n", "yaw": "n", "pitch": "n", "roll": "n",
@@ -409,7 +425,10 @@ static func _flight_error(fl: Dictionary, bodies: Array) -> String:
 	if not keys is Array or keys.is_empty(): return "the vehicle's stages are missing."
 	if vehicle_for(str(fl.vehicle), keys) == null: return "the saved stages do not match %s." % fl.vehicle
 	if fl.phase not in PHASES: return "a vessel cannot be put back in phase \"%s\"." % fl.phase
+	if fl.pad != (fl.phase == Vessel.PHASE.PRELAUNCH): return "the flight's pad flag and its phase disagree."
 	if fl.pad: return ""
+	for k in ["bank", "landedAt", "chute", "site", "program", "mission"]:
+		if not fl.has(k): return "the flight has no %s." % k
 	for k in ["r", "v", "omega"]:
 		if not _vec(fl.get(k)): return "the vessel's %s must be three finite numbers." % k
 	if not _vec(fl.get("q"), 4): return "the vessel's attitude is malformed."
@@ -458,7 +477,7 @@ static func _flight_error(fl: Dictionary, bodies: Array) -> String:
 	return ""
 
 static func _explore_error(ex: Dictionary, bodies: Array) -> String:
-	var err := _field_error(ex, {"body": "i", "pin": "i", "standing": "b"}, "exploration")
+	var err := _field_error(ex, {"body": "i", "pin": "i", "pinPending": "b", "standing": "b"}, "exploration")
 	if err != "": return err
 	var i := int(ex.body)
 	if i < 0 or i >= bodies.size(): return "the explored world is not saved."
@@ -524,8 +543,13 @@ static func restore_world(main, w: Dictionary) -> void:
 	for it in w.paint:
 		var item = main.apply_paint_spec(it.spec)
 		if item != null and float(it.t) > 0.0: item.update(float(it.t), state.scene_scale)
+	main._tidal_rv.clear()
+	for row in w.tides:
+		main._tidal_rv["%d:%d" % [state.bodies[int(row[0])].id, state.bodies[int(row[1])].id]] = [float(row[2]), float(row[3])]
 	main.update_suns()
 	_restore_camera(main, w.camera)
+	var home: Body = main.get_home()
+	if home: main.hud.set_slider("daylen", home.day_length * 365.25, "%s d" % U.fixed(home.day_length * 365.25, 1))
 	main._preset_clean = false
 	state.energy0 = null
 	main.refresh_ui()
@@ -541,6 +565,8 @@ static func _restore_body(main, b: Body, e: Dictionary) -> void:
 	b.tide_k2 = float(b.structure.get("secular", {}).get("k2", 0.0)) if b.spin_tracked else 0.0
 	b.spin_phase = float(e.spinPhase)
 	b.cloud_phase = float(e.cloudPhase)
+	# The Day length slider sets this directly, not through the spec.
+	b.day_length = float(e.dayLength)
 	b.extra = (e.extra as Dictionary).duplicate(true)
 	if float(e.mass0) != b.mass0:
 		b.mass0 = float(e.mass0)
@@ -645,6 +671,8 @@ static func restore_explore(main, ex: Dictionary) -> void:
 	var sc: Showcase = main.showcase
 	var b: Body = main.state.bodies[int(ex.body)]
 	main.enter_world(b)
+	# A pin still to drop once the camera settles, as it was at the save, and no other.
+	sc._pending_drop = bool(ex.pinPending) and int(ex.pin) == 0
 	if int(ex.pin) > 0:
 		sc.pins_dropped = int(ex.pin) - 1
 		sc.drop_pin()

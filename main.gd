@@ -1678,6 +1678,8 @@ func apply_paint_spec(spec: Dictionary):
 	# What it was made from, with its random parts drawn, so a save can make it again.
 	spec = spec.duplicate(true)
 	if spec.kind == "cloud" and spec.get("seed") == null: spec.seed = randf() * 100.0
+	# A swarm's mean motion is set once from the mass it was made about; a reload keeps it.
+	if spec.kind != "cloud" and spec.get("centralMass") == null: spec.centralMass = b.mass if b else 1.0
 	var item = _paint_item(spec, b, common)
 	if item != null: item.set_meta("save_spec", spec)
 	return item
@@ -1692,7 +1694,7 @@ func _paint_item(spec: Dictionary, b: Body, common: Dictionary):
 		}))
 	var is_belt: bool = spec.kind == "belt"
 	return painter.add("belt" if is_belt else "ring", U.merged(common, {
-		"centralMass": b.mass if b else 1.0,
+		"centralMass": float(U.nz(spec.get("centralMass"), b.mass if b else 1.0)),
 		"inner": spec.get("inner"), "outer": spec.get("outer"),
 		"count": U.nz(spec.get("count"), 11000 if is_belt else 26000),
 		"ecc": U.nz(spec.get("ecc"), 0.14 if is_belt else 0.0025),
@@ -2023,7 +2025,8 @@ func open_save_browser(kind: String, mode: String) -> void:
 		_pending_capture = cap
 		_after_save = then
 	else:
-		saves_ui.open(kind, "load", {}, not at_start and SaveGame.kind_now(self) != "")
+		# Anything in play asks before it is replaced, a lesson or the Observatory included.
+		saves_ui.open(kind, "load", {}, not at_start)
 
 func save_game(kind: String, slot: int, name: String) -> void:
 	var cap := _pending_capture
@@ -2097,8 +2100,10 @@ func request_quit_app() -> void:
 	_leave_asking(func(): get_tree().quit(), "Quit Astrarium?")
 
 func _leave_asking(leave: Callable, title: String) -> void:
+	# A second close while the prompt, or the save it led to, is open waits for the player.
+	if saves_open() and (saves_ui.view == "prompt" or _after_save.is_valid()): return
 	var kind := SaveGame.kind_now(self)
-	if saves_open() or kind == "" or SaveGame.why_not(self, kind) != "":
+	if kind == "" or SaveGame.why_not(self, kind) != "":
 		leave.call()
 		return
 	var label: String = SaveStore.KINDS[kind]

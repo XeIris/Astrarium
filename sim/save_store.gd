@@ -2,15 +2,16 @@ class_name SaveStore
 extends RefCounted
 
 # Saved games: ten slots for each kind of game, one JSON file per slot under
-# `dir/<kind>/`. A file is read whole and its envelope checked before anything uses it;
-# one that does not read is listed with its reason and can still be deleted. What the
-# state holds is SaveGame's, and the stage validates it before it changes anything.
-# Format: docs/save-format.md.
+# `dir/<kind>/`. A file is read whole, its envelope checked and its state validated
+# (SaveGame.validate) before anything uses it; one that does not pass is listed with its
+# reason and can still be deleted. Format: docs/save-format.md.
 
 const JsonFile = preload("res://core/json_file.gd")
 const FORMAT := 1
 const SLOTS := 10
 const MAX_BYTES := 64 * 1024 * 1024
+## The limit in force: MAX_BYTES, which a check lowers to test it without writing 64 MB.
+static var max_bytes := MAX_BYTES
 const NAME_MAX := 48
 const SUMMARY_MAX := 400
 ## Separate slots per kind; Spaceflight and Planetary exploration share nothing yet.
@@ -117,6 +118,10 @@ static func delete(kind: String, slot: int) -> Error:
 	return err
 
 static func _publish(kind: String, slot: int, data: Dictionary) -> Dictionary:
+	# A file the reader would refuse must not replace the slot it would have overwritten.
+	var bytes := JSON.stringify(data, "\t", true, true).to_utf8_buffer().size()
+	if bytes > max_bytes:
+		return {"ok": false, "error": "The save is %s MB, over the %s MB a slot holds." % [U.fixed(bytes / 1048576.0, 1), U.fixed(max_bytes / 1048576.0, 1)]}
 	var folder := path_of(kind, slot).get_base_dir()
 	var err := DirAccess.make_dir_recursive_absolute(folder)
 	if err != OK: return {"ok": false, "error": "Cannot create %s: %s." % [folder, error_string(err)]}
@@ -132,12 +137,14 @@ static func _read_raw(kind: String, slot: int) -> Dictionary:
 		out.error = why
 		return out
 	var path := path_of(kind, slot)
-	var probe := FileAccess.open(path, FileAccess.READ)
-	if probe != null:
+	# The recovery file too: JsonFile reads it, and may rename it into place, when the slot's is gone.
+	for p in [path, path + ".bak"]:
+		var probe := FileAccess.open(p, FileAccess.READ)
+		if probe == null: continue
 		var n := probe.get_length()
 		probe.close()
-		if n > MAX_BYTES:
-			out.error = "The file is larger than %d MB." % (MAX_BYTES / 1048576)
+		if n > max_bytes:
+			out.error = "The %s is larger than %s MB." % ["file" if p == path else "recovery file", U.fixed(max_bytes / 1048576.0, 1)]
 			return out
 	var r: Dictionary = JsonFile.read_dict(path)
 	if r.error != OK:
@@ -153,6 +160,10 @@ static func _read_raw(kind: String, slot: int) -> Dictionary:
 		out.error = "The saved state is damaged: %s." % dec.error
 		return out
 	out.state = dec.value
+	var invalid := SaveGame.validate(kind, out.state)
+	if invalid != "":
+		out.error = "The saved state does not fit: %s" % invalid
+		return out
 	out.ok = true
 	return out
 
