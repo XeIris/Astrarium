@@ -137,16 +137,20 @@ static func _read_raw(kind: String, slot: int) -> Dictionary:
 		out.error = why
 		return out
 	var path := path_of(kind, slot)
-	# The recovery file too: JsonFile reads it, and may rename it into place, when the slot's is gone.
-	for p in [path, path + ".bak"]:
-		var probe := FileAccess.open(p, FileAccess.READ)
-		if probe == null: continue
-		var n := probe.get_length()
-		probe.close()
-		if n > max_bytes:
-			out.error = "The %s is larger than %s MB." % ["file" if p == path else "recovery file", U.fixed(max_bytes / 1048576.0, 1)]
+	var limit := "larger than %s MB" % U.fixed(max_bytes / 1048576.0, 1)
+	if _too_big(path):
+		out.error = "The file is %s." % limit
+		return out
+	var r: Dictionary
+	if _too_big(path + ".bak"):
+		# JsonFile falls back to the recovery file, and may rename it into place, only when the
+		# slot's own file does not read; so that is the only case where its size refuses the slot.
+		r = JsonFile._read_one(path)
+		if r.error != OK:
+			out.error = "The file does not read, and its recovery file is %s." % limit
 			return out
-	var r: Dictionary = JsonFile.read_dict(path)
+	else:
+		r = JsonFile.read_dict(path)
 	if r.error != OK:
 		var reason := str(r.message).replace(path, path.get_file()) if str(r.message) != "" else error_string(r.error)
 		out.error = "The file does not read: %s" % reason
@@ -166,6 +170,13 @@ static func _read_raw(kind: String, slot: int) -> Dictionary:
 		return out
 	out.ok = true
 	return out
+
+static func _too_big(p: String) -> bool:
+	var f := FileAccess.open(p, FileAccess.READ)
+	if f == null: return false
+	var n := f.get_length()
+	f.close()
+	return n > max_bytes
 
 ## "" or what is wrong with a parsed save file's envelope.
 static func envelope_error(d: Dictionary, kind: String) -> String:

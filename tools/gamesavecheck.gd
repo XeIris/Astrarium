@@ -164,6 +164,22 @@ func store() -> void:
 	var rb := SaveStore.read("sandbox", 8)
 	check("an oversized recovery file is refused unread", not rb.ok and str(rb.error).contains("recovery file")
 		and not FileAccess.file_exists(SaveStore.path_of("sandbox", 8)), str(rb.error))
+	# Beside a save that reads, it is never read, so it must not refuse that save.
+	var beside := FileAccess.open(SaveStore.path_of("sandbox", 3) + ".bak", FileAccess.WRITE)
+	beside.store_string(" ".repeat(SaveStore.max_bytes + 16))
+	beside.close()
+	var good_read := SaveStore.read("sandbox", 3)
+	check("an oversized recovery file beside a good save leaves it loadable", good_read.ok and _named(good_read) == "state 9"
+		and SaveStore.list("sandbox")[3].status == "ok", str(good_read.error))
+	DirAccess.remove_absolute(SaveStore.path_of("sandbox", 3) + ".bak")
+	# Beside a damaged one it would be read, so it refuses that slot.
+	_raw("sandbox", 8, "{ damaged")
+	bak = FileAccess.open(SaveStore.path_of("sandbox", 8) + ".bak", FileAccess.WRITE)
+	bak.store_string(" ".repeat(SaveStore.max_bytes + 16))
+	bak.close()
+	rb = SaveStore.read("sandbox", 8)
+	check("an oversized recovery file beside a damaged save is refused unread", not rb.ok and str(rb.error).contains("recovery file")
+		and FileAccess.get_file_as_string(SaveStore.path_of("sandbox", 8)) == "{ damaged", str(rb.error))
 	SaveStore.max_bytes = real_limit
 	SaveStore.delete("sandbox", 8)
 	# An envelope that reads around a state the stage would refuse is listed as unreadable.
