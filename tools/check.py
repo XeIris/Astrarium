@@ -290,6 +290,17 @@ def godot_path(value):
     raise ValueError("Godot executable unavailable; pass --godot or set GODOT")
 
 
+def craft_models():
+    """The authored craft models: the keys of CraftAssets.CRAFT_ASSETS, not the files in
+    assets/craft/, which may hold a retired model or lack one the build has not made."""
+    source = (ROOT / "sim/flight/craftassets.gd").read_text()
+    block = re.search(r"^const CRAFT_ASSETS := \{\n(.*?)^\}", source, re.MULTILINE | re.DOTALL)
+    keys = re.findall(r'^\s*"(\w+)":', block.group(1), re.MULTILINE) if block else []
+    if not keys:
+        raise RuntimeError("sim/flight/craftassets.gd: no CRAFT_ASSETS entries found")
+    return len(keys)
+
+
 def checks(suite, godot, output, repeat, export_preset):
     base = [godot, "--path", str(ROOT)]
     # macOS stops drawing a fully covered window, and a check awaiting a frame then stalls at
@@ -496,9 +507,11 @@ def checks(suite, godot, output, repeat, export_preset):
                     rf"^PRESETCHECK DONE {len(list((ROOT / 'scenarios').glob('*.jsonc'))) + CODE_PRESETS}$", 300,
                     lane="window")  # windowed, like scene()
     elif suite in ("assets", "procedural"):
+        models = craft_models()
         if suite == "assets":
+            # Each authored model stowed and deployed.
             yield ("craft-parity", base + ["--headless", "res://tools/crafttest.tscn", "--", "parity"],
-                   r"^PARITY DONE 28 poses, 0 failures$", 180)
+                   rf"^PARITY DONE {2 * models} poses, 0 failures$", 180)
         if suite == "assets":
             yield script("observatorycheck", (r"^OBSERVATORYCHECK authored library: [1-9]\d* stages$", r"^OBSERVATORYCHECK DONE checks=[1-9]\d* failures=0$"),
                          "assets=1")._replace(name="observatorycheck-assets")
@@ -508,7 +521,7 @@ def checks(suite, godot, output, repeat, export_preset):
             yield script("discoverycheck", r"^DISCOVERYCHECK DONE checks=[1-9]\d* failures=0$", f"assets={assets}")._replace(name=f"discoverycheck-{assets}")
             yield script("endurancecheck", r"^ENDURANCECHECK DONE checks=[1-9]\d* failures=0$", f"assets={assets}")._replace(name=f"endurancecheck-{assets}")
             # The authored gate cannot pass by silently substituting optional fallback models.
-            yield script("assetcheck", rf"^ASSETCHECK DONE [1-9]\d* checks, {'13' if assets == '1' else '0'} authored, 0 failures$", f"assets={assets}")
+            yield script("assetcheck", rf"^ASSETCHECK DONE [1-9]\d* checks, {models if assets == '1' else 0} authored, 0 failures$", f"assets={assets}")
             for action in ("audit", "clearance"):
                 yield (f"craft-{action}-{assets}", base + ["--headless", "res://tools/crafttest.tscn", "--", action, f"assets={assets}"],
                        r"^CRAFTCHECK DONE PASS$", 180)
