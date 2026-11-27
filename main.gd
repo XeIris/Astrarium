@@ -60,6 +60,10 @@ var voyager_replay: VoyagerReplay
 var _voyager_saved_grain := 0.0
 var hangar_open := false
 var space_map: SpaceMap = null      # the M map (ui/space_map.gd)
+var explore_map: ExploreMap = null  # planetary exploration's world picker (ui/explore_map.gd)
+var saves_ui: SaveBrowser = null    # the save slots and the exit prompt (ui/save_browser.gd)
+var _pending_capture := {}          # the scene as it was when Save game was chosen
+var _after_save := Callable()       # what a save made from the exit prompt goes on to do
 var model_restore = null
 var xsec_open := false
 var learn_entered := false
@@ -112,6 +116,9 @@ func _ready() -> void:
 	if String(_cmd.get("settings", "")) == "default":
 		AppIcon.file_path = OS.get_temp_dir().path_join("astrarium-settings-%d.json" % OS.get_process_id())
 		controls = Bindings.new("")
+		SaveStore.dir = OS.get_temp_dir().path_join("astrarium-saves-%d" % OS.get_process_id())
+	# Closing the window asks whether to save first (request_quit_app).
+	get_tree().set_auto_accept_quit(false)
 	LaunchSite.use_authored_pads = String(_cmd.get("padmodels", "1")) != "0"
 	if _cmd.has("winds"): Rocketry.winds_enabled = String(_cmd.winds) != "0"
 	if _cmd.has("secular"): Physics.secular = String(_cmd.secular) != "0"
@@ -214,6 +221,20 @@ func _ready() -> void:
 		if m != null and m.failed == "": m.skip())
 	space_map.abort.connect(func(): flight.abort_mission())
 	space_map.closed.connect(func(): pipe.set_map_open(false))
+	explore_map = ExploreMap.new()
+	explore_map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hud.add_child(explore_map)
+	explore_map.explore.connect(enter_world)
+	explore_map.back.connect(quit_to_start)
+	# Last, so it is over Settings, which it is opened from.
+	saves_ui = SaveBrowser.new()
+	saves_ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hud.add_child(saves_ui)
+	saves_ui.save_chosen.connect(save_game)
+	saves_ui.load_chosen.connect(load_game)
+	saves_ui.closed.connect(func():
+		_pending_capture = {}
+		_after_save = Callable())
 	if flight.console != null: flight.console.action.connect(_on_console_action)
 	_build_stage()
 	lessons = LessonUI.create_lessons({"panel": hud.mount("courseMount"), "card": hud.mount("lessonCard"), "stage": stage})
@@ -261,7 +282,7 @@ func _ready() -> void:
 		if _cmd.title != "0": title_reel.begin(String(_cmd.title))
 		else: hud.set_title_veil(0.0)
 	elif _cmd.has("preset") or _cmd.has("mode") or _cmd.has("out") or _cmd.has("eval"):
-		var k: String = _cmd.get("preset", "solar" if _cmd.get("mode", "") in ["flight", "observatory", "showcase"] else "sandbox")
+		var k: String = _cmd.get("preset", "solar" if _cmd.get("mode", "") in ["flight", "observatory", "showcase", "explore"] else "sandbox")
 		load_preset(k if Presets.PRESETS.has(k) or GalaxyScene.has_preset(k) else "sandbox")
 		if _cmd.has("craft"): last_craft = String(_cmd.craft)
 		_start(String(_cmd.get("mode", "sandbox")), true)
@@ -1160,7 +1181,8 @@ func _drop_lessons() -> void:
 	if lessons != null: lessons._drop_cutaway()
 
 func _unhandled_input(e: InputEvent) -> void:
-	if at_start or hud.settings_open or voyager_replay != null: return
+	if at_start or hud.settings_open or voyager_replay != null or saves_open(): return
+	if explore_map != null and explore_map.visible: return
 	if e is InputEventMouseButton:
 		var mb := e as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT:
@@ -1204,6 +1226,8 @@ func _unhandled_input(e: InputEvent) -> void:
 
 func _input(e: InputEvent) -> void:
 	if not e is InputEventKey: return
+	# The save card takes the keyboard whole: its own Esc, and a name being typed.
+	if saves_open(): return
 	var key := e as InputEventKey
 	if voyager_replay != null:
 		if key.pressed and not key.echo and key.keycode == KEY_ESCAPE:
@@ -1234,9 +1258,15 @@ func _input(e: InputEvent) -> void:
 		if handled:
 			get_viewport().set_input_as_handled()
 			return
+	if key.pressed and not key.echo and explore_map.visible and not hud.settings_open and key.keycode == KEY_ESCAPE:
+		quit_to_start()
+		get_viewport().set_input_as_handled()
+		return
 	if key.pressed and not key.echo and (key.keycode == KEY_ESCAPE or controls.matches("settings", key)):
-		# The title opens Settings from its menu; Esc only closes it there.
-		if not at_start or hud.settings_open:
+		# The title opens Settings from its menu; Esc only closes it there, or goes back a menu.
+		if at_start and not hud.settings_open and key.keycode == KEY_ESCAPE and hud.title_back():
+			pass
+		elif not at_start or hud.settings_open:
 			hud.set_settings_open(not hud.settings_open)
 			keys.clear()
 		get_viewport().set_input_as_handled()
@@ -1645,6 +1675,16 @@ func apply_paint_spec(spec: Dictionary):
 	var b: Body = state.body_named(String(spec.body)) if spec.get("body") else null
 	if spec.get("body") and b == null: return null
 	var common := {"bodyId": b.id if b else null, "sceneScale": state.scene_scale}
+	# What it was made from, with its random parts drawn, so a save can make it again.
+	spec = spec.duplicate(true)
+	if spec.kind == "cloud" and spec.get("seed") == null: spec.seed = randf() * 100.0
+	# A swarm's mean motion is set once from the mass it was made about; a reload keeps it.
+	if spec.kind != "cloud" and spec.get("centralMass") == null: spec.centralMass = b.mass if b else 1.0
+	var item = _paint_item(spec, b, common)
+	if item != null: item.set_meta("save_spec", spec)
+	return item
+
+func _paint_item(spec: Dictionary, b: Body, common: Dictionary):
 	if spec.kind == "cloud":
 		return painter.add("cloud", U.merged(common, {
 			"radius": U.nz(spec.get("radius"), 10.0), "lobes": U.nz(spec.get("lobes"), 1),
@@ -1654,7 +1694,7 @@ func apply_paint_spec(spec: Dictionary):
 		}))
 	var is_belt: bool = spec.kind == "belt"
 	return painter.add("belt" if is_belt else "ring", U.merged(common, {
-		"centralMass": b.mass if b else 1.0,
+		"centralMass": float(U.nz(spec.get("centralMass"), b.mass if b else 1.0)),
 		"inner": spec.get("inner"), "outer": spec.get("outer"),
 		"count": U.nz(spec.get("count"), 11000 if is_belt else 26000),
 		"ecc": U.nz(spec.get("ecc"), 0.14 if is_belt else 0.0025),
@@ -1815,6 +1855,7 @@ func set_hud_hidden(hidden: bool) -> void:
 # the scene and the bodies are the same either way, and switching costs nothing.
 func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
 	if voyager_replay != null: close_hangar()
+	if mode != "explore": close_explore_map()
 	var was: String = state.app_mode
 	state.app_mode = mode
 	hud.set_app_mode(mode)
@@ -1825,7 +1866,7 @@ func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
 		if state.cam_mode == "surface": set_cam_mode("orbit")
 	if mode != "showcase" and showcase.active: showcase.leave()
 	# Flight, the Observatory and the showcase need the orrery's Solar System.
-	if mode in ["flight", "observatory", "showcase"] and galaxy.active: leave_galaxy()
+	if mode in ["flight", "observatory", "showcase", "explore"] and galaxy.active: leave_galaxy()
 	if mode == "observatory":
 		close_model_viewer()
 		if flight.active: end_flight()
@@ -1836,7 +1877,7 @@ func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
 	elif mode == "showcase":
 		close_model_viewer()
 		if flight.active: end_flight()
-		var world: Body = showcase.pick_world(String(opts.get("body", _cmd.get("body", ""))))
+		var world: Body = opts.world if opts.get("world") is Body else showcase.pick_world(String(opts.get("body", _cmd.get("body", ""))))
 		if world == null:
 			toast("A showcase needs a rocky world, and this scenario has none.", 3500)
 			set_app_mode("sandbox")
@@ -1846,11 +1887,19 @@ func set_app_mode(mode: String, opts: Dictionary = {}) -> void:
 		xsec_open = false
 		set_panel_open("controlPanel", true)
 		if not showcase.active: showcase.came_from = was
+		hud.set_button_text("scLeave", "Back to the map" if showcase.came_from == "explore" else "Leave showcase")
 		showcase.enter(world)
 	elif mode == "sandbox":
 		close_model_viewer()
 		if flight.active: end_flight()
 		set_panel_open("scenarioPanel", true)
+	elif mode == "explore":
+		close_model_viewer()
+		if flight.active: end_flight()
+		set_panel_open("xsecPanel", false)
+		xsec_open = false
+		if state.preset == null or state.bodies.filter(func(b): return ExploreMap.explorable(b)).is_empty(): load_preset("solar")
+		open_explore_map()
 	elif mode == "learn":
 		# The course replaces the scenario list rather than joining it.
 		close_model_viewer()
@@ -1879,7 +1928,7 @@ func _start(m: String, direct := false) -> void:
 		title_reel.stop()
 		reset_stage()
 	if at_start and state.preset == null and not galaxy.active:
-		load_preset("solar" if m in ["flight", "observatory"] else "sandbox")
+		load_preset("solar" if m in ["flight", "observatory", "explore"] else "sandbox")
 	at_start = false
 	hud.dismiss_start()
 	hud.set_hud_hidden(false)
@@ -1890,6 +1939,8 @@ func _start(m: String, direct := false) -> void:
 func quit_to_start() -> void:
 	if observatory.active: observatory.leave()
 	if showcase.active: showcase.leave()
+	close_explore_map()
+	if saves_open(): saves_ui.close()
 	close_map()
 	close_hangar()
 	hud.set_settings_open(false)
@@ -1926,6 +1977,162 @@ func reset_stage() -> void:
 	update_orbit_cam()
 	set_sky(SimState.new().sky)
 	pipe.set_mode(RenderPipeline.Mode.ORRERY)
+
+# PLANETARY EXPLORATION: the world picker (ui/explore_map.gd), then the showcase on the
+# world chosen, which comes back to the picker when left.
+func open_explore_map() -> void:
+	close_map()
+	close_hangar()
+	for id in MODEL_WORLD: set_panel_open(id, false)
+	hud.set_model_open(true)
+	set_cam_mode("orbit")
+	explore_map.open(state, str(state.preset.name) if state.preset is Dictionary else "")
+	pipe.set_map_open(true)
+
+func close_explore_map() -> void:
+	if explore_map == null or not explore_map.visible: return
+	explore_map.close()
+	pipe.set_map_open(false)
+	hud.set_model_open(false)
+
+## `b` in full focus, its way onto the surface one click away; leaving comes back here.
+func enter_world(b: Body) -> void:
+	if b == null or not ExploreMap.explorable(b): return
+	state.app_mode = "explore"
+	set_app_mode("showcase", {"world": b})
+	set_panel_open("controlPanel", true)
+	hud.layout_left_column()
+
+# SAVED GAMES (sim/save_game.gd holds what a save is, sim/save_store.gd the slots).
+func saves_open() -> bool:
+	return saves_ui != null and saves_ui.visible
+
+## Settings › Saves: save this game, or list the saves of a kind to load one.
+func _on_saves_action(action: String, kind: String) -> void:
+	if action == "save": open_save_browser(SaveGame.kind_now(self), "save")
+	else: open_save_browser(kind, "load")
+
+## The slots of `kind`: to load from (`mode` "load"), or to save the scene into, as it is now.
+func open_save_browser(kind: String, mode: String) -> void:
+	if mode == "save":
+		var cap := SaveGame.capture(self, kind)
+		if not cap.ok:
+			toast(str(cap.error), 5000)
+			_after_save = Callable()
+			return
+		var then := _after_save
+		saves_ui.open(kind, "save", {"name": cap.name, "summary": cap.summary})
+		_pending_capture = cap
+		_after_save = then
+	else:
+		# Anything in play asks before it is replaced, a lesson or the Observatory included.
+		saves_ui.open(kind, "load", {}, not at_start)
+
+func save_game(kind: String, slot: int, name: String) -> void:
+	var cap := _pending_capture
+	if cap.is_empty():
+		cap = SaveGame.capture(self, kind)
+		if not cap.ok:
+			saves_ui.show_error(str(cap.error))
+			return
+	var r := SaveStore.write(kind, slot, name, str(cap.summary), cap.state)
+	if not r.ok:
+		saves_ui.show_error("Could not save: %s" % r.error)
+		return
+	var then := _after_save
+	_after_save = Callable()
+	saves_ui.close()
+	toast("Saved “%s” in slot %d" % [name.strip_edges(), slot + 1])
+	if then.is_valid(): then.call()
+
+## Read, check and load a slot. Nothing on the stage changes unless the whole save is good.
+func load_game(kind: String, slot: int) -> void:
+	var r := SaveStore.read(kind, slot)
+	if not r.ok:
+		saves_ui.show_error("Could not load it: %s" % r.error)
+		return
+	var err := SaveGame.validate(kind, r.save.state)
+	if err != "":
+		saves_ui.show_error("Could not load it: %s" % err)
+		return
+	saves_ui.close()
+	err = await restore_save(kind, r.save.state)
+	toast(("Could not finish loading “%s”: %s" % [r.save.name, err]) if err != "" else ("Loaded “%s”" % r.save.name), 6000 if err != "" else 2200)
+
+## Replace the stage with a saved game. Returns "" or why it was refused (nothing changed)
+## or could not finish (the world is loaded, the flight is not).
+func restore_save(kind: String, st: Dictionary) -> String:
+	var err := SaveGame.validate(kind, st)
+	if err != "": return err
+	if at_start and title_reel.running: title_reel.stop()
+	hud.set_settings_open(false)
+	close_explore_map()
+	close_hangar()
+	reset_stage()
+	at_start = false
+	hud.dismiss_start()
+	hud.set_hud_hidden(false)
+	match kind:
+		"sandbox": set_app_mode("sandbox")
+		"spaceflight": set_app_mode("flight", {"quiet": true})
+	SaveGame.restore_world(self, st.world)
+	if kind == "spaceflight":
+		set_panel_open("controlPanel", false)
+		err = await SaveGame.restore_flight(self, st.flight)
+		if err != "":
+			# The world is loaded; a craft can still be chosen to fly in it.
+			open_hangar()
+			return err
+		set_panel_open("flightPanel", false)
+		set_cam_mode("flight")
+		hud.set_shown("flightRow", true)
+		sync_warp_label()
+	elif kind == "planetary":
+		SaveGame.restore_explore(self, st.explore)
+	hud.layout_left_column()
+	return ""
+
+## Quit to the title, asking first whether to save a game that can be saved.
+func request_quit_to_start() -> void:
+	_leave_asking(quit_to_start, "Quit to the title?")
+
+func request_quit_app() -> void:
+	_leave_asking(func(): get_tree().quit(), "Quit Astrarium?")
+
+func _leave_asking(leave: Callable, title: String) -> void:
+	# A second close while the prompt, or the save it led to, is open waits for the player.
+	if saves_open() and (saves_ui.view == "prompt" or _after_save.is_valid()): return
+	var kind := SaveGame.kind_now(self)
+	if kind == "" or SaveGame.why_not(self, kind) != "":
+		leave.call()
+		return
+	var label: String = SaveStore.KINDS[kind]
+	saves_ui.prompt(label, title, "Save this %s game before you leave? Whatever is not saved is lost." % label.to_lower(), [
+		["Save first…", "Primary", func():
+			_after_save = leave
+			open_save_browser(kind, "save")],
+		["Leave without saving", "Action", func():
+			saves_ui.close()
+			leave.call()],
+		["Cancel", "Ghost", saves_ui.close],
+	])
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST: request_quit_app()
+
+## Settings › Saves: what this game is, and whether it can be saved now.
+func _sync_saves_page() -> void:
+	var kind := SaveGame.kind_now(self)
+	var why := SaveGame.why_not(self, kind)
+	var text := why
+	if kind != "":
+		var what := ""
+		if kind == "spaceflight" and flight.active and flight.vessel != null: what = flight.vessel.vehicle.name
+		elif kind == "planetary" and showcase.body != null: what = showcase.body.name
+		elif state.preset is Dictionary: what = str(state.preset.get("name", ""))
+		text = "%s%s%s" % [SaveStore.KINDS[kind], (" · " + what) if what != "" else "", (". " + why) if why != "" else ""]
+	hud.set_prose("savesNow", text)
+	hud.get_el("savesSave").disabled = kind == "" or why != ""
 
 # IMAGING BAND
 func set_band(i: int) -> void:
@@ -2243,8 +2450,10 @@ func apply_sky_boost_all(beta: Vector3) -> void:
 func _bind_hud() -> void:
 	controls.persistence_failed.connect(func(message: String): toast(message, 6000))
 	hud.start_chosen.connect(_start)
-	hud.quit_to_start.connect(quit_to_start)
-	hud.quit_app.connect(func(): get_tree().quit())
+	hud.load_chosen.connect(func(kind: String): open_save_browser(kind, "load"))
+	hud.saves_action.connect(_on_saves_action)
+	hud.quit_to_start.connect(request_quit_to_start)
+	hud.quit_app.connect(request_quit_app)
 	hud.binding_chosen.connect(_choose_binding)
 	hud.app_icon_chosen.connect(set_app_icon)
 	hud.bindings_reset.connect(func():
@@ -2252,6 +2461,7 @@ func _bind_hud() -> void:
 		capture_action = ""
 		hud.update_binding_labels(controls.bindings))
 	hud.panel_changed.connect(func(id, open):
+		if id == "settingsPanel" and open: _sync_saves_page()
 		if id == "settingsPanel" and not open and capture_action != "":
 			capture_action = ""
 			capture_modifier = 0
@@ -2469,7 +2679,7 @@ func _sync_showcase_open() -> void:
 func _on_showcase_action(kind: String) -> void:
 	match kind:
 		"open": set_app_mode("showcase", {"body": ""})
-		"leave": set_app_mode(showcase.came_from if showcase.came_from in ["sandbox", "learn", "observatory"] else "sandbox")
+		"leave": set_app_mode(showcase.came_from if showcase.came_from in ["sandbox", "learn", "observatory", "explore"] else "sandbox")
 		"pin": showcase.drop_pin()
 		"stand": showcase.stand()
 		"back": showcase.leave_surface()
@@ -2572,8 +2782,8 @@ func _on_console_action(a: String) -> void:
 		"warp+": _on_warp_step(1)
 		"autowarp": if flight.mission != null: flight.mission.auto_warp = true
 		"abort": flight.abort_mission()
-		"hangar": open_hangar()
-		"exit": quit_to_start()
+		"hangar": _leave_asking(open_hangar, "Back to the hangar?")
+		"exit": request_quit_to_start()
 
 func open_map() -> void:
 	if not flight.active or flight.vessel == null: return

@@ -28,8 +28,27 @@ The app opens on a title screen over a reel of live scenes rendered by the game
 itself: the Hail Mary passing a lensed black hole, a Saturn V clearing its tower,
 and Jupiter seen past Io at true scale, both drawn from Cassini and Galileo
 maps ([sim/titlereel.gd](sim/titlereel.gd), [map sources](assets/planet-maps/README.md)).
-Choose **Sandbox**, **Spaceflight**, **Learn** or **Observatory** to load that mode,
-or **Settings**.
+Choose **Sandbox**, **Explore**, **Learn** or **Observatory**, or **Settings**.
+**Sandbox** offers **New game** or **Load game**. **Explore** holds the two ways to
+explore, **Spaceflight** and **Planetary exploration**, each with its own **New game**
+and **Load game**. Esc goes back a menu.
+
+**Planetary exploration** opens on a map of the Solar System seen from above the
+ecliptic, with the worlds that have ground listed down the left. Scroll to zoom,
+drag to pan and click to centre a body. Right-click a world and choose **Explore**.
+The world fills the frame and a pin drops on it. **Stand here** goes down to the pin;
+**Back to the map** returns to the map.
+
+**Saved games.** Sandbox, Spaceflight and Planetary exploration each have ten save
+slots of their own. **Settings › Saves › Save game…** saves the scene into a slot.
+It keeps every body where it is and how it moves, the clock, the camera, and the
+vehicle in flight or the world being explored with its pin. **Load game** on the
+title, or the per-kind buttons in Settings › Saves, list the saves by date or by
+name with a one-line description. You can rename or delete any of them. Overwriting,
+renaming, deleting and loading over a scene in play each ask first. A damaged or
+incompatible file is listed with the reason and can only be deleted. Quitting to the
+title, or quitting the app, while a game is in play asks whether to save it first.
+[The save format](docs/save-format.md) covers what is and is not kept.
 
 **Observatory** opens on a film of each facility from the air: the Lovell Telescope
 at Jodrell Bank, Keck on Mauna Kea and the VLT on Cerro Paranal, modelled from their
@@ -44,7 +63,7 @@ forecast and, outside that range, that the sky is a heavy approximation and why
 ([observatory.md](docs/physics/observatory.md)), and simulated telescopes that take frames
 of the sky at a real instrument's plate scale ([instruments.md](docs/physics/instruments.md)).
 
-**Spaceflight** opens on the hangar. The craft stands on the studio turntable,
+**Explore › Spaceflight › New game** opens on the hangar. The craft stands on the studio turntable,
 the line-up runs down the left, and a card gives the craft's numbers and the
 missions it can fly: free flight, Earth orbit, lunar orbit, a lunar landing,
 Mars or Venus orbit. Each is priced in Δv against what the craft carries, and a
@@ -159,7 +178,7 @@ and its `SIM` console handle:
 | option | effect |
 |---|---|
 | `preset=vega` | start in a scenario (the web build's `#vega`) |
-| `mode=sandbox\|learn\|flight\|observatory` | skip the start screen and load that mode |
+| `mode=sandbox\|learn\|flight\|observatory\|explore` | skip the start screen and load that mode (`explore` is Planetary exploration's world map) |
 | `mode=showcase`, `body=Earth`, `pin=3`, `stand=1` | a world in full focus, starting at that pin of its sequence (`seed=` moves the sequence), and optionally standing there |
 | `site=jodrell\|maunakea\|paranal`, `date=2026-12-21T00:00`, `look=180,30`, `rate=pause\|1x\|60x\|3600x`, `view=lines,names,bounds\|none`, `point=Jupiter`, `picker=1 orbit=0.3` | with `mode=observatory`: the site, the UTC date and time, the compass azimuth and altitude to face (degrees), the clock rate, the overlays shown, the body to follow at its true size, and opening on the picker at a point in its film |
 | `inst=fors2\|deimos\|omegacam\|lovell_l`, `target=Saturn`, `exposure=30`, `seeing=0.7`, `field=pixels\|wide\|full`, `nd=0\|5\|10`, `expose=1` | with `mode=observatory`: the instrument desk. `target` is a body, a bright star, a radio source or coordinates; `expose=1` takes a frame |
@@ -475,6 +494,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/evapodcheck.gd` | EVA pod arm sweep, hull clearance, lazy interior loading, window sightline and camera datums; run with and without `assets=0`; [design and references](docs/eva-pod.md) |
 | `tools/assetcheck.gd` | authored rig contracts and articulation, or procedural parts with `assets=0`; every dropped stage must leave by its separation physics (`stage_separations`, `booster_pieces`), and a residual thrust must carry its stage its closed-form travel (`residual_push`); `inject_invalid=1` must fail on a missing driven part |
 | `tools/savecheck.gd` | isolated JSON write/recovery failures, malformed controls/course/icon settings, binding conflicts and Reset rollback |
+| `tools/gamesavecheck.tscn` | saved games through the stage: the codec keeps ints, non-finite floats and every double's bits; ten slots per kind, sorting, rename, overwrite and delete; 23 damaged or incompatible files listed and refused; 30 invalid states refused with the stage untouched; a sandbox, a Falcon 9 mid-burn, a Saturn V on the pad and a Mars exploration (in orbit and on the surface) loaded back bit for bit, a sandbox played on identically and a flight within 0.5 m; the title menus, the save card's confirmations and the exit prompt |
 | `tools/sunlab.tscn` | the solar lab: the Sun (or `star=` any catalogue star) alone with hand-placed active regions and one flare at a chosen phase, for the photosphere, chromosphere, loops and eruptions (`x=0.45` the flare's progress, `at=limb\|top\|disc` where it sits, `top` showing its loops side-on, `close=1` the camera on the region, `band=5` X-ray, `teff=` another temperature, `qlon= qlat= qtilt=` a quiescent prominence, `puff=r,lat,lon` an ejected puff of an evolved star's envelope); `out=/abs/x.png frames=12` writes a picture, and `xto=0.8 puffto=4 orbit=0.6 spin=0.05 seq=/abs/f every=2` a clip's frames |
 | `tools/fxlab.tscn` | the effects lab: one vehicle held at an altitude and airspeed with the air streaming past, through the real flight renderer, for the plume, trail, condensation collars and re-entry plasma (`alpha=` holds the nose above the airflow, belly into it: `craft=shuttle stage=2 alt=70000 speed=7000 pitch=91 alpha=40 throttle=0`). Interactive with no arguments (sliders, `[ ]` vehicle, `1`–`4` stage); `crafts=a,b alts=10000,30000 out=/abs/dir` writes one picture per vehicle and altitude; `mode=fly` photographs a real ascent as it passes each altitude; `qualities=low,high` and `views=az:el[:dist],…` add a quality × camera matrix, each cell drawn at the same instant after an undrawn approach; `humidity=`, `speed=`, `pitch=`, `az=`/`el=`/`dist=`/`aim=` set the air and camera. Prints the shoulders it found for vapour |
 | `tools/scenariocheck.tscn` | headless: jumps to every flight scenario and requires its declared altitude, speed, program, state and stages at the hand-over and a second of flight after it (`only=shuttle:taem,lm`); `replay=1` also flies each one as played at 60 fps from its base and requires agreement within the documented tolerance ([flight scenarios](docs/flight-scenarios.md)); `inject_bad=1` must fail |

@@ -150,6 +150,16 @@ puts its own offsets on inner nodes. Visual updates must not change physical
 mass, position or velocity. `ctx` is a `VisualCtx`
 ([docs/godot.md](docs/godot.md#the-body-visual-contract)).
 
+## Saved games
+
+`sim/save_game.gd` decides what a save holds and puts it back. `sim/save_store.gd` holds
+ten slots per kind (sandbox, spaceflight, planetary), and `sim/save_codec.gd` keeps
+ints, non-finite floats and every double's bits through JSON. A save is validated whole
+before the stage changes, and capture refuses a scene that would not load back. New
+integrated state on a body, a climate or a vessel must be saved too, or a loaded game
+diverges from the original: `gamesavecheck` plays a loaded sandbox on bit for bit.
+Format and what is not kept: [docs/save-format.md](docs/save-format.md).
+
 ## Scenario files
 
 Every orrery scenario that needs no code is a file in `scenarios/` (format:
@@ -264,6 +274,8 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - re-entry plasma colour or `Ionisation`: `tools/plasmacheck.gd`
 - lessons, presets or the stage: `tools/coursecheck.tscn`
 - spawn/edit/preset input domain: `tools/structureinputcheck.tscn`
+- saved games, their slots, the save card, the title menus or Planetary exploration's
+  world map: `tools/gamesavecheck.tscn` (`-- settings=default`)
 - scenario files, their reader, uploads or the Custom group: `tools/scenariofilecheck.tscn`
   (`snapshot=1` after an intended change to a built-in's starting state)
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`

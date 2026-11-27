@@ -3,8 +3,8 @@ extends RefCounted
 
 # A mode that puts one world in full focus: the planet large and slowly turning under its own
 # light, with a pin dropped on it from the seed. It owns no physics and no scenario; it borrows
-# the stage's camera and clock, and hands them back as it found them. It is the way onto the surface
-# until there is an exploration mode.
+# the stage's camera and clock, and hands them back as it found them. It is the way onto the surface,
+# from the sandbox or from Planetary exploration's world picker (ui/explore_map.gd).
 
 # The planet's half-width against the frame: 3.4 radii away is about 17° at a 50° field of view.
 const FRAME_RADII := 3.4
@@ -140,7 +140,7 @@ func local_pass() -> bool:
 func update(dt: float, sim_years: float = 0.0) -> void:
 	if not active: return
 	if body == null or not body.alive or body.climate == null:
-		stage.set_app_mode("sandbox")
+		stage.set_app_mode("explore" if came_from == "explore" else "sandbox")
 		return
 	if visit != null:
 		# The camera left the ground some other way: the view key, or a stage verb.
