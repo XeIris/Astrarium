@@ -11,6 +11,8 @@ var catcher := Catch.new()
 var main: Node
 var checks := 0
 var failures := 0
+var glides := 0
+var cuts := 0
 
 func check(label: String, ok: bool, detail := "") -> void:
 	checks += 1
@@ -24,6 +26,7 @@ func _ready() -> void:
 	add_child(main)
 	main.set_process(false)
 	for i in 3: await get_tree().process_frame
+	get_viewport().notify_mouse_entered()
 	await picker()
 	await flight_map()
 	for i in 3: await get_tree().process_frame
@@ -33,7 +36,6 @@ func _ready() -> void:
 
 ## A press and release at `at`, as the pointer would; returns the control it landed on.
 func click(at: Vector2) -> Control:
-	get_viewport().notify_mouse_entered()
 	var e := InputEventMouseMotion.new()
 	e.position = at; e.global_position = at
 	get_viewport().push_input(e, true)
@@ -54,6 +56,25 @@ func held(map: Control, b: Body, frames := 120) -> float:
 		if i >= frames / 2: worst = maxf(worst, map.to_screen(b.pos).distance_to(map.size * 0.5))
 	return worst
 
+## Click `at` to follow `b`, then hold it. The first step shows the glide's direction: from
+## within a screen `b` starts toward the middle from where it was, from beyond it is there at once.
+func follows(map: Control, b: Body, at: Vector2, target: Control, label: String) -> void:
+	var was: Body = map.follow
+	var c := map.size * 0.5
+	var before: Vector2 = map.to_screen(b.pos)
+	var under := click(at)
+	map._process(DT)
+	var after: Vector2 = map.to_screen(b.pos)
+	var cut := before.distance_to(c) > map.size.length()
+	var first := after.distance_to(c) < 1.0 if cut \
+		else (after - c).dot(before - c) > 0.0 and after.distance_to(c) < before.distance_to(c)
+	if cut: cuts += 1
+	else: glides += 1
+	var worst := held(map, b)
+	check(label, was != b and under == target and map.follow == b and first and worst < 1.0,
+		"%s px off, first step %s → %s (%s), following %s, %s under the pointer" % [worst, before, after,
+			"cut" if cut else "glide", map.follow.name if map.follow != null else "nothing", under])
+
 func picker() -> void:
 	main._start("explore")
 	var m: ExploreMap = main.explore_map
@@ -64,24 +85,17 @@ func picker() -> void:
 	var period := sqrt(pow(moon.pos.distance_to(c.pos), 3.0) / (moon.mass + c.mass))
 	check("the picker turns the quickest orbit in a minute, not the scenario's time-lapse",
 		absf(period / main.state.time_scale - ExploreMap.ORBIT_ON_SCREEN_S) < 1.0, "%s yr/s" % main.state.time_scale)
+	# Earth and then the Moon are in view when chosen and glide in; Mars and Pluto are cut to.
 	for name in ["Earth", "Moon", "Mars", "Pluto"]:
 		var btn: BaseButton = null
 		for item in m.list.body.get_children():
 			if item is BaseButton and item.text == name: btn = item
-		var under := click(btn.get_global_rect().get_center())
-		await get_tree().process_frame
-		var b: Body = main.state.body_named(name)
-		var worst := held(m, b)
-		check("%s's button holds it in the middle of the picker" % name, under == btn and m.follow == b and worst < 1.0,
-			"%s px off, following %s, %s under the pointer" % [worst, m.follow.name if m.follow != null else "nothing", under])
-	# Back to the whole system, then a click on a world in view glides it in.
+		follows(m, main.state.body_named(name), btn.get_global_rect().get_center(), btn,
+			"%s's button brings it to the middle of the picker and holds it there" % name)
 	main.set_app_mode("explore")
 	await get_tree().process_frame
 	var mars: Body = main.state.body_named("Mars")
-	click(m.to_screen(mars.pos))
-	await get_tree().process_frame
-	var worst := held(m, mars)
-	check("a click on Mars in the picker holds it in the middle", m.follow == mars and worst < 1.0, "%s px off" % worst)
+	follows(m, mars, m.to_screen(mars.pos), m, "a click on Mars in the picker brings it to the middle and holds it there")
 	main.quit_to_start()
 
 func flight_map() -> void:
@@ -96,13 +110,13 @@ func flight_map() -> void:
 	var map: SpaceMap = main.space_map
 	main.flight.set_warp(Spaceflight.WARPS.find(1000))
 	check("the flight is at 1000× warp", main.flight.warp() == 1000, "%s×" % main.flight.warp())
-	# Earth first: once the view is down on the Moon, Earth is off the screen.
+	# The map opens following the ship's primary, Earth: follow the ship first, so that the
+	# click on Earth is what follows it. Earth first: once down on the Moon, Earth is off screen.
+	map._on_menu(SpaceMap.MENU_SHIP)
+	map._process(DT)
 	for name in ["Earth", "Moon"]:
 		var b: Body = main.state.body_named(name)
-		click(map.to_screen(b.pos))
-		await get_tree().process_frame
-		var worst := held(map, b)
-		check("a click on the %s holds it in the middle of the flight map at 1000×" % name, map.follow == b and worst < 1.0,
-			"%s px off, following %s" % [worst, map.follow.name if map.follow != null else "nothing"])
+		follows(map, b, map.to_screen(b.pos), map, "a click on the %s brings it to the middle of the flight map at 1000× and holds it there" % name)
+	check("both a glide and a cut were checked", glides > 0 and cuts > 0, "%d glides, %d cuts" % [glides, cuts])
 	main.close_map()
 	main.end_flight()

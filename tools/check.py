@@ -185,8 +185,9 @@ CHANGED_RULES = (
     # How large a point source is drawn: the rule, its three users, and the bloom that spreads them.
     (("shaders/common/point_source.gdshaderinc", "shaders/sky/*", "shaders/bodies/marker_point.gdshader", "shaders/post/*",
       "sim/marker.gd", "sim/brightstars.gd", "sim/sky.gd", "render/postfx.gd"), ("glowcheck",)),
-    (("ui/explore_map.gd", "ui/space_map.gd", "tools/mapcheck.*"), ("mapcheck",)),
-    (("ui/*",), ("hud*", "editorcheck", "compositioncheck", "structureinputcheck", "transitioncheck", "coursecheck", "_soak_check-*")),
+    # The maps (ui/*, with the buttons it clicks), the Solar System it opens on, the flight it warps.
+    (("sim/presets.gd", "sim/showcase.gd", "sim/flight/spaceflight.gd", "sim/flight/scenarios.gd", "tools/mapcheck.*"), ("mapcheck",)),
+    (("ui/*",), ("hud*", "editorcheck", "compositioncheck", "structureinputcheck", "transitioncheck", "coursecheck", "_soak_check-*", "mapcheck")),
     # The galactic scene: its physics headless, how it looks windowed, and the soak.
     (("sim/galaxy/*", "shaders/galaxy/*", "ui/widgets/rotation_chart.gd", "assets/sky/neighbourhood.bin",
       "tools/build_neighbourhood.py", "assets/galaxy/*", "tools/build_local_dust.py", "tools/build_local_dust_grid.py"),
