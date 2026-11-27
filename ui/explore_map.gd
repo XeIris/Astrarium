@@ -16,12 +16,16 @@ const ZOOM_MIN := 1e-3          # px per AU
 const ZOOM_MAX := 1e9
 const MENU_EXPLORE := 1
 const MENU_FOCUS := 2
+const EASE_RATE := 10.0         # 1/s, for the zoom and the glide onto a body
+## The quickest orbit among the worlds with ground takes this long on screen (calm_rate).
+const ORBIT_ON_SCREEN_S := 60.0
 
 var state: SimState
 var center := DVec3.new()       # AU
 var k := 300.0                  # px per AU
 var _k_goal := 300.0
 var follow: Body = null
+var _glide := Vector2.ZERO      # px from the followed body to the centre, easing to none
 var hover: Body = null
 var _press := Vector2.ZERO
 var _dragging := false
@@ -64,6 +68,7 @@ func open(s: SimState, scene_name: String) -> void:
 	visible = true
 	grab_focus()
 	follow = null
+	_glide = Vector2.ZERO
 	hover = null
 	_refresh_primaries()
 	_frame_system()
@@ -113,6 +118,19 @@ func _refresh_primaries() -> void:
 func primary_of(b: Body) -> Body:
 	return _primary.get(b.id)
 
+## Years per second at which the quickest orbit among the worlds with ground takes
+## ORBIT_ON_SCREEN_S, so the map turns slowly whatever the scenario's own clock.
+## 0 when no such world orbits anything.
+func calm_rate() -> float:
+	var quickest := INF
+	for w: Body in worlds():
+		var c := primary_of(w)
+		if c == null: continue
+		var r := w.pos.distance_to(c.pos)
+		# Kepler's third law at the present distance, G = 4π²: P = √(r³ / (M + m)) years.
+		quickest = minf(quickest, sqrt(r * r * r / (c.mass + w.mass)))
+	return quickest / ORBIT_ON_SCREEN_S if quickest < INF else 0.0
+
 func _dot_radius(b: Body) -> float:
 	var base := 6.0 if b.type == "star" else (4.0 if primary_of(b) == null or primary_of(b).type == "star" else 2.6)
 	return maxf(b.radius * k, base)
@@ -138,6 +156,9 @@ func _frame_system() -> void:
 
 ## Centre on a body and zoom to its system: its moons' orbits, or a few radii.
 func frame_on(b: Body) -> void:
+	_glide = size * 0.5 - to_screen(b.pos)
+	# Beyond a screen away a glide is empty space streaming past: cut to it.
+	if _glide.length() > size.length(): _glide = Vector2.ZERO
 	follow = b
 	var reach := b.radius * 12.0
 	for c: Body in state.bodies:
@@ -150,9 +171,14 @@ func _process(dt: float) -> void:
 	if not visible or state == null: return
 	_primary_age += dt
 	if _primary_age > 0.5: _refresh_primaries()
-	k = exp(lerpf(log(k), log(_k_goal), 1.0 - exp(-dt * 10.0)))
-	if follow != null and follow.alive:
-		center = center.lerp_in(follow.pos, 1.0 - exp(-dt * 10.0)) if center.distance_to(follow.pos) * k > 1.0 else follow.pos.clone()
+	k = exp(lerpf(log(k), log(_k_goal), 1.0 - exp(-dt * EASE_RATE)))
+	if follow != null and not follow.alive: follow = null
+	if follow != null:
+		# Exact tracking plus an offset that eases out on screen: a lag toward a body
+		# never catches one that moves, and a world-space offset swings out as k grows.
+		_glide *= exp(-dt * EASE_RATE)
+		if _glide.length_squared() < 0.25: _glide = Vector2.ZERO
+		center.set_v(follow.pos.x + _glide.x / k, follow.pos.y, follow.pos.z - _glide.y / k)
 	_sync_list()
 	queue_redraw()
 

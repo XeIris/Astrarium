@@ -276,6 +276,8 @@ frozen numeric reference must be explained, never hidden by wider tolerances.
 - spawn/edit/preset input domain: `tools/structureinputcheck.tscn`
 - saved games, their slots, the save card, the title menus or Planetary exploration's
   world map: `tools/gamesavecheck.tscn` (`-- settings=default`)
+- how the flat maps follow a body, or the picker's clock (`ExploreMap`, `SpaceMap`):
+  `tools/mapcheck.tscn`
 - scenario files, their reader, uploads or the Custom group: `tools/scenariofilecheck.tscn`
   (`snapshot=1` after an intended change to a built-in's starting state)
 - inspector, mass graph or delayed live edits: `tools/editorcheck.tscn`

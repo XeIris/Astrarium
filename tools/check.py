@@ -185,7 +185,9 @@ CHANGED_RULES = (
     # How large a point source is drawn: the rule, its three users, and the bloom that spreads them.
     (("shaders/common/point_source.gdshaderinc", "shaders/sky/*", "shaders/bodies/marker_point.gdshader", "shaders/post/*",
       "sim/marker.gd", "sim/brightstars.gd", "sim/sky.gd", "render/postfx.gd"), ("glowcheck",)),
-    (("ui/*",), ("hud*", "editorcheck", "compositioncheck", "structureinputcheck", "transitioncheck", "coursecheck", "_soak_check-*")),
+    # The maps (ui/*, with the buttons it clicks), the Solar System it opens on, the flight it warps.
+    (("sim/presets.gd", "sim/showcase.gd", "sim/flight/spaceflight.gd", "sim/flight/scenarios.gd", "tools/mapcheck.*"), ("mapcheck",)),
+    (("ui/*",), ("hud*", "editorcheck", "compositioncheck", "structureinputcheck", "transitioncheck", "coursecheck", "_soak_check-*", "mapcheck")),
     # The galactic scene: its physics headless, how it looks windowed, and the soak.
     (("sim/galaxy/*", "shaders/galaxy/*", "ui/widgets/rotation_chart.gd", "assets/sky/neighbourhood.bin",
       "tools/build_neighbourhood.py", "assets/galaxy/*", "tools/build_local_dust.py", "tools/build_local_dust_grid.py"),
@@ -483,6 +485,8 @@ def checks(suite, godot, output, repeat, export_preset):
         # Saved games through the stage: slots, damaged files, and a sandbox, a flight and
         # an exploration each loaded back bit for bit and played on.
         yield headless_scene("gamesavecheck", r"^GAMESAVECHECK DONE checks=[1-9]\d* failures=0$", "settings=default")
+        # The flat maps through real clicks: the picker's clock, and a followed body held in the middle.
+        yield headless_scene("mapcheck", r"^MAPCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("editorcheck", r"^EDITORCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("compositioncheck", r"^COMPOSITIONCHECK DONE checks=[1-9]\d* failures=0$")
         yield headless_scene("lookcheck", r"^LOOKCHECK DONE checks=[1-9]\d* failures=0$")

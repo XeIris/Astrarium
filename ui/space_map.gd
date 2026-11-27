@@ -24,12 +24,14 @@ const COLORS := {
 }
 const ZOOM_MIN := 1e-2          # px per AU
 const ZOOM_MAX := 1e9
+const EASE_RATE := 10.0         # 1/s, for the zoom and the glide onto a body
 
 var flight                      # Spaceflight
 var center := DVec3.new()       # AU, world frame
 var k := 300.0                  # px per AU
 var _k_goal := 300.0
 var follow: Body = null
+var _glide := Vector2.ZERO      # px from the followed body to the centre, easing to none
 var follow_ship := true
 var dest: Body = null
 var goal := "orbit"
@@ -150,10 +152,17 @@ func _color(b: Body) -> Color:
 	if COLORS.has(b.name): return COLORS[b.name]
 	return Color(1.0, 0.9, 0.72) if b.type == "star" else Color(0.78, 0.8, 0.84)
 
-## Centre on a body and zoom to its system: its moons' orbits, or a few radii.
-func _frame_on(b: Body, instant := false) -> void:
+## Follow `b` from where the view is now: it glides to the centre.
+func _follow_from_here(b: Body) -> void:
+	_glide = size * 0.5 - to_screen(b.pos)
+	# Beyond a screen away a glide is empty space streaming past: cut to it.
+	if _glide.length() > size.length(): _glide = Vector2.ZERO
 	follow = b
 	follow_ship = false
+
+## Centre on a body and zoom to its system: its moons' orbits, or a few radii.
+func _frame_on(b: Body, instant := false) -> void:
+	_follow_from_here(b)
 	var reach := b.radius * 12.0
 	for c in flight.bodies():
 		if c != b and _primary(c) == b:
@@ -161,17 +170,24 @@ func _frame_on(b: Body, instant := false) -> void:
 	if flight.vessel != null and flight.vessel.parent == b:
 		reach = maxf(reach, flight.vessel.r.length() / Rocketry.AU_M * 2.4)
 	_k_goal = clampf(minf(size.x, size.y) * 0.42 / maxf(reach, 1e-12), ZOOM_MIN, ZOOM_MAX)
-	if instant: k = _k_goal
-	center.copy_from(b.pos)
+	if instant:
+		k = _k_goal
+		_glide = Vector2.ZERO
+		center.copy_from(b.pos)
 
 # FRAME
 
 func _process(dt: float) -> void:
 	var transfer_ready := _transfer_search.poll()
 	if not visible or flight == null or flight.vessel == null: return
-	k = exp(lerpf(log(k), log(_k_goal), 1.0 - exp(-dt * 10.0)))
-	if follow != null and follow.alive:
-		center = center.lerp_in(follow.pos, 1.0 - exp(-dt * 10.0)) if center.distance_to(follow.pos) * k > 1.0 else follow.pos.clone()
+	k = exp(lerpf(log(k), log(_k_goal), 1.0 - exp(-dt * EASE_RATE)))
+	if follow != null and not follow.alive: follow = null
+	if follow != null:
+		# Exact tracking plus an offset that eases out on screen: a lag toward a body
+		# never catches one under warp, and a world-space offset swings out as k grows.
+		_glide *= exp(-dt * EASE_RATE)
+		if _glide.length_squared() < 0.25: _glide = Vector2.ZERO
+		center.set_v(follow.pos.x + _glide.x / k, follow.pos.y, follow.pos.z - _glide.y / k)
 	elif follow_ship:
 		center.copy_from(ship_pos())
 	_plan_age += dt
@@ -397,8 +413,7 @@ func frame_route() -> void:
 	match str(plan.get("case", "")):
 		"planet", "other":
 			var C: Body = plan.get("primary", v.parent)
-			follow = C
-			follow_ship = false
+			_follow_from_here(C)
 			var reach := maxf(C.pos.distance_to(dest.pos), C.pos.distance_to(v.parent.pos)) * 1.3
 			_k_goal = clampf(minf(size.x, size.y) * 0.45 / reach, ZOOM_MIN, ZOOM_MAX)
 		"moon", "parent":
