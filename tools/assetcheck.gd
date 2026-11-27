@@ -417,6 +417,8 @@ func run() -> void:
 			pivot.remove_meta("gimbal_deg")
 			expect(not part_errors(craft, vehicle).is_empty(), "missing swing metadata accepted")
 		craft.group.free()
+	var models := CraftAssets.CRAFT_ASSETS.size() if authored else 0
+	expect(used == models, "%d of %d authored models built" % [used, models])
 	material_probes()
 	if authored: scene_probes()
 	CraftAssets.clear()
