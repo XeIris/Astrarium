@@ -1987,6 +1987,9 @@ func open_explore_map() -> void:
 	hud.set_model_open(true)
 	set_cam_mode("orbit")
 	explore_map.open(state, str(state.preset.name) if state.preset is Dictionary else "")
+	# The scenario's clock is a time-lapse (the Solar System's is 6 yr/s); the map keeps its own.
+	var rate := explore_map.calm_rate()
+	if rate > 0.0: set_time_scale(rate)
 	pipe.set_map_open(true)
 
 func close_explore_map() -> void:

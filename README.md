@@ -34,10 +34,11 @@ explore, **Spaceflight** and **Planetary exploration**, each with its own **New 
 and **Load game**. Esc goes back a menu.
 
 **Planetary exploration** opens on a map of the Solar System seen from above the
-ecliptic, with the worlds that have ground listed down the left. Scroll to zoom,
-drag to pan and click to centre a body. Right-click a world and choose **Explore**.
-The world fills the frame and a pin drops on it. **Stand here** goes down to the pin;
-**Back to the map** returns to the map.
+ecliptic, with the worlds that have ground listed down the left. The map keeps its
+own slow clock: the quickest of those orbits (the Moon's) takes about a minute.
+Scroll to zoom, drag to pan and click to centre a body. Right-click a world and
+choose **Explore**. The world fills the frame and a pin drops on it. **Stand here**
+goes down to the pin; **Back to the map** returns to the map.
 
 **Saved games.** Sandbox, Spaceflight and Planetary exploration each have ten save
 slots of their own. **Settings › Saves › Save game…** saves the scene into a slot.
@@ -495,6 +496,7 @@ fail explicitly. Multiple requested methods run in order.
 | `tools/assetcheck.gd` | authored rig contracts and articulation, or procedural parts with `assets=0`; every dropped stage must leave by its separation physics (`stage_separations`, `booster_pieces`), and a residual thrust must carry its stage its closed-form travel (`residual_push`); `inject_invalid=1` must fail on a missing driven part |
 | `tools/savecheck.gd` | isolated JSON write/recovery failures, malformed controls/course/icon settings, binding conflicts and Reset rollback |
 | `tools/gamesavecheck.tscn` | saved games through the stage: the codec keeps ints, non-finite floats and every double's bits; ten slots per kind, sorting, rename, overwrite and delete; 23 damaged or incompatible files listed and refused; 30 invalid states refused with the stage untouched; a sandbox, a Falcon 9 mid-burn, a Saturn V on the pad and a Mars exploration (in orbit and on the surface) loaded back bit for bit, a sandbox played on identically and a flight within 0.5 m; the title menus, the save card's confirmations and the exit prompt |
+| `tools/mapcheck.tscn` | headless: the two flat maps through real clicks: Planetary exploration's picker turns its quickest orbit in a minute, and holds a world chosen from its list or clicked within a pixel of the middle; the flight map holds a clicked body there at 1000× warp |
 | `tools/sunlab.tscn` | the solar lab: the Sun (or `star=` any catalogue star) alone with hand-placed active regions and one flare at a chosen phase, for the photosphere, chromosphere, loops and eruptions (`x=0.45` the flare's progress, `at=limb\|top\|disc` where it sits, `top` showing its loops side-on, `close=1` the camera on the region, `band=5` X-ray, `teff=` another temperature, `qlon= qlat= qtilt=` a quiescent prominence, `puff=r,lat,lon` an ejected puff of an evolved star's envelope); `out=/abs/x.png frames=12` writes a picture, and `xto=0.8 puffto=4 orbit=0.6 spin=0.05 seq=/abs/f every=2` a clip's frames |
 | `tools/fxlab.tscn` | the effects lab: one vehicle held at an altitude and airspeed with the air streaming past, through the real flight renderer, for the plume, trail, condensation collars and re-entry plasma (`alpha=` holds the nose above the airflow, belly into it: `craft=shuttle stage=2 alt=70000 speed=7000 pitch=91 alpha=40 throttle=0`). Interactive with no arguments (sliders, `[ ]` vehicle, `1`–`4` stage); `crafts=a,b alts=10000,30000 out=/abs/dir` writes one picture per vehicle and altitude; `mode=fly` photographs a real ascent as it passes each altitude; `qualities=low,high` and `views=az:el[:dist],…` add a quality × camera matrix, each cell drawn at the same instant after an undrawn approach; `humidity=`, `speed=`, `pitch=`, `az=`/`el=`/`dist=`/`aim=` set the air and camera. Prints the shoulders it found for vapour |
 | `tools/scenariocheck.tscn` | headless: jumps to every flight scenario and requires its declared altitude, speed, program, state and stages at the hand-over and a second of flight after it (`only=shuttle:taem,lm`); `replay=1` also flies each one as played at 60 fps from its base and requires agreement within the documented tolerance ([flight scenarios](docs/flight-scenarios.md)); `inject_bad=1` must fail |
